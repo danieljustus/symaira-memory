@@ -146,6 +146,29 @@ func (db *DB) DeleteMemory(id string) error {
 	return err
 }
 
+// GetMemory retrieves a single memory by its ID using a direct index lookup.
+func (db *DB) GetMemory(id string) (*Memory, error) {
+	var m Memory
+	var metaStr, embStr string
+	err := db.conn.QueryRow(
+		"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE id = ?",
+		id,
+	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // ListMemories returns all memories, optionally filtered by scope.
 func (db *DB) ListMemories(scope string) ([]*Memory, error) {
 	var query string

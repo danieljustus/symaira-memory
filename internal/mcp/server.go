@@ -205,26 +205,18 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		mems, err := s.db.ListMemories("")
+		m, err := s.db.GetMemory(args.ID)
 		if err != nil {
 			s.sendToolResponse(reqID, fmt.Sprintf("Error fetching memory: %v", err), true)
 			return
 		}
 
-		var target *db.Memory
-		for _, m := range mems {
-			if m.ID == args.ID {
-				target = m
-				break
-			}
-		}
-
-		if target == nil {
+		if m == nil {
 			s.sendToolResponse(reqID, "Memory not found", false)
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(target, "", "  ")
+		bytes, _ := json.MarshalIndent(m, "", "  ")
 		s.sendToolResponse(reqID, string(bytes), false)
 
 	case "memory_set":

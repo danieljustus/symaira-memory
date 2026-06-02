@@ -18,26 +18,18 @@ var getCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		id := args[0]
-		mems, err := RootDB.ListMemories("")
+		m, err := RootDB.GetMemory(id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Database read error: %v\n", err)
 			os.Exit(1)
 		}
 
-		var target interface{}
-		for _, m := range mems {
-			if m.ID == id {
-				target = m
-				break
-			}
-		}
-
-		if target == nil {
+		if m == nil {
 			fmt.Fprintf(os.Stderr, "Memory not found with ID: %s\n", id)
 			os.Exit(1)
 		}
 
-		bytes, _ := json.MarshalIndent(target, "", "  ")
+		bytes, _ := json.MarshalIndent(m, "", "  ")
 		fmt.Println(string(bytes))
 	},
 }
