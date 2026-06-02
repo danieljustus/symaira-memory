@@ -1,0 +1,59 @@
+# Worktrees
+.worktrees/
+
+# Binaries
+symmemory
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of coverage
+*.out
+*_output.txt
+
+# Dependency directories
+vendor/
+node_modules/
+
+# Go/Node/Python environments
+go.work
+go.work.sum
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
+
+# Build/Dist artifacts
+dist/
+build/
+coverage/
+*.html
+
+# Agent/developer workspace files (local-only, not for release)
+AGENTS.md
+CLAUDE.md
+.opencode/
+.claude/
+.github/review/
