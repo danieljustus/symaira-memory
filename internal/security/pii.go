@@ -86,13 +86,3 @@ func luhn(s string) bool {
 	}
 	return sum%10 == 0
 }
-
-func stringsContains(s, sub string) bool {
-	// Custom simple string check
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
