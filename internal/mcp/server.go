@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -88,22 +89,27 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider) *Server {
 }
 
 // Serve reads JSON-RPC 2.0 lines from stdin, processes them, and writes responses to stdout.
-func (s *Server) Serve() {
-	// Re-route normal standard logger output to stderr to prevent stdio protocol pollution!
+func (s *Server) Serve(ctx context.Context) error {
 	log.SetOutput(os.Stderr)
 	log.Println("Symaira Memory MCP Server starting...")
 
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
+		select {
+		case <-ctx.Done():
+			log.Println("MCP Server shutting down gracefully.")
+			return nil
+		default:
+		}
+
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
 				log.Println("MCP Client disconnected.")
-				break
+				return nil
 			}
-			log.Printf("Read error: %v\n", err)
-			continue
+			return fmt.Errorf("read error: %w", err)
 		}
 
 		var req JSONRPCRequest

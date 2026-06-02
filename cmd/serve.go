@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/mcp"
@@ -31,9 +34,32 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 		}
 		server := mcp.NewServer(RootDB, jwtProvider)
 		if servePort > 0 {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			go func() {
+				<-ctx.Done()
+				os.Exit(0)
+			}()
 			_ = server.StartHTTPServer(servePort)
 		} else {
-			server.Serve()
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- server.Serve(ctx)
+			}()
+
+			select {
+			case err := <-errCh:
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
+					os.Exit(1)
+				}
+				os.Exit(0)
+			case <-ctx.Done():
+				os.Exit(0)
+			}
 		}
 	},
 }
