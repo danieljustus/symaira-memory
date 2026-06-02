@@ -91,6 +91,13 @@ func (db *DB) initSchema() error {
 			summary TEXT NOT NULL,
 			updated_at DATETIME NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS rules (
+			id TEXT PRIMARY KEY,
+			content TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			metadata TEXT NOT NULL,
+			created_at DATETIME NOT NULL
+		);`,
 		`CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);`,
 	}
 
@@ -267,4 +274,78 @@ func (db *DB) GetSessionSummary(id string) (string, error) {
 		return "", nil
 	}
 	return summary, err
+}
+
+// Rule represents a stored procedural behavioral instruction.
+type Rule struct {
+	ID        string            `json:"id"`
+	Content   string            `json:"content"`
+	Scope     string            `json:"scope"`
+	Metadata  map[string]string `json:"metadata"`
+	CreatedAt time.Time         `json:"created_at"`
+}
+
+// SaveRule inserts or updates a procedural memory rule.
+func (db *DB) SaveRule(r *Rule) error {
+	metadataJSON, err := json.Marshal(r.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	query := `INSERT INTO rules (id, content, scope, metadata, created_at)
+		VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			content=excluded.content,
+			scope=excluded.scope,
+			metadata=excluded.metadata`
+
+	if r.CreatedAt.IsZero() {
+		r.CreatedAt = time.Now()
+	}
+
+	_, err = db.conn.Exec(query, r.ID, r.Content, r.Scope, string(metadataJSON), r.CreatedAt)
+	return err
+}
+
+// DeleteRule removes a procedural rule by ID.
+func (db *DB) DeleteRule(id string) error {
+	_, err := db.conn.Exec("DELETE FROM rules WHERE id = ?", id)
+	return err
+}
+
+// ListRules retrieves stored rules, optionally filtered by scope.
+func (db *DB) ListRules(scope string) ([]*Rule, error) {
+	var query string
+	var rows *sql.Rows
+	var err error
+
+	if scope != "" {
+		query = "SELECT id, content, scope, metadata, created_at FROM rules WHERE scope = ? ORDER BY created_at DESC"
+		rows, err = db.conn.Query(query, scope)
+	} else {
+		query = "SELECT id, content, scope, metadata, created_at FROM rules ORDER BY created_at DESC"
+		rows, err = db.conn.Query(query)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rules []*Rule
+	for rows.Next() {
+		var r Rule
+		var metaStr string
+		if err := rows.Scan(&r.ID, &r.Content, &r.Scope, &metaStr, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+
+		if err := json.Unmarshal([]byte(metaStr), &r.Metadata); err != nil {
+			return nil, err
+		}
+
+		rules = append(rules, &r)
+	}
+
+	return rules, nil
 }

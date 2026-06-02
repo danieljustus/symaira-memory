@@ -1,0 +1,187 @@
+openapi: 3.0.3
+info:
+  title: Symaira Memory REST API
+  description: |
+    Local REST HTTP API daemon powering Symaira Memory (symmemory).
+    Allows browser extensions, mobile clients, and third-party scripts to read, 
+    write, and query persistent semantic memory elements offline.
+  version: 0.1.0
+servers:
+  - url: http://127.0.0.1:8787
+    description: Local daemon server
+paths:
+  /api/status:
+    get:
+      summary: Get server health and status
+      description: Returns the status, version, and server identity.
+      responses:
+        '200':
+          description: Server is active and healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  version:
+                    type: string
+                    example: 0.1.0
+                  server:
+                    type: string
+                    example: symaira-memory
+
+  /api/search:
+    post:
+      summary: Semantic vector similarity search
+      description: Queries stored memories using cosine similarity over local text embeddings.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - query
+              properties:
+                query:
+                  type: string
+                  description: The search term or fact context to match semantically.
+                  example: User active project
+                scope:
+                  type: string
+                  description: Optional scope level filter (global, project, agent, user, session).
+                  example: project
+                limit:
+                  type: integer
+                  description: Maximum number of search results to return (default 5).
+                  example: 3
+      responses:
+        '200':
+          description: Search completed successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Memory'
+        '401':
+          description: Unauthorized - missing or invalid JWT token
+
+  /api/set:
+    post:
+      summary: Save a new persistent memory
+      description: Stores a new fact in the local SQLite database. Automatically triggers local embedding generation, PII masking, and active project scope parsing.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - content
+              properties:
+                content:
+                  type: string
+                  description: The fact content to remember.
+                  example: User prefers typescript over python
+                scope:
+                  type: string
+                  description: Scope level (global, project, agent, user, session).
+                  example: global
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Key-value metadata mapping.
+                  example:
+                    source: extension
+      responses:
+        '200':
+          description: Memory successfully saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  id:
+                    type: string
+                    example: e114ff39-fd89-4efc-8955-2ce5bc67c896
+        '401':
+          description: Unauthorized
+
+  /api/list:
+    get:
+      summary: List stored memories
+      description: Returns a complete list of stored facts, optionally filtered by scope.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional scope filter.
+          example: project
+      responses:
+        '200':
+          description: List fetched successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Memory'
+        '401':
+          description: Unauthorized
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Memory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: e114ff39-fd89-4efc-8955-2ce5bc67c896
+        content:
+          type: string
+          example: User prefers typescript over python
+        scope:
+          type: string
+          example: global
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            source: extension
+            similarity_score: "0.8924"
+        embedding:
+          type: array
+          items:
+            type: number
+            format: float
+          description: Normalized 768-dimensional local text embedding.
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-06-02T16:20:23Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2026-06-02T16:20:23Z"
