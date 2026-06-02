@@ -59,7 +59,6 @@ func TestLLMEnhancerDefaults(t *testing.T) {
 func TestLLMConsolidateMemoriesDeduplicationLogic(t *testing.T) {
 	enhancer := NewLLMEnhancer()
 
-	// Test with duplicate content - should still return both without LLM
 	memories := []*db.Memory{
 		{
 			ID:      "mem-1",
@@ -68,21 +67,19 @@ func TestLLMConsolidateMemoriesDeduplicationLogic(t *testing.T) {
 		},
 		{
 			ID:      "mem-2",
-			Content: "User prefers Go",
+			Content: "User prefers TypeScript",
 			Scope:   "project",
 		},
 	}
 
-	// Without an LLM daemon, this falls through to the single-entry path
 	facts, err := enhancer.ConsolidateMemories(memories)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("graceful fallback should return original content without error: %v", err)
 	}
 
-	// With 2 memories, it tries the LLM path first, which will fail
-	// and fall back. The exact behavior depends on network availability.
-	// We just verify it doesn't crash.
-	_ = facts
+	if len(facts) == 0 {
+		t.Error("expected non-empty facts list from graceful fallback")
+	}
 }
 
 func TestParseFallbackList(t *testing.T) {
