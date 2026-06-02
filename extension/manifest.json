@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Symaira Memory Context Injector",
+  "version": "0.1.0",
+  "description": "Seamlessly synchronizes and injects your persistent local AI memory context into ChatGPT, Claude, and Perplexity.",
+  "permissions": [
+    "tabs",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8787/*",
+    "http://localhost:8787/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://www.perplexity.ai/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Symaira Memory Console"
+  }
+}

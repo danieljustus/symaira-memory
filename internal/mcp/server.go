@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/google/uuid"
 )
 
@@ -234,6 +236,10 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
+		// Security Integration: PII Guard Redaction
+		piiGuard := security.NewPIIGuard()
+		cleanContent := piiGuard.Redact(args.Content)
+
 		scope := args.Scope
 		if scope == "" {
 			scope = "global"
@@ -244,14 +250,21 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			_ = json.Unmarshal([]byte(args.Metadata), &meta)
 		}
 
+		// Security Integration: Active Project Scope detection
+		if scope == "project" {
+			detector := security.NewProjectScopeDetector()
+			projName := detector.DetectActiveProject()
+			meta["project_name"] = projName
+		}
+
 		// Calculate semantic vector embedding for the content
-		vector := s.embeddings.GenerateVector(args.Content)
+		vector := s.embeddings.GenerateVector(cleanContent)
 
 		// Create and save core memory
 		memID := uuid.New().String()
 		m := &db.Memory{
 			ID:        memID,
-			Content:   args.Content,
+			Content:   cleanContent,
 			Scope:     scope,
 			Metadata:  meta,
 			Embedding: vector,
@@ -263,24 +276,40 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		}
 
 		// Also execute pattern extractor offline to see if there are any secondary facts we can automatically extract!
-		extractedFacts := s.extractor.ExtractFacts(args.Content)
+		extractedFacts := s.extractor.ExtractFacts(cleanContent)
 		var extractedStr []string
 		for _, f := range extractedFacts {
 			subID := uuid.New().String()
-			subVector := s.embeddings.GenerateVector(f.Content)
+			
+			// Redact PII in extracted facts as well
+			cleanFactContent := piiGuard.Redact(f.Content)
+			
+			subVector := s.embeddings.GenerateVector(cleanFactContent)
+			
+			subMeta := f.Metadata
+			if subMeta == nil {
+				subMeta = make(map[string]string)
+			}
+			if scope == "project" {
+				subMeta["project_name"] = meta["project_name"]
+			}
+
 			subMem := &db.Memory{
 				ID:        subID,
-				Content:   f.Content,
+				Content:   cleanFactContent,
 				Scope:     scope,
-				Metadata:  f.Metadata,
+				Metadata:  subMeta,
 				Embedding: subVector,
 			}
 			if err := s.db.SaveMemory(subMem); err == nil {
-				extractedStr = append(extractedStr, fmt.Sprintf("  - [Fact Extracted] %s (ID: %s)", f.Content, subID))
+				extractedStr = append(extractedStr, fmt.Sprintf("  - [Fact Extracted] %s (ID: %s)", cleanFactContent, subID))
 			}
 		}
 
-		responseMsg := fmt.Sprintf("Successfully saved memory!\nMemory ID: %s\nContent: %s\nScope: %s", memID, args.Content, scope)
+		responseMsg := fmt.Sprintf("Successfully saved memory!\nMemory ID: %s\nContent: %s\nScope: %s", memID, cleanContent, scope)
+		if scope == "project" {
+			responseMsg += fmt.Sprintf("\nProject: %s", meta["project_name"])
+		}
 		if len(extractedStr) > 0 {
 			responseMsg += "\n\nAdditionally, secondary facts were successfully extracted:\n" + strings.Join(extractedStr, "\n")
 		}
@@ -395,4 +424,152 @@ func (s *Server) sendResponse(res *JSONRPCResponse) {
 	bytes = append(bytes, '\n')
 	os.Stdout.Write(bytes)
 	os.Stdout.Sync()
+}
+
+// StartHTTPServer launches a local HTTP listener exposing REST endpoints for the browser extension.
+func (s *Server) StartHTTPServer(port int) error {
+	mux := http.NewServeMux()
+
+	// CORS Helper for extension origin requests
+	enableCORS := func(w http.ResponseWriter, r *http.Request) bool {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return true
+		}
+		return false
+	}
+
+	// GET /api/status
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status":  "healthy",
+			"version": "0.1.0",
+			"server":  "symaira-memory",
+		})
+	})
+
+	// POST /api/search
+	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var args struct {
+			Query string `json:"query"`
+			Scope string `json:"scope"`
+			Limit int    `json:"limit"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+			http.Error(w, "Bad request body", http.StatusBadRequest)
+			return
+		}
+
+		if args.Limit <= 0 {
+			args.Limit = 5
+		}
+
+		queryVector := s.embeddings.GenerateVector(args.Query)
+		results, err := s.db.SearchMemories(queryVector, args.Scope, args.Limit)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Search failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(results)
+	})
+
+	// POST /api/set
+	mux.HandleFunc("/api/set", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var args struct {
+			Content  string            `json:"content"`
+			Scope    string            `json:"scope"`
+			Metadata map[string]string `json:"metadata"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+			http.Error(w, "Bad request body", http.StatusBadRequest)
+			return
+		}
+
+		scope := args.Scope
+		if scope == "" {
+			scope = "global"
+		}
+
+		vector := s.embeddings.GenerateVector(args.Content)
+		memID := uuid.New().String()
+		
+		m := &db.Memory{
+			ID:        memID,
+			Content:   args.Content,
+			Scope:     scope,
+			Metadata:  args.Metadata,
+			Embedding: vector,
+		}
+
+		if err := s.db.SaveMemory(m); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to save: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// Background offline fact extraction
+		extracted := s.extractor.ExtractFacts(args.Content)
+		for _, f := range extracted {
+			subID := uuid.New().String()
+			subVector := s.embeddings.GenerateVector(f.Content)
+			subMem := &db.Memory{
+				ID:        subID,
+				Content:   f.Content,
+				Scope:     scope,
+				Metadata:  f.Metadata,
+				Embedding: subVector,
+			}
+			_ = s.db.SaveMemory(subMem)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"status": "success",
+			"id":     memID,
+		})
+	})
+
+	// GET /api/list
+	mux.HandleFunc("/api/list", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		scope := r.URL.Query().Get("scope")
+		memories, err := s.db.ListMemories(scope)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(memories)
+	})
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	log.Printf("⚡ Symaira Memory API Listening on http://%s\n", addr)
+	return http.ListenAndServe(addr, mux)
 }

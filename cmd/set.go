@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/security"
 )
 
 var (
@@ -26,17 +27,30 @@ var setCmd = &cobra.Command{
 	Use:   "set",
 	Short: "Save a new fact or context snippet into persistent memory",
 	Long: `Save a new fact or context snippet to local SQLite storage. 
-Automatically triggers embedding generation and offline pattern-matching fact extraction.`,
+Automatically triggers embedding generation, PII redaction, and project scope detection.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Security Integration: PII Guard Redaction
+		piiGuard := security.NewPIIGuard()
+		cleanValue := piiGuard.Redact(setValue)
+
+		meta := map[string]string{"source": "cli_set"}
+
+		// Security Integration: Active Project Scope detection
+		if setScope == "project" {
+			detector := security.NewProjectScopeDetector()
+			projName := detector.DetectActiveProject()
+			meta["project_name"] = projName
+		}
+
 		embeddings := extractor.NewEmbeddingsGenerator()
-		vector := embeddings.GenerateVector(setValue)
+		vector := embeddings.GenerateVector(cleanValue)
 
 		id := uuid.New().String()
 		m := &db.Memory{
 			ID:        id,
-			Content:   setValue,
+			Content:   cleanValue,
 			Scope:     setScope,
-			Metadata:  map[string]string{"source": "cli_set"},
+			Metadata:  meta,
 			Embedding: vector,
 		}
 
@@ -47,7 +61,10 @@ Automatically triggers embedding generation and offline pattern-matching fact ex
 
 		fmt.Printf("⚡ Memory saved successfully!\n")
 		fmt.Printf("  ID:      %s\n", id)
-		fmt.Printf("  Content: %s\n", setValue)
+		fmt.Printf("  Content: %s\n", cleanValue)
 		fmt.Printf("  Scope:   %s\n", setScope)
+		if setScope == "project" {
+			fmt.Printf("  Project: %s\n", meta["project_name"])
+		}
 	},
 }

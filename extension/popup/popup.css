@@ -1,0 +1,181 @@
+/* Custom Premium CSS variables matching Symaira branding */
+:root {
+  --bg-color: #1e1e2e;
+  --panel-bg: rgba(30, 30, 46, 0.6);
+  --border-color: #45475a;
+  --text-main: #cdd6f4;
+  --text-muted: #7f849c;
+  --accent-cyan: #a2eeef;
+  --accent-green: #a6e3a1;
+  --accent-red: #f38ba8;
+  --accent-yellow: #f9e2af;
+  --neon-glow: 0 0 10px rgba(162, 238, 239, 0.25);
+  --font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 320px;
+  background-color: var(--bg-color);
+  color: var(--text-main);
+  font-family: var(--font-family);
+  overflow-x: hidden;
+}
+
+.console {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+h1 {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 0;
+  color: var(--accent-cyan);
+  text-shadow: var(--neon-glow);
+  letter-spacing: 0.5px;
+}
+
+/* Badges */
+.badge {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.status-active {
+  background-color: var(--accent-green);
+  color: #1e1e2e;
+  box-shadow: 0 0 8px rgba(166, 227, 161, 0.4);
+}
+
+.status-inactive {
+  background-color: var(--accent-red);
+  color: #1e1e2e;
+  box-shadow: 0 0 8px rgba(243, 139, 168, 0.4);
+}
+
+/* Panels */
+.panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.stats-panel {
+  display: flex;
+  justify-content: space-around;
+  text-align: center;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat .label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.stat .value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+}
+
+.list-panel h2 {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 0;
+  margin-bottom: 10px;
+  letter-spacing: 0.5px;
+}
+
+/* Memory List */
+.memory-list {
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+/* Custom scrollbars */
+.memory-list::-webkit-scrollbar {
+  width: 4px;
+}
+.memory-list::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+
+.loading {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 20px 0;
+}
+
+.memory-item {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 8px;
+  border-radius: 6px;
+  background-color: rgba(69, 71, 90, 0.25);
+  border-left: 2px solid var(--accent-cyan);
+}
+
+.memory-item .scope-tag {
+  font-size: 8px;
+  font-weight: bold;
+  color: var(--accent-yellow);
+  text-transform: uppercase;
+  display: inline-block;
+  margin-bottom: 2px;
+}
+
+.memory-item .text {
+  color: var(--text-main);
+}
+
+/* Footer */
+footer {
+  border-top: 1px solid var(--border-color);
+  padding-top: 8px;
+}
+
+footer p {
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin: 0;
+}
+
+code {
+  font-family: monospace;
+  background-color: rgba(69, 71, 90, 0.5);
+  color: var(--accent-cyan);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
