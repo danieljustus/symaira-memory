@@ -1,8 +1,12 @@
 package cmd
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/mcp"
+	"github.com/danieljustus/symaira-memory/internal/security"
 )
 
 var (
@@ -20,7 +24,12 @@ var serveCmd = &cobra.Command{
 	Long: `Starts the stdio transport JSON-RPC 2.0 server (default) or runs a local HTTP REST API 
 server if a port is provided. This HTTP API daemon powers the browser extension.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		server := mcp.NewServer(RootDB)
+		jwtProvider, err := security.NewJWTProvider("")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to initialize JWT provider: %v\n", err)
+			os.Exit(1)
+		}
+		server := mcp.NewServer(RootDB, jwtProvider)
 		if servePort > 0 {
 			_ = server.StartHTTPServer(servePort)
 		} else {
