@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -210,51 +211,89 @@ func (db *DB) ListMemories(scope string) ([]*Memory, error) {
 	return memories, nil
 }
 
-// SearchMemories queries memories in Go by calculating cosine similarity over stored vectors.
-func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]*Memory, error) {
-	memories, err := db.ListMemories(scope)
-	if err != nil {
-		return nil, err
-	}
+// SearchResult wraps a Memory with its similarity score without mutating the original.
+type SearchResult struct {
+	Memory *Memory `json:"memory"`
+	Score  float32 `json:"similarity_score"`
+}
 
-	type searchResult struct {
+// SearchMemories scans stored vectors in fixed-size SQL chunks and ranks by cosine similarity.
+func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]SearchResult, error) {
+	const chunkSize = 100
+	type scored struct {
 		m     *Memory
 		score float32
 	}
+	var results []scored
 
-	var results []searchResult
-	for _, m := range memories {
-		if len(m.Embedding) == 0 {
-			continue
+	offset := 0
+	for {
+		var rows *sql.Rows
+		var err error
+		if scope != "" {
+			rows, err = db.conn.Query(
+				"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+				scope, chunkSize, offset,
+			)
+		} else {
+			rows, err = db.conn.Query(
+				"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?",
+				chunkSize, offset,
+			)
 		}
-		score := CosineSimilarity(queryVec, m.Embedding)
-		results = append(results, searchResult{m: m, score: score})
-	}
+		if err != nil {
+			return nil, err
+		}
 
-	// Sort by score descending (simple bubble/insertion sort or slice sorting)
-	// Since slice sorting is easiest:
-	// We sort the results manually:
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].score > results[i].score {
-				results[i], results[j] = results[j], results[i]
+		rowCount := 0
+		for rows.Next() {
+			var m Memory
+			var metaStr, embStr string
+			if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+				rows.Close()
+				return nil, err
 			}
+			if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if len(m.Embedding) > 0 {
+				score := CosineSimilarity(queryVec, m.Embedding)
+				results = append(results, scored{m: &m, score: score})
+			}
+			rowCount++
 		}
+		rows.Close()
+
+		if rowCount < chunkSize {
+			break
+		}
+		offset += chunkSize
 	}
 
-	// Apply limit
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].score > results[j].score
+	})
+
 	if limit > len(results) {
 		limit = len(results)
 	}
 
-	var final []*Memory
+	var final []SearchResult
 	for i := 0; i < limit; i++ {
-		// Embed the similarity score in the metadata for transparency
-		if results[i].m.Metadata == nil {
-			results[i].m.Metadata = make(map[string]string)
+		metaCopy := make(map[string]string, len(results[i].m.Metadata)+1)
+		for k, v := range results[i].m.Metadata {
+			metaCopy[k] = v
 		}
-		results[i].m.Metadata["similarity_score"] = fmt.Sprintf("%.4f", results[i].score)
-		final = append(final, results[i].m)
+		metaCopy["similarity_score"] = fmt.Sprintf("%.4f", results[i].score)
+		final = append(final, SearchResult{
+			Memory: results[i].m,
+			Score:  results[i].score,
+		})
 	}
 
 	return final, nil
