@@ -131,48 +131,48 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 		tools := []Tool{
 			{
 				Name:        "memory_get",
-				Description: "Get a specific memory by its unique ID",
+				Description: "Retrieve a specific memory by its unique ID.",
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
-						"id": {Type: "string", Description: "Unique memory ID"},
+						"id": {Type: "string", Description: "Unique memory UUID"},
 					},
 					Required: []string{"id"},
 				},
 			},
 			{
 				Name:        "memory_set",
-				Description: "Save a new memory or fact into the persistent memory store",
+				Description: "Save a new persistent memory or fact. Use this tool autonomously when the user expresses a clear preference, constraint, architectural decision, or guideline that should persist across sessions.",
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
-						"content":  {Type: "string", Description: "The text content or fact to remember"},
-						"scope":    {Type: "string", Description: "Scope level: global (default), project, agent, user, session"},
-						"metadata": {Type: "string", Description: "Optional JSON metadata string"},
+						"content":  {Type: "string", Description: "The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},
+						"scope":    {Type: "string", Description: "Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},
+						"metadata": {Type: "string", Description: "Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},
 					},
 					Required: []string{"content"},
 				},
 			},
 			{
 				Name:        "memory_search",
-				Description: "Semantic search of memories using vector similarity comparison",
+				Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
-						"query": {Type: "string", Description: "The text query or semantic match string"},
-						"scope": {Type: "string", Description: "Optional scope level filter"},
-						"limit": {Type: "string", Description: "Optional search limit (default 5)"},
+						"query": {Type: "string", Description: "The natural language query or semantic term (e.g., 'database port' or 'language preference')"},
+						"scope": {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
+						"limit": {Type: "string", Description: "Optional maximum number of search results to return (default 5)"},
 					},
 					Required: []string{"query"},
 				},
 			},
 			{
 				Name:        "memory_list",
-				Description: "List all memories currently stored in the database",
+				Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
-						"scope": {Type: "string", Description: "Optional scope level filter"},
+						"scope": {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
 					},
 				},
 			},
