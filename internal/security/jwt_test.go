@@ -1,13 +1,17 @@
 package security
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestJWTGenerationAndVerification(t *testing.T) {
 	secret := "my_custom_secure_test_signing_key_2026"
-	provider := NewJWTProvider(secret)
+	provider, err := NewJWTProvider(secret)
+	if err != nil {
+		t.Fatalf("failed to create jwt provider: %v", err)
+	}
 
 	subject := "test-agent"
 	duration := 10 * time.Minute
@@ -49,7 +53,10 @@ func TestJWTGenerationAndVerification(t *testing.T) {
 	}
 
 	// Test Expiration Verification
-	expiredProvider := NewJWTProvider(secret)
+	expiredProvider, err := NewJWTProvider(secret)
+	if err != nil {
+		t.Fatalf("failed to create expired jwt provider: %v", err)
+	}
 	expiredToken, err := expiredProvider.GenerateToken(subject, -5*time.Second) // expired 5s ago
 	if err != nil {
 		t.Fatalf("failed to generate expired token: %v", err)
@@ -58,7 +65,7 @@ func TestJWTGenerationAndVerification(t *testing.T) {
 	_, err = expiredProvider.VerifyToken(expiredToken)
 	if err == nil {
 		t.Errorf("verification should fail on expired token")
-	} else if !stringsContains(err.Error(), "expired") {
+	} else if !strings.Contains(err.Error(), "expired") {
 		t.Errorf("expected expiration error message, got: %v", err)
 	}
 }

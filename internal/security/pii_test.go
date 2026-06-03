@@ -16,7 +16,7 @@ func TestPIIGuardRedaction(t *testing.T) {
 			expected: "My OpenAI project key is [REDACTED_API_KEY] and email is [REDACTED_EMAIL]",
 		},
 		{
-			input:    "Send payment details of card 4111 2222 3333 4444 to help@symaira.com",
+			input:    "Send payment details of card 4111 1111 1111 1111 to help@symaira.com",
 			expected: "Send payment details of card [REDACTED_CARD_NUMBER] to [REDACTED_EMAIL]",
 		},
 		{

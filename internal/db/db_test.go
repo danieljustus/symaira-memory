@@ -72,9 +72,8 @@ func TestDBSchemaAndOperations(t *testing.T) {
 	if len(results) != 1 {
 		t.Errorf("expected 1 search result, got %d", len(results))
 	} else {
-		score := results[0].Metadata["similarity_score"]
-		if score != "1.0000" {
-			t.Errorf("expected perfect similarity score 1.0000, got %s", score)
+		if results[0].Score != 1.0 {
+			t.Errorf("expected perfect similarity score 1.0, got %.4f", results[0].Score)
 		}
 	}
 
