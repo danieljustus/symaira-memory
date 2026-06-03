@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"hash/fnv"
+	"log"
 	"math"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/danieljustus/symaira-memory/internal/config"
 )
 
 // EmbeddingsGenerator coordinates local and cloud-fallback embedding generation.
@@ -25,11 +29,27 @@ const (
 	defaultTimeout = 5 * time.Second
 )
 
-// NewEmbeddingsGenerator sets up standard configuration with a shared, pooled HTTP client.
+// NewEmbeddingsGenerator sets up configuration from config files with
+// fallback to hardcoded defaults.
 func NewEmbeddingsGenerator() *EmbeddingsGenerator {
+	cfg, err := config.Load()
+	ollamaURL := "http://localhost:11434/api/embeddings"
+	model := "nomic-embed-text"
+	if err == nil {
+		if cfg.Ollama.URL != "" {
+			ollamaURL = cfg.Ollama.URL
+		}
+		if cfg.Ollama.Model != "" {
+			model = cfg.Ollama.Model
+		}
+	} else {
+		log.SetOutput(os.Stderr)
+		log.Printf("config: %v", err)
+	}
+
 	return &EmbeddingsGenerator{
-		OllamaURL: "http://localhost:11434/api/embeddings",
-		Model:     "nomic-embed-text",
+		OllamaURL: ollamaURL,
+		Model:     model,
 		httpClient: &http.Client{
 			Timeout: defaultTimeout,
 			Transport: &http.Transport{

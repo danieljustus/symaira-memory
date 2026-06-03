@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/danieljustus/symaira-memory/internal/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -36,20 +37,26 @@ type DB struct {
 	conn *sql.DB
 }
 
-// Open initializes the SQLite database at the standard XDG path.
+// Open initializes the SQLite database at the standard XDG path,
+// or at the path specified in the configuration file.
 func Open() (*DB, error) {
-	// Find XDG compliant path
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user home dir: %w", err)
+	cfg, cfgErr := config.Load()
+
+	var dbPath string
+	if cfgErr == nil && cfg.Database.Path != "" {
+		dbPath = cfg.Database.Path
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user home dir: %w", err)
+		}
+		dir := filepath.Join(home, ".local", "share", "symmemory")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create db directory: %w", err)
+		}
+		dbPath = filepath.Join(dir, "default.db")
 	}
 
-	dir := filepath.Join(home, ".local", "share", "symmemory")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create db directory: %w", err)
-	}
-
-	dbPath := filepath.Join(dir, "default.db")
 	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
@@ -87,13 +94,18 @@ func (db *DB) SaveMemory(m *Memory) error {
 		return fmt.Errorf("failed to marshal embedding: %w", err)
 	}
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	embeddingDim := len(m.Embedding)
+	lshHash := ComputeLSH(m.Embedding)
+
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
 			metadata=excluded.metadata,
 			embedding=excluded.embedding,
+			embedding_dim=excluded.embedding_dim,
+			lsh_hash=excluded.lsh_hash,
 			updated_at=excluded.updated_at`
 
 	now := time.Now()
@@ -102,7 +114,7 @@ func (db *DB) SaveMemory(m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), m.CreatedAt, m.UpdatedAt)
+	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt)
 	return err
 }
 
@@ -182,14 +194,17 @@ type SearchResult struct {
 	Score  float32 `json:"similarity_score"`
 }
 
-// SearchMemories scans stored vectors in fixed-size SQL chunks and ranks by cosine similarity.
+// SearchMemories uses LSH bucket pre-filtering to avoid full table scans,
+// then ranks the reduced candidate set by cosine similarity.
 func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]SearchResult, error) {
-	const chunkSize = 100
+	const chunkSize = 200
 	type scored struct {
 		m     *Memory
 		score float32
 	}
 	var results []scored
+
+	queryLSH := ComputeLSH(queryVec)
 
 	offset := 0
 	for {
@@ -197,13 +212,13 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 		var err error
 		if scope != "" {
 			rows, err = db.conn.Query(
-				"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-				scope, chunkSize, offset,
+				"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? AND lsh_hash = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+				scope, queryLSH, chunkSize, offset,
 			)
 		} else {
 			rows, err = db.conn.Query(
-				"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?",
-				chunkSize, offset,
+				"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE lsh_hash = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+				queryLSH, chunkSize, offset,
 			)
 		}
 		if err != nil {
