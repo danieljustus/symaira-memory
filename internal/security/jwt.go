@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/danieljustus/symaira-memory/internal/config"
 )
 
 // JWTProvider manages API token issuance, validation, revocation, and key rotation.
@@ -61,14 +63,22 @@ func NewJWTProvider(secret string) (*JWTProvider, error) {
 	}, nil
 }
 
-// loadPersistedSecret reads the signing key from ~/.config/symmemory/jwt.secret.
+// loadPersistedSecret reads the signing key from the configured path
+// or the default ~/.config/symmemory/jwt.secret.
 func loadPersistedSecret() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	secretPath := ""
+	cfg, cfgErr := config.Load()
+	if cfgErr == nil && cfg.JWT.SecretPath != "" {
+		secretPath = cfg.JWT.SecretPath
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		secretPath = filepath.Join(home, ".config", "symmemory", "jwt.secret")
 	}
-	path := filepath.Join(home, ".config", "symmemory", "jwt.secret")
-	data, err := os.ReadFile(path)
+
+	data, err := os.ReadFile(secretPath)
 	if err != nil {
 		return "", err
 	}
@@ -91,8 +101,8 @@ func generateAndPersistSecret() (string, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "jwt.secret")
-	if err := os.WriteFile(path, []byte(secret+"\n"), 0600); err != nil {
+	secretPath := filepath.Join(dir, "jwt.secret")
+	if err := os.WriteFile(secretPath, []byte(secret+"\n"), 0600); err != nil {
 		return "", err
 	}
 	return secret, nil

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/danieljustus/symaira-memory/internal/config"
 	_ "modernc.org/sqlite"
 )
 
@@ -36,20 +37,26 @@ type DB struct {
 	conn *sql.DB
 }
 
-// Open initializes the SQLite database at the standard XDG path.
+// Open initializes the SQLite database at the standard XDG path,
+// or at the path specified in the configuration file.
 func Open() (*DB, error) {
-	// Find XDG compliant path
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user home dir: %w", err)
+	cfg, cfgErr := config.Load()
+
+	var dbPath string
+	if cfgErr == nil && cfg.Database.Path != "" {
+		dbPath = cfg.Database.Path
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get user home dir: %w", err)
+		}
+		dir := filepath.Join(home, ".local", "share", "symmemory")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, fmt.Errorf("failed to create db directory: %w", err)
+		}
+		dbPath = filepath.Join(dir, "default.db")
 	}
 
-	dir := filepath.Join(home, ".local", "share", "symmemory")
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create db directory: %w", err)
-	}
-
-	dbPath := filepath.Join(dir, "default.db")
 	conn, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
