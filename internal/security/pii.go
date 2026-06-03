@@ -19,12 +19,19 @@ func NewPIIGuard() *PIIGuard {
 		regexp.MustCompile(`(?i)(?:ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36})`),            // GitHub Token
 		regexp.MustCompile(`(?i)(?:AIzaSy[a-zA-Z0-9-_]{33})`),                            // Google API Key
 		regexp.MustCompile(`(?i)(?:bearer\s+[a-zA-Z0-9-_\.]{20,})`),                      // General Bearer Token
+		regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16})`),                                   // AWS Access Key
+		regexp.MustCompile(`(?i)(?:xox[abposr]-[a-zA-Z0-9-]{10,60})`),                    // Slack Token
+		regexp.MustCompile(`(?i)(?:sk_live_[a-zA-Z0-9]{24,})`),                           // Stripe Live Key
+		regexp.MustCompile(`(?i)(?:-----BEGIN\s(?:RSA\s|EC\s|DSA\s|OPENSSH\s)?PRIVATE\sKEY-----)`), // Private Key Header
 
 		// E-mail Addresses
 		regexp.MustCompile(`(?i)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`),
 
 		// Credit Card Numbers (Simple 13-16 digit patterns)
 		regexp.MustCompile(`\b(?:\d[ -]*?){13,16}\b`),
+
+		// Generic high-entropy string fallback (≥40 alphanumeric characters)
+		regexp.MustCompile(`\b[a-zA-Z0-9]{40,}\b`),
 	}
 
 	return &PIIGuard{patterns: patterns}

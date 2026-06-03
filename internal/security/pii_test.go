@@ -23,6 +23,22 @@ func TestPIIGuardRedaction(t *testing.T) {
 			input:    "GitHub auth token is gho_abcdefabcdefabcdefabcdefabcdefabcdef",
 			expected: "GitHub auth token is [REDACTED_API_KEY]",
 		},
+		{
+			input:    "AWS key is AKIA1234567890ABCDEF and Slack is xoxb-123456789012-abcdef",
+			expected: "AWS key is [REDACTED_API_KEY] and Slack is [REDACTED_API_KEY]",
+		},
+		{
+			input:    "Stripe live key sk_live_12345abcde12345abcde12345",
+			expected: "Stripe live key [REDACTED_API_KEY]",
+		},
+		{
+			input:    "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
+			expected: "[REDACTED_API_KEY]\nsecret\n-----END PRIVATE KEY-----",
+		},
+		{
+			input:    "Token: abcdefghijklmnopqrstuvwxyz12345678901234",
+			expected: "Token: [REDACTED_API_KEY]",
+		},
 	}
 
 	for _, tt := range tests {

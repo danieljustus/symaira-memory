@@ -62,9 +62,9 @@ func Open() (*DB, error) {
 	}
 
 	db := &DB{conn: conn}
-	if err := db.initSchema(); err != nil {
+	if err := db.runMigrations(); err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to initialize schema: %w", err)
+		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	return db, nil
@@ -73,41 +73,6 @@ func Open() (*DB, error) {
 // Close closes the database connection.
 func (db *DB) Close() error {
 	return db.conn.Close()
-}
-
-// initSchema creates the tables if they do not exist.
-func (db *DB) initSchema() error {
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS memories (
-			id TEXT PRIMARY KEY,
-			content TEXT NOT NULL,
-			scope TEXT NOT NULL,
-			metadata TEXT NOT NULL,
-			embedding TEXT NOT NULL,
-			created_at DATETIME NOT NULL,
-			updated_at DATETIME NOT NULL
-		);`,
-		`CREATE TABLE IF NOT EXISTS sessions (
-			id TEXT PRIMARY KEY,
-			summary TEXT NOT NULL,
-			updated_at DATETIME NOT NULL
-		);`,
-		`CREATE TABLE IF NOT EXISTS rules (
-			id TEXT PRIMARY KEY,
-			content TEXT NOT NULL,
-			scope TEXT NOT NULL,
-			metadata TEXT NOT NULL,
-			created_at DATETIME NOT NULL
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_memories_scope ON memories(scope);`,
-	}
-
-	for _, q := range queries {
-		if _, err := db.conn.Exec(q); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // SaveMemory inserts or updates a memory.

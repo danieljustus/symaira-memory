@@ -43,11 +43,11 @@ server into major MCP clients like Claude Desktop, Cursor, or VS Code Cline exte
 
 		configBytes, _ := json.MarshalIndent(config, "", "  ")
 
-		fmt.Println("⚡ Copy and paste this block into your host configuration file:")
-		fmt.Printf("\n📂 Claude Desktop Config Path:\n  %s\n", filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"))
-		fmt.Printf("\n🛠️ Cursor settings:\n  Cursor -> Settings -> Features -> MCP -> Click '+ Add New MCP Server'\n  Name: symaira-memory\n  Type: stdio\n  Command: %s serve\n", execPath)
-		fmt.Println("\n========================= CONFIGURATION BLOCK =========================")
-		fmt.Println(string(configBytes))
-		fmt.Println("=======================================================================")
+		fmt.Fprintln(os.Stderr, "⚡ Copy and paste this block into your host configuration file:")
+		fmt.Fprintf(os.Stderr, "\n📂 Claude Desktop Config Path:\n  %s\n", filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"))
+		fmt.Fprintf(os.Stderr, "\n🛠️ Cursor settings:\n  Cursor -> Settings -> Features -> MCP -> Click '+ Add New MCP Server'\n  Name: symaira-memory\n  Type: stdio\n  Command: %s serve\n", execPath)
+		fmt.Fprintln(os.Stderr, "\n========================= CONFIGURATION BLOCK =========================")
+		fmt.Fprintln(os.Stderr, string(configBytes))
+		fmt.Fprintln(os.Stderr, "=======================================================================")
 	},
 }

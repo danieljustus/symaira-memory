@@ -15,19 +15,30 @@ import (
 type EmbeddingsGenerator struct {
 	OllamaURL     string
 	Model         string
+	httpClient    *http.Client
 	mu            sync.Mutex
 	lastFail      time.Time
 }
 
-// NewEmbeddingsGenerator sets up standard configuration.
+const (
+	ollamaCacheTTL = 30 * time.Second
+	defaultTimeout = 5 * time.Second
+)
+
+// NewEmbeddingsGenerator sets up standard configuration with a shared, pooled HTTP client.
 func NewEmbeddingsGenerator() *EmbeddingsGenerator {
 	return &EmbeddingsGenerator{
 		OllamaURL: "http://localhost:11434/api/embeddings",
 		Model:     "nomic-embed-text",
+		httpClient: &http.Client{
+			Timeout: defaultTimeout,
+			Transport: &http.Transport{
+				MaxIdleConns:    10,
+				IdleConnTimeout: 90 * time.Second,
+			},
+		},
 	}
 }
-
-const ollamaCacheTTL = 30 * time.Second
 
 // GenerateVector produces a 768-dimensional vector using Ollama if available, or the local hashing fallback.
 func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
@@ -51,17 +62,15 @@ func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
 }
 
 func (eg *EmbeddingsGenerator) queryOllama(text string) ([]float32, error) {
-	client := &http.Client{Timeout: 1 * time.Second}
-
 	reqBody, err := json.Marshal(map[string]string{
-		"model":   eg.Model,
-		"prompt":  text,
+		"model":  eg.Model,
+		"prompt": text,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := client.Post(eg.OllamaURL, "application/json", bytes.NewBuffer(reqBody))
+	resp, err := eg.httpClient.Post(eg.OllamaURL, "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, err
 	}

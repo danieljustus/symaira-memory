@@ -15,9 +15,11 @@ import (
 	"time"
 )
 
-// JWTProvider manages API token issuance and validation.
+// JWTProvider manages API token issuance, validation, revocation, and key rotation.
 type JWTProvider struct {
-	secret []byte
+	secret  []byte
+	secrets [][]byte // fallback keys for rotation grace period
+	revoked map[string]time.Time
 }
 
 type jwtHeader struct {
@@ -26,6 +28,7 @@ type jwtHeader struct {
 }
 
 type JWTPayload struct {
+	JWTID     string `json:"jti"`
 	Issuer    string `json:"iss"`
 	Subject   string `json:"sub"`
 	IssuedAt  int64  `json:"iat"`
@@ -52,7 +55,10 @@ func NewJWTProvider(secret string) (*JWTProvider, error) {
 		}
 		secret = generated
 	}
-	return &JWTProvider{secret: []byte(secret)}, nil
+	return &JWTProvider{
+		secret:  []byte(secret),
+		revoked: make(map[string]time.Time),
+	}, nil
 }
 
 // loadPersistedSecret reads the signing key from ~/.config/symmemory/jwt.secret.
@@ -99,7 +105,12 @@ func (jp *JWTProvider) GenerateToken(subject string, duration time.Duration) (st
 	headerEncoded := base64URL(headerBytes)
 
 	now := time.Now()
+	jtiBytes := make([]byte, 16)
+	rand.Read(jtiBytes)
+	jti := hex.EncodeToString(jtiBytes)
+
 	payload := JWTPayload{
+		JWTID:     jti,
 		Issuer:    "symaira-memory",
 		Subject:   subject,
 		IssuedAt:  now.Unix(),
@@ -116,6 +127,7 @@ func (jp *JWTProvider) GenerateToken(subject string, duration time.Duration) (st
 }
 
 // VerifyToken validates the signature and expiration of an incoming JWT.
+// During key rotation, tokens signed with any known secret are accepted.
 func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
@@ -123,10 +135,17 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 	}
 
 	unsignedToken := parts[0] + "." + parts[1]
-	expectedSig := jp.sign(unsignedToken)
 
-	// Constant-time signature comparison to prevent timing attacks
-	if !hmac.Equal([]byte(parts[2]), []byte(expectedSig)) {
+	// Try the primary secret first, then fallback secrets for rotation grace period.
+	validSig := false
+	secrets := append([][]byte{jp.secret}, jp.secrets...)
+	for _, s := range secrets {
+		if hmac.Equal([]byte(parts[2]), []byte(jp.signWith(unsignedToken, s))) {
+			validSig = true
+			break
+		}
+	}
+	if !validSig {
 		return nil, errors.New("invalid signature")
 	}
 
@@ -141,6 +160,11 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 		return nil, err
 	}
 
+	// Check revocation
+	if revokedAt, ok := jp.revoked[payload.JWTID]; ok && time.Now().After(revokedAt) {
+		return nil, errors.New("token has been revoked")
+	}
+
 	// Check expiration
 	if time.Now().Unix() > payload.ExpiresAt {
 		return nil, errors.New("token expired")
@@ -149,8 +173,30 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 	return &payload, nil
 }
 
+// RevokeToken invalidates a token by its JWT ID so it can no longer be used.
+func (jp *JWTProvider) RevokeToken(jti string) {
+	jp.revoked[jti] = time.Now()
+}
+
+// AddFallbackSecret registers an additional signing key for rotation.
+// Tokens signed with the fallback key are accepted during the grace period.
+func (jp *JWTProvider) AddFallbackSecret(secret string) {
+	jp.secrets = append(jp.secrets, []byte(secret))
+}
+
+// RotateSecret replaces the primary signing key and keeps the current key
+// as a fallback so existing tokens remain valid during the transition.
+func (jp *JWTProvider) RotateSecret(newSecret string) {
+	jp.AddFallbackSecret(string(jp.secret))
+	jp.secret = []byte(newSecret)
+}
+
 func (jp *JWTProvider) sign(text string) string {
-	mac := hmac.New(sha256.New, jp.secret)
+	return jp.signWith(text, jp.secret)
+}
+
+func (jp *JWTProvider) signWith(text string, secret []byte) string {
+	mac := hmac.New(sha256.New, secret)
 	mac.Write([]byte(text))
 	return base64URL(mac.Sum(nil))
 }
