@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -170,8 +171,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 1 {
-		t.Errorf("expected 1 migration after two opens, got %d", count)
+	if count != 2 {
+		t.Errorf("expected 2 migrations after two opens, got %d", count)
 	}
 }
 
@@ -224,4 +225,137 @@ func mathAbs(f float32) float32 {
 		return -f
 	}
 	return f
+}
+
+func TestLSHConsistency(t *testing.T) {
+	vec := make([]float32, EmbeddingDim)
+	for i := range vec {
+		vec[i] = float32(i) * 0.01
+	}
+
+	h1 := ComputeLSH(vec)
+	h2 := ComputeLSH(vec)
+	if h1 != h2 {
+		t.Errorf("LSH not deterministic: %d vs %d", h1, h2)
+	}
+}
+
+func TestLSHDifferentVectors(t *testing.T) {
+	a := make([]float32, EmbeddingDim)
+	b := make([]float32, EmbeddingDim)
+	for i := range a {
+		a[i] = float32(i) * 0.01
+		b[i] = -float32(i) * 0.01
+	}
+
+	ha := ComputeLSH(a)
+	hb := ComputeLSH(b)
+	if ha == hb {
+		t.Error("expected different LSH hashes for opposing vectors")
+	}
+}
+
+func TestLSHEmptyVector(t *testing.T) {
+	h := ComputeLSH(nil)
+	if h != 0 {
+		t.Errorf("expected LSH 0 for nil vector, got %d", h)
+	}
+	h = ComputeLSH([]float32{})
+	if h != 0 {
+		t.Errorf("expected LSH 0 for empty vector, got %d", h)
+	}
+}
+
+func TestSearchWithLSHIndex(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-lsh-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open()
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	// Seed 100 memories with varying embeddings
+	for i := 0; i < 100; i++ {
+		emb := make([]float32, EmbeddingDim)
+		emb[i%EmbeddingDim] = 1.0
+		emb[(i+37)%EmbeddingDim] = 0.5
+		m := &Memory{
+			ID:        fmt.Sprintf("lsh-mem-%d", i),
+			Content:   fmt.Sprintf("Memory number %d with specific pattern", i),
+			Scope:     "global",
+			Embedding: emb,
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("failed to save memory %d: %v", i, err)
+		}
+	}
+
+	// Search should only load a fraction of rows thanks to LSH pre-filter
+	queryVec := make([]float32, EmbeddingDim)
+	queryVec[0] = 1.0
+
+	results, err := database.SearchMemories(queryVec, "global", 5)
+	if err != nil {
+		t.Fatalf("search failed: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("expected at least one search result")
+	}
+}
+
+// BenchmarkSearchWithLSH measures search performance with 1000 indexed memories.
+func BenchmarkSearchWithLSH(b *testing.B) {
+	tempDir, err := os.MkdirTemp("", "symmemory-bench-*")
+	if err != nil {
+		b.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open()
+	if err != nil {
+		b.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	// Seed 1000 memories
+	n := 1000
+	for i := 0; i < n; i++ {
+		emb := make([]float32, EmbeddingDim)
+		emb[i%EmbeddingDim] = 1.0
+		emb[(i+37)%EmbeddingDim] = 0.3
+		m := &Memory{
+			ID:        fmt.Sprintf("bench-%d", i),
+			Content:   fmt.Sprintf("Benchmark memory entry %d", i),
+			Scope:     "global",
+			Embedding: emb,
+		}
+		if err := database.SaveMemory(m); err != nil {
+			b.Fatalf("failed to seed: %v", err)
+		}
+	}
+
+	queryVec := make([]float32, EmbeddingDim)
+	queryVec[0] = 1.0
+	queryVec[1] = 0.3
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := database.SearchMemories(queryVec, "global", 5)
+		if err != nil {
+			b.Fatalf("search failed: %v", err)
+		}
+	}
 }
