@@ -60,12 +60,26 @@ Format your response strictly as a JSON array of strings, like this:
 ]
 Do not include any introductory or concluding text. Respond ONLY with the JSON array.`, builder.String())
 
-	// Try cloud APIs first if configured, otherwise fall back to Ollama
+	// Try cloud APIs first if configured, otherwise fall back to Ollama.
+	var facts []string
+	var err error
+
 	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
-		return le.queryOpenAI(prompt, apiKey)
+		facts, err = le.queryOpenAI(prompt, apiKey)
+	} else {
+		facts, err = le.queryOllama(prompt)
 	}
 
-	return le.queryOllama(prompt)
+	// Graceful fallback: if no LLM is available, return original content unchanged.
+	if err != nil {
+		var list []string
+		for _, m := range memories {
+			list = append(list, m.Content)
+		}
+		return list, nil
+	}
+
+	return facts, nil
 }
 
 func (le *LLMEnhancer) queryOllama(prompt string) ([]string, error) {
