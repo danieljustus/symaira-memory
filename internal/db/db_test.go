@@ -104,6 +104,77 @@ func TestDBSchemaAndOperations(t *testing.T) {
 	}
 }
 
+func TestMigrationsApplied(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-migrate-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open()
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	var count int
+	if err := database.conn.QueryRow(
+		"SELECT COUNT(*) FROM schema_migrations",
+	).Scan(&count); err != nil {
+		t.Fatalf("schema_migrations table not created: %v", err)
+	}
+	if count == 0 {
+		t.Errorf("expected at least one migration applied, got 0")
+	}
+
+	var version string
+	if err := database.conn.QueryRow(
+		"SELECT version FROM schema_migrations WHERE version = ?", "001_init",
+	).Scan(&version); err != nil {
+		t.Errorf("migration 001_init not recorded: %v", err)
+	} else if version != "001_init" {
+		t.Errorf("expected version '001_init', got '%s'", version)
+	}
+}
+
+func TestMigrationsIdempotent(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-idem-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	db1, err := Open()
+	if err != nil {
+		t.Fatalf("first open failed: %v", err)
+	}
+	db1.Close()
+
+	db2, err := Open()
+	if err != nil {
+		t.Fatalf("second open failed: %v", err)
+	}
+	defer db2.Close()
+
+	var count int
+	if err := db2.conn.QueryRow(
+		"SELECT COUNT(*) FROM schema_migrations",
+	).Scan(&count); err != nil {
+		t.Fatalf("failed to query migrations: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 migration after two opens, got %d", count)
+	}
+}
+
 func TestCosineSimilarity(t *testing.T) {
 	tests := []struct {
 		name     string
