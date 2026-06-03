@@ -7,13 +7,16 @@ import (
 	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 // EmbeddingsGenerator coordinates local and cloud-fallback embedding generation.
 type EmbeddingsGenerator struct {
-	OllamaURL string
-	Model     string
+	OllamaURL     string
+	Model         string
+	mu            sync.Mutex
+	lastFail      time.Time
 }
 
 // NewEmbeddingsGenerator sets up standard configuration.
@@ -24,17 +27,26 @@ func NewEmbeddingsGenerator() *EmbeddingsGenerator {
 	}
 }
 
+const ollamaCacheTTL = 30 * time.Second
+
 // GenerateVector produces a 768-dimensional vector using Ollama if available, or the local hashing fallback.
 func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
 	dims := 768
 
-	// Try Ollama first
-	vec, err := eg.queryOllama(text)
-	if err == nil && len(vec) == dims {
-		return vec
+	eg.mu.Lock()
+	skip := time.Since(eg.lastFail) < ollamaCacheTTL
+	eg.mu.Unlock()
+
+	if !skip {
+		vec, err := eg.queryOllama(text)
+		if err == nil && len(vec) == dims {
+			return vec
+		}
+		eg.mu.Lock()
+		eg.lastFail = time.Now()
+		eg.mu.Unlock()
 	}
 
-	// Local deterministic hash-vector fallback
 	return GenerateLocalHashVector(text, dims)
 }
 

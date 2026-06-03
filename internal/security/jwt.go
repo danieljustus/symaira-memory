@@ -2,10 +2,15 @@ package security
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -28,11 +33,63 @@ type JWTPayload struct {
 }
 
 // NewJWTProvider configures a JWT provider with a secret.
-func NewJWTProvider(secret string) *JWTProvider {
+// Sources the signing secret from (in order): explicit argument, JWT_SECRET_KEY env var,
+// persisted file at ~/.config/symmemory/jwt.secret, or auto-generates and persists a new one.
+func NewJWTProvider(secret string) (*JWTProvider, error) {
 	if secret == "" {
-		secret = "default_symmemory_local_secret_key_2026"
+		secret = os.Getenv("JWT_SECRET_KEY")
 	}
-	return &JWTProvider{secret: []byte(secret)}
+	if secret == "" {
+		loaded, err := loadPersistedSecret()
+		if err == nil && loaded != "" {
+			secret = loaded
+		}
+	}
+	if secret == "" {
+		generated, err := generateAndPersistSecret()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate JWT secret: %w", err)
+		}
+		secret = generated
+	}
+	return &JWTProvider{secret: []byte(secret)}, nil
+}
+
+// loadPersistedSecret reads the signing key from ~/.config/symmemory/jwt.secret.
+func loadPersistedSecret() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(home, ".config", "symmemory", "jwt.secret")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// generateAndPersistSecret creates a random 32-byte hex secret and persists it.
+func generateAndPersistSecret() (string, error) {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
+	}
+	secret := hex.EncodeToString(bytes)
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(home, ".config", "symmemory")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "jwt.secret")
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0600); err != nil {
+		return "", err
+	}
+	return secret, nil
 }
 
 // GenerateToken issues a valid signed JWT token for the specified subject (e.g. "extension" or "gpt").

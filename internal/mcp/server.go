@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -74,34 +75,41 @@ type Server struct {
 	db         *db.DB
 	extractor  *extractor.PatternExtractor
 	embeddings *extractor.EmbeddingsGenerator
+	jwts       *security.JWTProvider
 }
 
 // NewServer configures a new Server instance.
-func NewServer(database *db.DB) *Server {
+func NewServer(database *db.DB, jwtProvider *security.JWTProvider) *Server {
 	return &Server{
 		db:         database,
 		extractor:  extractor.NewPatternExtractor(),
 		embeddings: extractor.NewEmbeddingsGenerator(),
+		jwts:       jwtProvider,
 	}
 }
 
 // Serve reads JSON-RPC 2.0 lines from stdin, processes them, and writes responses to stdout.
-func (s *Server) Serve() {
-	// Re-route normal standard logger output to stderr to prevent stdio protocol pollution!
+func (s *Server) Serve(ctx context.Context) error {
 	log.SetOutput(os.Stderr)
 	log.Println("Symaira Memory MCP Server starting...")
 
 	reader := bufio.NewReader(os.Stdin)
 
 	for {
+		select {
+		case <-ctx.Done():
+			log.Println("MCP Server shutting down gracefully.")
+			return nil
+		default:
+		}
+
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
 				log.Println("MCP Client disconnected.")
-				break
+				return nil
 			}
-			log.Printf("Read error: %v\n", err)
-			continue
+			return fmt.Errorf("read error: %w", err)
 		}
 
 		var req JSONRPCRequest
@@ -203,26 +211,18 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		mems, err := s.db.ListMemories("")
+		m, err := s.db.GetMemory(args.ID)
 		if err != nil {
 			s.sendToolResponse(reqID, fmt.Sprintf("Error fetching memory: %v", err), true)
 			return
 		}
 
-		var target *db.Memory
-		for _, m := range mems {
-			if m.ID == args.ID {
-				target = m
-				break
-			}
-		}
-
-		if target == nil {
+		if m == nil {
 			s.sendToolResponse(reqID, "Memory not found", false)
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(target, "", "  ")
+		bytes, _ := json.MarshalIndent(m, "", "  ")
 		s.sendToolResponse(reqID, string(bytes), false)
 
 	case "memory_set":
@@ -442,6 +442,24 @@ func (s *Server) StartHTTPServer(port int) error {
 		return false
 	}
 
+	// requireAuth validates the JWT Bearer token. Returns false and writes 401 on failure.
+	requireAuth := func(w http.ResponseWriter, r *http.Request) bool {
+		if s.jwts == nil {
+			return true
+		}
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
+			return false
+		}
+		token := strings.TrimPrefix(auth, "Bearer ")
+		if _, err := s.jwts.VerifyToken(token); err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusUnauthorized)
+			return false
+		}
+		return true
+	}
+
 	// GET /api/status
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(w, r) {
@@ -458,6 +476,9 @@ func (s *Server) StartHTTPServer(port int) error {
 	// POST /api/search
 	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
 			return
 		}
 		if r.Method != "POST" {
@@ -493,6 +514,9 @@ func (s *Server) StartHTTPServer(port int) error {
 	// POST /api/set
 	mux.HandleFunc("/api/set", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
 			return
 		}
 		if r.Method != "POST" {

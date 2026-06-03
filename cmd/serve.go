@@ -1,8 +1,15 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/mcp"
+	"github.com/danieljustus/symaira-memory/internal/security"
 )
 
 var (
@@ -20,11 +27,39 @@ var serveCmd = &cobra.Command{
 	Long: `Starts the stdio transport JSON-RPC 2.0 server (default) or runs a local HTTP REST API 
 server if a port is provided. This HTTP API daemon powers the browser extension.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		server := mcp.NewServer(RootDB)
+		jwtProvider, err := security.NewJWTProvider("")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to initialize JWT provider: %v\n", err)
+			os.Exit(1)
+		}
+		server := mcp.NewServer(RootDB, jwtProvider)
 		if servePort > 0 {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			go func() {
+				<-ctx.Done()
+				os.Exit(0)
+			}()
 			_ = server.StartHTTPServer(servePort)
 		} else {
-			server.Serve()
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- server.Serve(ctx)
+			}()
+
+			select {
+			case err := <-errCh:
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "MCP server error: %v\n", err)
+					os.Exit(1)
+				}
+				os.Exit(0)
+			case <-ctx.Done():
+				os.Exit(0)
+			}
 		}
 	},
 }

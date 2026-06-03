@@ -2,6 +2,8 @@ package security
 
 import (
 	"regexp"
+	"strings"
+	"unicode"
 )
 
 // PIIGuard cleans text to redact sensitive information before database ingestion.
@@ -33,11 +35,13 @@ func (pg *PIIGuard) Redact(text string) string {
 	cleaned := text
 	for _, p := range pg.patterns {
 		cleaned = p.ReplaceAllStringFunc(cleaned, func(match string) string {
-			// Basic heuristic classification
-			if len(match) >= 13 && isNumeric(match) {
-				return "[REDACTED_CARD_NUMBER]"
+			if isNumeric(match) {
+				if luhn(match) {
+					return "[REDACTED_CARD_NUMBER]"
+				}
+				return match
 			}
-			if stringsContains(match, "@") {
+			if strings.Contains(match, "@") {
 				return "[REDACTED_EMAIL]"
 			}
 			return "[REDACTED_API_KEY]"
@@ -48,19 +52,37 @@ func (pg *PIIGuard) Redact(text string) string {
 
 func isNumeric(s string) bool {
 	for _, r := range s {
-		if (r < '0' || r > '9') && r != ' ' && r != '-' {
+		if !unicode.IsDigit(r) && r != ' ' && r != '-' {
 			return false
 		}
 	}
 	return true
 }
 
-func stringsContains(s, sub string) bool {
-	// Custom simple string check
-	for i := 0; i <= len(s)-len(sub); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
+// luhn validates a digit sequence using the Luhn (mod 10) checksum algorithm.
+func luhn(s string) bool {
+	var digits []int
+	for _, r := range s {
+		if unicode.IsDigit(r) {
+			digits = append(digits, int(r-'0'))
 		}
 	}
-	return false
+	n := len(digits)
+	if n < 13 || n > 16 {
+		return false
+	}
+	sum := 0
+	double := false
+	for i := n - 1; i >= 0; i-- {
+		d := digits[i]
+		if double {
+			d *= 2
+			if d > 9 {
+				d -= 9
+			}
+		}
+		sum += d
+		double = !double
+	}
+	return sum%10 == 0
 }
