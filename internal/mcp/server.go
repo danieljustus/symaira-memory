@@ -77,6 +77,7 @@ type Server struct {
 	embeddings     *extractor.EmbeddingsGenerator
 	jwts           *security.JWTProvider
 	allowedOrigins []string
+	piiEnabled     bool
 }
 
 // NewServer configures a new Server instance.
@@ -87,7 +88,13 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider) *Server {
 		embeddings:     extractor.NewEmbeddingsGenerator(),
 		jwts:           jwtProvider,
 		allowedOrigins: []string{"chrome-extension://*", "moz-extension://*"},
+		piiEnabled:     true,
 	}
+}
+
+// SetPIIEnabled controls whether memory content is redacted for PII before persistence.
+func (s *Server) SetPIIEnabled(enabled bool) {
+	s.piiEnabled = enabled
 }
 
 // SetAllowedOrigins overrides the default allowed CORS origins.
@@ -220,7 +227,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		m, err := s.db.GetMemory(args.ID)
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Error fetching memory: %v", err), true)
+			s.sendToolError(reqID, "Failed to fetch memory", err)
 			return
 		}
 
@@ -231,7 +238,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		bytes, err := json.MarshalIndent(m, "", "  ")
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			s.sendToolError(reqID, "Failed to encode memory data", err)
 			return
 		}
 		s.sendToolResponse(reqID, string(bytes), false)
@@ -247,9 +254,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		// Security Integration: PII Guard Redaction
-		piiGuard := security.NewPIIGuard()
-		cleanContent := piiGuard.Redact(args.Content)
+		cleanContent := args.Content
+		if s.piiEnabled {
+			piiGuard := security.NewPIIGuard()
+			cleanContent = piiGuard.Redact(args.Content)
+		}
 
 		scope := args.Scope
 		if scope == "" {
@@ -286,7 +295,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		}
 
 		if err := s.db.SaveMemory(m); err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Database save failure: %v", err), true)
+			s.sendToolError(reqID, "Failed to save memory", err)
 			return
 		}
 
@@ -296,8 +305,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		for _, f := range extractedFacts {
 			subID := uuid.New().String()
 			
-			// Redact PII in extracted facts as well
-			cleanFactContent := piiGuard.Redact(f.Content)
+			cleanFactContent := f.Content
+			if s.piiEnabled {
+				piiGuard := security.NewPIIGuard()
+				cleanFactContent = piiGuard.Redact(f.Content)
+			}
 			
 			subVector := s.embeddings.GenerateVector(cleanFactContent)
 			
@@ -352,7 +364,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		queryVector := s.embeddings.GenerateVector(args.Query)
 		results, err := s.db.SearchMemories(queryVector, args.Scope, limit)
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Search error: %v", err), true)
+			s.sendToolError(reqID, "Failed to search memories", err)
 			return
 		}
 
@@ -363,7 +375,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		bytes, err := json.MarshalIndent(results, "", "  ")
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			s.sendToolError(reqID, "Failed to encode search results", err)
 			return
 		}
 		s.sendToolResponse(reqID, string(bytes), false)
@@ -379,7 +391,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		memories, err := s.db.ListMemories(args.Scope)
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("List error: %v", err), true)
+			s.sendToolError(reqID, "Failed to list memories", err)
 			return
 		}
 
@@ -390,7 +402,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		bytes, err := json.MarshalIndent(memories, "", "  ")
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			s.sendToolError(reqID, "Failed to encode memory list", err)
 			return
 		}
 		s.sendToolResponse(reqID, string(bytes), false)
@@ -422,7 +434,6 @@ func (s *Server) sendError(id json.RawMessage, code int, message string) {
 }
 
 func (s *Server) sendToolResponse(id json.RawMessage, text string, isError bool) {
-	// If it is an error, prefix text
 	prefix := ""
 	if isError {
 		prefix = "[ERROR] "
@@ -436,6 +447,13 @@ func (s *Server) sendToolResponse(id json.RawMessage, text string, isError bool)
 		},
 	}
 	s.sendResult(id, res)
+}
+
+// sendToolError sends a user-safe error message to the agent while logging
+// the full internal error details to stderr for diagnostics.
+func (s *Server) sendToolError(id json.RawMessage, safeMsg string, internalErr error) {
+	fmt.Fprintf(os.Stderr, "[MCP ERROR] %s: %v\n", safeMsg, internalErr)
+	s.sendToolResponse(id, safeMsg, true)
 }
 
 func (s *Server) sendResponse(res *JSONRPCResponse) {
@@ -573,19 +591,38 @@ func (s *Server) StartHTTPServer(port int) error {
 			return
 		}
 
+		cleanContent := args.Content
+		if s.piiEnabled {
+			piiGuard := security.NewPIIGuard()
+			cleanContent = piiGuard.Redact(args.Content)
+		}
+
 		scope := args.Scope
 		if scope == "" {
 			scope = "global"
 		}
+		if err := security.ValidateScope(scope); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-		vector := s.embeddings.GenerateVector(args.Content)
+		meta := args.Metadata
+		if meta == nil {
+			meta = make(map[string]string)
+		}
+		if scope == "project" {
+			detector := security.NewProjectScopeDetector()
+			meta["project_name"] = detector.DetectActiveProject()
+		}
+
+		vector := s.embeddings.GenerateVector(cleanContent)
 		memID := uuid.New().String()
 		
 		m := &db.Memory{
 			ID:        memID,
-			Content:   args.Content,
+			Content:   cleanContent,
 			Scope:     scope,
-			Metadata:  args.Metadata,
+			Metadata:  meta,
 			Embedding: vector,
 		}
 
@@ -594,16 +631,27 @@ func (s *Server) StartHTTPServer(port int) error {
 			return
 		}
 
-		// Background offline fact extraction
-		extracted := s.extractor.ExtractFacts(args.Content)
+		extracted := s.extractor.ExtractFacts(cleanContent)
 		for _, f := range extracted {
+			cleanFactContent := f.Content
+			if s.piiEnabled {
+				piiGuard := security.NewPIIGuard()
+				cleanFactContent = piiGuard.Redact(f.Content)
+			}
 			subID := uuid.New().String()
-			subVector := s.embeddings.GenerateVector(f.Content)
+			subVector := s.embeddings.GenerateVector(cleanFactContent)
+			subMeta := f.Metadata
+			if subMeta == nil {
+				subMeta = make(map[string]string)
+			}
+			if scope == "project" {
+				subMeta["project_name"] = meta["project_name"]
+			}
 			subMem := &db.Memory{
 				ID:        subID,
-				Content:   f.Content,
+				Content:   cleanFactContent,
 				Scope:     scope,
-				Metadata:  f.Metadata,
+				Metadata:  subMeta,
 				Embedding: subVector,
 			}
 			_ = s.db.SaveMemory(subMem)
@@ -619,6 +667,9 @@ func (s *Server) StartHTTPServer(port int) error {
 	// GET /api/list
 	mux.HandleFunc("/api/list", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
 			return
 		}
 		scope := r.URL.Query().Get("scope")

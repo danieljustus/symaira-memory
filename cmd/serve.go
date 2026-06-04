@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/mcp"
 	"github.com/danieljustus/symaira-memory/internal/security"
 )
@@ -33,6 +34,11 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 			os.Exit(1)
 		}
 		server := mcp.NewServer(GetDB(), jwtProvider)
+
+		cfg, cfgErr := config.Load()
+		if cfgErr == nil {
+			server.SetPIIEnabled(cfg.Security.PIIEnabled)
+		}
 		if servePort > 0 {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

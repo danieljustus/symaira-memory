@@ -126,7 +126,9 @@ func (jp *JWTProvider) GenerateToken(subject string, duration time.Duration) (st
 
 	now := time.Now()
 	jtiBytes := make([]byte, 16)
-	rand.Read(jtiBytes)
+	if _, err := rand.Read(jtiBytes); err != nil {
+		return "", fmt.Errorf("failed to generate JTI: %w", err)
+	}
 	jti := hex.EncodeToString(jtiBytes)
 
 	payload := JWTPayload{
