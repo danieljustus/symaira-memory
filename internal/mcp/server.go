@@ -227,7 +227,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		m, err := s.db.GetMemory(args.ID)
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Error fetching memory: %v", err), true)
+			s.sendToolError(reqID, "Failed to fetch memory", err)
 			return
 		}
 
@@ -238,7 +238,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		bytes, err := json.MarshalIndent(m, "", "  ")
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			s.sendToolError(reqID, "Failed to encode memory data", err)
 			return
 		}
 		s.sendToolResponse(reqID, string(bytes), false)
@@ -295,7 +295,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		}
 
 		if err := s.db.SaveMemory(m); err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Database save failure: %v", err), true)
+			s.sendToolError(reqID, "Failed to save memory", err)
 			return
 		}
 
@@ -364,7 +364,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		queryVector := s.embeddings.GenerateVector(args.Query)
 		results, err := s.db.SearchMemories(queryVector, args.Scope, limit)
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Search error: %v", err), true)
+			s.sendToolError(reqID, "Failed to search memories", err)
 			return
 		}
 
@@ -375,7 +375,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		bytes, err := json.MarshalIndent(results, "", "  ")
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			s.sendToolError(reqID, "Failed to encode search results", err)
 			return
 		}
 		s.sendToolResponse(reqID, string(bytes), false)
@@ -391,7 +391,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		memories, err := s.db.ListMemories(args.Scope)
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("List error: %v", err), true)
+			s.sendToolError(reqID, "Failed to list memories", err)
 			return
 		}
 
@@ -402,7 +402,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 		bytes, err := json.MarshalIndent(memories, "", "  ")
 		if err != nil {
-			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			s.sendToolError(reqID, "Failed to encode memory list", err)
 			return
 		}
 		s.sendToolResponse(reqID, string(bytes), false)
@@ -434,7 +434,6 @@ func (s *Server) sendError(id json.RawMessage, code int, message string) {
 }
 
 func (s *Server) sendToolResponse(id json.RawMessage, text string, isError bool) {
-	// If it is an error, prefix text
 	prefix := ""
 	if isError {
 		prefix = "[ERROR] "
@@ -448,6 +447,13 @@ func (s *Server) sendToolResponse(id json.RawMessage, text string, isError bool)
 		},
 	}
 	s.sendResult(id, res)
+}
+
+// sendToolError sends a user-safe error message to the agent while logging
+// the full internal error details to stderr for diagnostics.
+func (s *Server) sendToolError(id json.RawMessage, safeMsg string, internalErr error) {
+	fmt.Fprintf(os.Stderr, "[MCP ERROR] %s: %v\n", safeMsg, internalErr)
+	s.sendToolResponse(id, safeMsg, true)
 }
 
 func (s *Server) sendResponse(res *JSONRPCResponse) {
