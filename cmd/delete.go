@@ -18,7 +18,7 @@ var deleteCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		id := args[0]
 
-		m, err := RootDB.GetMemory(id)
+		m, err := GetDB().GetMemory(id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Database read error: %v\n", err)
 			os.Exit(1)
@@ -28,7 +28,7 @@ var deleteCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if err := RootDB.DeleteMemory(id); err != nil {
+		if err := GetDB().DeleteMemory(id); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to delete memory: %v\n", err)
 			os.Exit(1)
 		}

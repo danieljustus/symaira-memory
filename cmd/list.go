@@ -21,7 +21,7 @@ var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all stored memory entries in the database",
 	Run: func(cmd *cobra.Command, args []string) {
-		mems, err := RootDB.ListMemories(listScope)
+		mems, err := GetDB().ListMemories(listScope)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Database read failure: %v\n", err)
 			os.Exit(1)

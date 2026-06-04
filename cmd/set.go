@@ -59,7 +59,7 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 			Embedding: vector,
 		}
 
-		if err := RootDB.SaveMemory(m); err != nil {
+		if err := GetDB().SaveMemory(m); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing memory to SQLite: %v\n", err)
 			os.Exit(1)
 		}

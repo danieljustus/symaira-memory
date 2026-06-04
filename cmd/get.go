@@ -18,7 +18,7 @@ var getCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		id := args[0]
-		m, err := RootDB.GetMemory(id)
+		m, err := GetDB().GetMemory(id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Database read error: %v\n", err)
 			os.Exit(1)

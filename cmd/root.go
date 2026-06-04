@@ -15,8 +15,18 @@ var (
 )
 
 var (
-	RootDB *db.DB
+	rootDB *db.DB
 )
+
+// GetDB returns the current database instance. Returns nil if not yet opened.
+func GetDB() *db.DB {
+	return rootDB
+}
+
+// SetDB sets the database instance for use by commands.
+func SetDB(database *db.DB) {
+	rootDB = database
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "symmemory",
@@ -25,20 +35,19 @@ var rootCmd = &cobra.Command{
 built for AI-Agent workflows. It stores facts, summaries, and scopes offline utilizing 
 SQLite, and exposes them to agents through the Model Context Protocol (MCP).`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Bypass database opening for helper commands
 		if cmd.Name() == "version" || cmd.Name() == "mcp-config" || (cmd.Parent() != nil && cmd.Parent().Name() == "mcp-config") {
 			return nil
 		}
-		var err error
-		RootDB, err = db.Open()
+		database, err := db.Open()
 		if err != nil {
 			return fmt.Errorf("failed to open SQLite database: %w", err)
 		}
+		SetDB(database)
 		return nil
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
-		if RootDB != nil {
-			RootDB.Close()
+		if db := GetDB(); db != nil {
+			db.Close()
 		}
 	},
 }
