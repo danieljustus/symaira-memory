@@ -77,6 +77,7 @@ type Server struct {
 	embeddings     *extractor.EmbeddingsGenerator
 	jwts           *security.JWTProvider
 	allowedOrigins []string
+	piiEnabled     bool
 }
 
 // NewServer configures a new Server instance.
@@ -87,7 +88,13 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider) *Server {
 		embeddings:     extractor.NewEmbeddingsGenerator(),
 		jwts:           jwtProvider,
 		allowedOrigins: []string{"chrome-extension://*", "moz-extension://*"},
+		piiEnabled:     true,
 	}
+}
+
+// SetPIIEnabled controls whether memory content is redacted for PII before persistence.
+func (s *Server) SetPIIEnabled(enabled bool) {
+	s.piiEnabled = enabled
 }
 
 // SetAllowedOrigins overrides the default allowed CORS origins.
@@ -247,9 +254,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		// Security Integration: PII Guard Redaction
-		piiGuard := security.NewPIIGuard()
-		cleanContent := piiGuard.Redact(args.Content)
+		cleanContent := args.Content
+		if s.piiEnabled {
+			piiGuard := security.NewPIIGuard()
+			cleanContent = piiGuard.Redact(args.Content)
+		}
 
 		scope := args.Scope
 		if scope == "" {
@@ -296,8 +305,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		for _, f := range extractedFacts {
 			subID := uuid.New().String()
 			
-			// Redact PII in extracted facts as well
-			cleanFactContent := piiGuard.Redact(f.Content)
+			cleanFactContent := f.Content
+			if s.piiEnabled {
+				piiGuard := security.NewPIIGuard()
+				cleanFactContent = piiGuard.Redact(f.Content)
+			}
 			
 			subVector := s.embeddings.GenerateVector(cleanFactContent)
 			
@@ -573,19 +585,38 @@ func (s *Server) StartHTTPServer(port int) error {
 			return
 		}
 
+		cleanContent := args.Content
+		if s.piiEnabled {
+			piiGuard := security.NewPIIGuard()
+			cleanContent = piiGuard.Redact(args.Content)
+		}
+
 		scope := args.Scope
 		if scope == "" {
 			scope = "global"
 		}
+		if err := security.ValidateScope(scope); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-		vector := s.embeddings.GenerateVector(args.Content)
+		meta := args.Metadata
+		if meta == nil {
+			meta = make(map[string]string)
+		}
+		if scope == "project" {
+			detector := security.NewProjectScopeDetector()
+			meta["project_name"] = detector.DetectActiveProject()
+		}
+
+		vector := s.embeddings.GenerateVector(cleanContent)
 		memID := uuid.New().String()
 		
 		m := &db.Memory{
 			ID:        memID,
-			Content:   args.Content,
+			Content:   cleanContent,
 			Scope:     scope,
-			Metadata:  args.Metadata,
+			Metadata:  meta,
 			Embedding: vector,
 		}
 
@@ -594,16 +625,27 @@ func (s *Server) StartHTTPServer(port int) error {
 			return
 		}
 
-		// Background offline fact extraction
-		extracted := s.extractor.ExtractFacts(args.Content)
+		extracted := s.extractor.ExtractFacts(cleanContent)
 		for _, f := range extracted {
+			cleanFactContent := f.Content
+			if s.piiEnabled {
+				piiGuard := security.NewPIIGuard()
+				cleanFactContent = piiGuard.Redact(f.Content)
+			}
 			subID := uuid.New().String()
-			subVector := s.embeddings.GenerateVector(f.Content)
+			subVector := s.embeddings.GenerateVector(cleanFactContent)
+			subMeta := f.Metadata
+			if subMeta == nil {
+				subMeta = make(map[string]string)
+			}
+			if scope == "project" {
+				subMeta["project_name"] = meta["project_name"]
+			}
 			subMem := &db.Memory{
 				ID:        subID,
-				Content:   f.Content,
+				Content:   cleanFactContent,
 				Scope:     scope,
-				Metadata:  f.Metadata,
+				Metadata:  subMeta,
 				Embedding: subVector,
 			}
 			_ = s.db.SaveMemory(subMem)
@@ -619,6 +661,9 @@ func (s *Server) StartHTTPServer(port int) error {
 	// GET /api/list
 	mux.HandleFunc("/api/list", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
 			return
 		}
 		scope := r.URL.Query().Get("scope")
