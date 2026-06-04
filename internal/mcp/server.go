@@ -229,7 +229,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(m, "", "  ")
+		bytes, err := json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			return
+		}
 		s.sendToolResponse(reqID, string(bytes), false)
 
 	case "memory_set":
@@ -250,6 +254,10 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		scope := args.Scope
 		if scope == "" {
 			scope = "global"
+		}
+		if err := security.ValidateScope(scope); err != nil {
+			s.sendToolResponse(reqID, err.Error(), true)
+			return
 		}
 
 		meta := make(map[string]string)
@@ -353,7 +361,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(results, "", "  ")
+		bytes, err := json.MarshalIndent(results, "", "  ")
+		if err != nil {
+			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			return
+		}
 		s.sendToolResponse(reqID, string(bytes), false)
 
 	case "memory_list":
@@ -376,7 +388,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(memories, "", "  ")
+		bytes, err := json.MarshalIndent(memories, "", "  ")
+		if err != nil {
+			s.sendToolResponse(reqID, fmt.Sprintf("Encode error: %v", err), true)
+			return
+		}
 		s.sendToolResponse(reqID, string(bytes), false)
 
 	default:
