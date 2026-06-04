@@ -171,8 +171,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("expected 2 migrations after two opens, got %d", count)
+	if count != 3 {
+		t.Errorf("expected 3 migrations after two opens, got %d", count)
 	}
 }
 

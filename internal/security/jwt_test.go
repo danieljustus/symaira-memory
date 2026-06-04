@@ -8,7 +8,7 @@ import (
 
 func TestJWTGenerationAndVerification(t *testing.T) {
 	secret := "my_custom_secure_test_signing_key_2026"
-	provider, err := NewJWTProvider(secret)
+	provider, err := NewJWTProvider(secret, nil)
 	if err != nil {
 		t.Fatalf("failed to create jwt provider: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestJWTGenerationAndVerification(t *testing.T) {
 	}
 
 	// Test Expiration Verification
-	expiredProvider, err := NewJWTProvider(secret)
+	expiredProvider, err := NewJWTProvider(secret, nil)
 	if err != nil {
 		t.Fatalf("failed to create expired jwt provider: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestJWTGenerationAndVerification(t *testing.T) {
 }
 
 func TestJWTRevocation(t *testing.T) {
-	provider, err := NewJWTProvider("revocation-test-secret")
+	provider, err := NewJWTProvider("revocation-test-secret", nil)
 	if err != nil {
 		t.Fatalf("failed to create jwt provider: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestJWTRevocation(t *testing.T) {
 }
 
 func TestJWTKeyRotation(t *testing.T) {
-	provider, err := NewJWTProvider("old-secret-v1")
+	provider, err := NewJWTProvider("old-secret-v1", nil)
 	if err != nil {
 		t.Fatalf("failed to create jwt provider: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestJWTKeyRotation(t *testing.T) {
 	}
 
 	// Token signed with unrelated key should fail
-	forgedProvider, _ := NewJWTProvider("unrelated-key")
+	forgedProvider, _ := NewJWTProvider("unrelated-key", nil)
 	forgedToken, _ := forgedProvider.GenerateToken("agent", 10*time.Minute)
 	_, err = provider.VerifyToken(forgedToken)
 	if err == nil {
