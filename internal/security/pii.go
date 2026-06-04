@@ -29,9 +29,6 @@ func NewPIIGuard() *PIIGuard {
 
 		// Credit Card Numbers (Simple 13-16 digit patterns)
 		regexp.MustCompile(`\b(?:\d[ -]*?){13,16}\b`),
-
-		// Generic high-entropy string fallback (≥40 alphanumeric characters)
-		regexp.MustCompile(`\b[a-zA-Z0-9]{40,}\b`),
 	}
 
 	return &PIIGuard{patterns: patterns}
