@@ -72,20 +72,27 @@ type ToolContent struct {
 
 // Server holds dependencies for running the stdio server.
 type Server struct {
-	db         *db.DB
-	extractor  *extractor.PatternExtractor
-	embeddings *extractor.EmbeddingsGenerator
-	jwts       *security.JWTProvider
+	db             *db.DB
+	extractor      *extractor.PatternExtractor
+	embeddings     *extractor.EmbeddingsGenerator
+	jwts           *security.JWTProvider
+	allowedOrigins []string
 }
 
 // NewServer configures a new Server instance.
 func NewServer(database *db.DB, jwtProvider *security.JWTProvider) *Server {
 	return &Server{
-		db:         database,
-		extractor:  extractor.NewPatternExtractor(),
-		embeddings: extractor.NewEmbeddingsGenerator(),
-		jwts:       jwtProvider,
+		db:             database,
+		extractor:      extractor.NewPatternExtractor(),
+		embeddings:     extractor.NewEmbeddingsGenerator(),
+		jwts:           jwtProvider,
+		allowedOrigins: []string{"chrome-extension://*", "moz-extension://*"},
 	}
+}
+
+// SetAllowedOrigins overrides the default allowed CORS origins.
+func (s *Server) SetAllowedOrigins(origins []string) {
+	s.allowedOrigins = origins
 }
 
 // Serve reads JSON-RPC 2.0 lines from stdin, processes them, and writes responses to stdout.
@@ -432,7 +439,23 @@ func (s *Server) StartHTTPServer(port int) error {
 
 	// CORS Helper for extension origin requests
 	enableCORS := func(w http.ResponseWriter, r *http.Request) bool {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		allowed := false
+		for _, o := range s.allowedOrigins {
+			if matchOrigin(origin, o) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			// When origin is missing (same-origin) or not allowed, omit the header
+			if origin != "" {
+				http.Error(w, `{"error":"origin not allowed"}`, http.StatusForbidden)
+				return true
+			}
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == "OPTIONS" {
@@ -596,4 +619,15 @@ func (s *Server) StartHTTPServer(port int) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	log.Printf("⚡ Symaira Memory API Listening on http://%s\n", addr)
 	return http.ListenAndServe(addr, mux)
+}
+
+func matchOrigin(origin, pattern string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasSuffix(pattern, "://*") {
+		scheme := strings.TrimSuffix(pattern, "://*")
+		return strings.HasPrefix(origin, scheme+"://")
+	}
+	return origin == pattern
 }
