@@ -32,7 +32,11 @@ var listCmd = &cobra.Command{
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(mems, "", "  ")
+		bytes, err := json.MarshalIndent(mems, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode memories: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println(string(bytes))
 	},
 }

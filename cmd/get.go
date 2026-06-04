@@ -29,7 +29,11 @@ var getCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		bytes, _ := json.MarshalIndent(m, "", "  ")
+		bytes, err := json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode memory: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println(string(bytes))
 	},
 }

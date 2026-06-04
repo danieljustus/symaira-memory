@@ -118,7 +118,10 @@ func generateAndPersistSecret() (string, error) {
 // GenerateToken issues a valid signed JWT token for the specified subject (e.g. "extension" or "gpt").
 func (jp *JWTProvider) GenerateToken(subject string, duration time.Duration) (string, error) {
 	header := jwtHeader{Alg: "HS256", Typ: "JWT"}
-	headerBytes, _ := json.Marshal(header)
+	headerBytes, err := json.Marshal(header)
+	if err != nil {
+		return "", fmt.Errorf("marshal header: %w", err)
+	}
 	headerEncoded := base64URL(headerBytes)
 
 	now := time.Now()
@@ -133,7 +136,10 @@ func (jp *JWTProvider) GenerateToken(subject string, duration time.Duration) (st
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(duration).Unix(),
 	}
-	payloadBytes, _ := json.Marshal(payload)
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
 	payloadEncoded := base64URL(payloadBytes)
 
 	// Sign the header and payload

@@ -40,7 +40,11 @@ var searchCmd = &cobra.Command{
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(results, "", "  ")
+		bytes, err := json.MarshalIndent(results, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode results: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println(string(bytes))
 	},
 }

@@ -81,7 +81,11 @@ var ruleListCmd = &cobra.Command{
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(rules, "", "  ")
+		bytes, err := json.MarshalIndent(rules, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode rules: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println(string(bytes))
 	},
 }
