@@ -1,9 +1,25 @@
 package security
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
+
+var ValidScopes = map[string]bool{
+	"global":  true,
+	"project": true,
+	"agent":   true,
+	"user":    true,
+	"session": true,
+}
+
+func ValidateScope(scope string) error {
+	if scope == "" || ValidScopes[scope] {
+		return nil
+	}
+	return fmt.Errorf("invalid scope %q: must be one of global, project, agent, user, session", scope)
+}
 
 // ProjectScopeDetector finds active workspace boundaries.
 type ProjectScopeDetector struct{}

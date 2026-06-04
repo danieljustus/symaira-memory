@@ -11,6 +11,12 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
+const (
+	// PBKDF2Iterations defines the iteration count for key derivation.
+	// OWASP 2023 recommends 600,000 for SHA-256.
+	PBKDF2Iterations = 600_000
+)
+
 // CryptoEngine handles Zero-Knowledge E2E encryption using AES-256-GCM.
 type CryptoEngine struct{}
 
@@ -19,10 +25,8 @@ func NewCryptoEngine() *CryptoEngine {
 	return &CryptoEngine{}
 }
 
-// DeriveKey derives a 32-byte AES-256 key from a passphrase and a salt using PBKDF2.
 func (ce *CryptoEngine) DeriveKey(passphrase string, salt []byte) []byte {
-	// Standard configuration: 4096 iterations, SHA-256, 32-byte key size
-	return pbkdf2.Key([]byte(passphrase), salt, 4096, 32, sha256.New)
+	return pbkdf2.Key([]byte(passphrase), salt, PBKDF2Iterations, 32, sha256.New)
 }
 
 // Encrypt encrypts a raw byte payload using AES-256-GCM with a passphrase.

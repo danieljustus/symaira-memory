@@ -6,7 +6,29 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
+
+// findSubcommand walks the command tree and returns the command at the given path.
+// Example: findSubcommand(rootCmd, "token", "generate")
+func findSubcommand(root *cobra.Command, path ...string) *cobra.Command {
+	cur := root
+	for _, name := range path {
+		found := false
+		for _, sub := range cur.Commands() {
+			if sub.Use == name {
+				cur = sub
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil
+		}
+	}
+	return cur
+}
 
 // helperSetup sets Version info and captures stdout.
 func helperSetup() {
@@ -252,4 +274,185 @@ func TestMcpConfigCommandOutput(t *testing.T) {
 	// The config command prints to stderr, not stdout
 	// So stdout should be empty
 	_ = output
+}
+
+// --------------------------------------------------------------------------
+// Token command structure and flags
+// --------------------------------------------------------------------------
+
+func TestTokenCommandHasSubcommands(t *testing.T) {
+	var tokenCmd = findSubcommand(rootCmd, "token")
+	if tokenCmd == nil {
+		t.Fatal("token command not found")
+	}
+
+	subs := tokenCmd.Commands()
+	if len(subs) < 2 {
+		t.Errorf("expected at least 2 subcommands under token, got %d", len(subs))
+	}
+
+	found := map[string]bool{"generate": false, "verify": false}
+	for _, sub := range subs {
+		if sub.Use == "generate" {
+			found["generate"] = true
+		}
+		if sub.Use == "verify [token]" {
+			found["verify"] = true
+		}
+	}
+	for name, ok := range found {
+		if !ok {
+			t.Errorf("expected token subcommand %q", name)
+		}
+	}
+}
+
+func TestTokenGenerateCommandFlags(t *testing.T) {
+	genCmd := findSubcommand(rootCmd, "token", "generate")
+	if genCmd == nil {
+		t.Fatal("token generate command not found")
+	}
+
+	for _, name := range []string{"subject", "duration"} {
+		if genCmd.Flags().Lookup(name) == nil {
+			t.Errorf("expected %q flag on token generate command", name)
+		}
+	}
+
+	// Default subject should be "extension"
+	subjFlag := genCmd.Flags().Lookup("subject")
+	if subjFlag.DefValue != "extension" {
+		t.Errorf("expected default subject 'extension', got %q", subjFlag.DefValue)
+	}
+}
+
+func TestTokenVerifyCommandRequiresArgs(t *testing.T) {
+	verifyCmd := findSubcommand(rootCmd, "token", "verify [token]")
+	if verifyCmd == nil {
+		t.Fatal("token verify command not found")
+	}
+
+	err := verifyCmd.Args(verifyCmd, []string{})
+	if err == nil {
+		t.Error("expected error for verify with no args")
+	}
+
+	err = verifyCmd.Args(verifyCmd, []string{"some-token"})
+	if err != nil {
+		t.Errorf("expected no error for verify with 1 arg, got: %v", err)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Backup command structure
+// --------------------------------------------------------------------------
+
+func TestBackupCommandHasSubcommands(t *testing.T) {
+	bkCmd := findSubcommand(rootCmd, "backup")
+	if bkCmd == nil {
+		t.Fatal("backup command not found")
+	}
+
+	subs := bkCmd.Commands()
+	found := map[string]bool{"export": false, "restore": false}
+	for _, sub := range subs {
+		if sub.Use == "export [destination.tar.gz]" {
+			found["export"] = true
+		}
+		if sub.Use == "restore [source.tar.gz]" {
+			found["restore"] = true
+		}
+	}
+	for name, ok := range found {
+		if !ok {
+			t.Errorf("expected backup subcommand %q", name)
+		}
+	}
+
+	if bkCmd.PersistentFlags().Lookup("password") == nil {
+		t.Error("expected 'password' persistent flag on backup command")
+	}
+}
+
+func TestBackupExportRequiresArgs(t *testing.T) {
+	exportCmd := findSubcommand(rootCmd, "backup", "export [destination.tar.gz]")
+	if exportCmd == nil {
+		t.Fatal("backup export command not found")
+	}
+
+	err := exportCmd.Args(exportCmd, []string{})
+	if err == nil {
+		t.Error("expected error for export with no args")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Console and Rule command structure
+// --------------------------------------------------------------------------
+
+func TestConsoleCommandRegistered(t *testing.T) {
+	found := false
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Use == "console" {
+			found = true
+			if cmd.Short == "" {
+				t.Error("console command has empty Short")
+			}
+		}
+	}
+	if !found {
+		t.Error("console command not found")
+	}
+}
+
+func TestRuleCommandHasSubcommands(t *testing.T) {
+	ruleCmd := findSubcommand(rootCmd, "rule")
+	if ruleCmd == nil {
+		t.Fatal("rule command not found")
+	}
+
+	subs := ruleCmd.Commands()
+	expected := map[string]bool{"add [instruction]": false, "list": false, "delete [id]": false}
+	for _, sub := range subs {
+		if _, ok := expected[sub.Use]; ok {
+			expected[sub.Use] = true
+		}
+	}
+	for name, ok := range expected {
+		if !ok {
+			t.Errorf("expected rule subcommand %q", name)
+		}
+	}
+}
+
+// --------------------------------------------------------------------------
+// DB getter/setter
+// --------------------------------------------------------------------------
+
+func TestGetDBReturnsNilWithoutInit(t *testing.T) {
+	SetDB(nil)
+
+	if db := GetDB(); db != nil {
+		t.Error("expected nil from GetDB when not initialized")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Delete command args
+// --------------------------------------------------------------------------
+
+func TestDeleteCommandRequiresArgs(t *testing.T) {
+	found := false
+	for _, cmd := range rootCmd.Commands() {
+		if cmd.Use == "delete [id]" {
+			found = true
+			err := cmd.Args(cmd, []string{})
+			if err == nil {
+				t.Error("expected error for delete with no args")
+			}
+		}
+	}
+	if !found {
+		t.Error("delete command not found")
+	}
 }

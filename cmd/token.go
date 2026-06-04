@@ -19,7 +19,7 @@ func init() {
 	tokenCmd.AddCommand(tokenVerifyCmd)
 	
 	tokenGenCmd.Flags().StringVarP(&tokenSubject, "subject", "s", "extension", "Subject/client identity for this token")
-	tokenGenCmd.Flags().IntVarP(&tokenDuration, "duration", "d", 8760, "Token validity duration in hours (default 1 year)")
+	tokenGenCmd.Flags().IntVarP(&tokenDuration, "duration", "d", 72, "Token validity duration in hours (default 72h)")
 	
 	rootCmd.AddCommand(tokenCmd)
 }
@@ -34,7 +34,7 @@ var tokenGenCmd = &cobra.Command{
 	Use:   "generate",
 	Short: "Generate a new signed JWT authorization token",
 	Run: func(cmd *cobra.Command, args []string) {
-		provider, err := security.NewJWTProvider("")
+		provider, err := security.NewJWTProvider("", nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize JWT provider: %v\n", err)
 			os.Exit(1)
@@ -63,7 +63,7 @@ var tokenVerifyCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		token := args[0]
-		provider, err := security.NewJWTProvider("")
+		provider, err := security.NewJWTProvider("", nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize JWT provider: %v\n", err)
 			os.Exit(1)

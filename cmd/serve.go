@@ -27,12 +27,12 @@ var serveCmd = &cobra.Command{
 	Long: `Starts the stdio transport JSON-RPC 2.0 server (default) or runs a local HTTP REST API 
 server if a port is provided. This HTTP API daemon powers the browser extension.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		jwtProvider, err := security.NewJWTProvider("")
+		jwtProvider, err := security.NewJWTProvider("", GetDB())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize JWT provider: %v\n", err)
 			os.Exit(1)
 		}
-		server := mcp.NewServer(RootDB, jwtProvider)
+		server := mcp.NewServer(GetDB(), jwtProvider)
 		if servePort > 0 {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

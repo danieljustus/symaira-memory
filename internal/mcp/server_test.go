@@ -37,7 +37,7 @@ func helperDB(t *testing.T) *db.DB {
 func helperServer(t *testing.T) *Server {
 	t.Helper()
 	database := helperDB(t)
-	jwtProvider, err := security.NewJWTProvider("test-secret")
+	jwtProvider, err := security.NewJWTProvider("test-secret", nil)
 	if err != nil {
 		t.Fatalf("failed to create JWT provider: %v", err)
 	}

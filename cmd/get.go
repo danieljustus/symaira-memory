@@ -18,7 +18,7 @@ var getCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		id := args[0]
-		m, err := RootDB.GetMemory(id)
+		m, err := GetDB().GetMemory(id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Database read error: %v\n", err)
 			os.Exit(1)
@@ -29,7 +29,11 @@ var getCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		bytes, _ := json.MarshalIndent(m, "", "  ")
+		bytes, err := json.MarshalIndent(m, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode memory: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println(string(bytes))
 	},
 }

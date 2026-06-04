@@ -17,11 +17,18 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/config"
 )
 
+// DB interface for revocation persistence, avoiding circular imports.
+type RevocationStore interface {
+	RevokeToken(jti string) error
+	IsTokenRevoked(jti string) (bool, error)
+}
+
 // JWTProvider manages API token issuance, validation, revocation, and key rotation.
 type JWTProvider struct {
-	secret  []byte
-	secrets [][]byte // fallback keys for rotation grace period
-	revoked map[string]time.Time
+	secret   []byte
+	secrets  [][]byte // fallback keys for rotation grace period
+	revoked  map[string]time.Time
+	revStore RevocationStore
 }
 
 type jwtHeader struct {
@@ -37,10 +44,9 @@ type JWTPayload struct {
 	ExpiresAt int64  `json:"exp"`
 }
 
-// NewJWTProvider configures a JWT provider with a secret.
-// Sources the signing secret from (in order): explicit argument, JWT_SECRET_KEY env var,
-// persisted file at ~/.config/symmemory/jwt.secret, or auto-generates and persists a new one.
-func NewJWTProvider(secret string) (*JWTProvider, error) {
+// NewJWTProvider configures a JWT provider with a secret and an optional
+// persistent revocation store. When store is nil, only in-memory revocation is used.
+func NewJWTProvider(secret string, store RevocationStore) (*JWTProvider, error) {
 	if secret == "" {
 		secret = os.Getenv("JWT_SECRET_KEY")
 	}
@@ -58,8 +64,9 @@ func NewJWTProvider(secret string) (*JWTProvider, error) {
 		secret = generated
 	}
 	return &JWTProvider{
-		secret:  []byte(secret),
-		revoked: make(map[string]time.Time),
+		secret:   []byte(secret),
+		revoked:  make(map[string]time.Time),
+		revStore: store,
 	}, nil
 }
 
@@ -111,7 +118,10 @@ func generateAndPersistSecret() (string, error) {
 // GenerateToken issues a valid signed JWT token for the specified subject (e.g. "extension" or "gpt").
 func (jp *JWTProvider) GenerateToken(subject string, duration time.Duration) (string, error) {
 	header := jwtHeader{Alg: "HS256", Typ: "JWT"}
-	headerBytes, _ := json.Marshal(header)
+	headerBytes, err := json.Marshal(header)
+	if err != nil {
+		return "", fmt.Errorf("marshal header: %w", err)
+	}
 	headerEncoded := base64URL(headerBytes)
 
 	now := time.Now()
@@ -126,7 +136,10 @@ func (jp *JWTProvider) GenerateToken(subject string, duration time.Duration) (st
 		IssuedAt:  now.Unix(),
 		ExpiresAt: now.Add(duration).Unix(),
 	}
-	payloadBytes, _ := json.Marshal(payload)
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal payload: %w", err)
+	}
 	payloadEncoded := base64URL(payloadBytes)
 
 	// Sign the header and payload
@@ -170,9 +183,16 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 		return nil, err
 	}
 
-	// Check revocation
+	// Check in-memory revocation list
 	if revokedAt, ok := jp.revoked[payload.JWTID]; ok && time.Now().After(revokedAt) {
 		return nil, errors.New("token has been revoked")
+	}
+
+	// Check persistent revocation store
+	if jp.revStore != nil {
+		if isRevoked, err := jp.revStore.IsTokenRevoked(payload.JWTID); err == nil && isRevoked {
+			return nil, errors.New("token has been revoked")
+		}
 	}
 
 	// Check expiration
@@ -184,8 +204,13 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 }
 
 // RevokeToken invalidates a token by its JWT ID so it can no longer be used.
+// When a persistent store is available, the revocation is also persisted for
+// cross-process consistency.
 func (jp *JWTProvider) RevokeToken(jti string) {
 	jp.revoked[jti] = time.Now()
+	if jp.revStore != nil {
+		_ = jp.revStore.RevokeToken(jti)
+	}
 }
 
 // AddFallbackSecret registers an additional signing key for rotation.

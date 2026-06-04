@@ -41,7 +41,11 @@ server into major MCP clients like Claude Desktop, Cursor, or VS Code Cline exte
 			},
 		}
 
-		configBytes, _ := json.MarshalIndent(config, "", "  ")
+		configBytes, err := json.MarshalIndent(config, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode config: %v\n", err)
+			os.Exit(1)
+		}
 
 		fmt.Fprintln(os.Stderr, "⚡ Copy and paste this block into your host configuration file:")
 		fmt.Fprintf(os.Stderr, "\n📂 Claude Desktop Config Path:\n  %s\n", filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"))

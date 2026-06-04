@@ -29,7 +29,7 @@ var searchCmd = &cobra.Command{
 		embeddings := extractor.NewEmbeddingsGenerator()
 		queryVector := embeddings.GenerateVector(query)
 
-		results, err := RootDB.SearchMemories(queryVector, searchScope, searchLimit)
+		results, err := GetDB().SearchMemories(queryVector, searchScope, searchLimit)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Semantic search failure: %v\n", err)
 			os.Exit(1)
@@ -40,7 +40,11 @@ var searchCmd = &cobra.Command{
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(results, "", "  ")
+		bytes, err := json.MarshalIndent(results, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode results: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println(string(bytes))
 	},
 }

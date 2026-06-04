@@ -29,6 +29,11 @@ var setCmd = &cobra.Command{
 	Long: `Save a new fact or context snippet to local SQLite storage. 
 Automatically triggers embedding generation, PII redaction, and project scope detection.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if err := security.ValidateScope(setScope); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 		// Security Integration: PII Guard Redaction
 		piiGuard := security.NewPIIGuard()
 		cleanValue := piiGuard.Redact(setValue)
@@ -54,7 +59,7 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 			Embedding: vector,
 		}
 
-		if err := RootDB.SaveMemory(m); err != nil {
+		if err := GetDB().SaveMemory(m); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing memory to SQLite: %v\n", err)
 			os.Exit(1)
 		}

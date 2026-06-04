@@ -2,7 +2,9 @@ package extractor
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"log"
 	"math"
@@ -22,6 +24,8 @@ type EmbeddingsGenerator struct {
 	httpClient    *http.Client
 	mu            sync.Mutex
 	lastFail      time.Time
+	cacheMu       sync.RWMutex
+	embeddingCache map[string][]float32
 }
 
 const (
@@ -57,20 +61,35 @@ func NewEmbeddingsGenerator() *EmbeddingsGenerator {
 				IdleConnTimeout: 90 * time.Second,
 			},
 		},
+		embeddingCache: make(map[string][]float32),
 	}
 }
 
 // GenerateVector produces a 768-dimensional vector using Ollama if available, or the local hashing fallback.
+// Results are cached by content hash to avoid redundant computation for identical text.
 func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
+	cacheKey := eg.cacheKey(text)
+	eg.cacheMu.RLock()
+	if cached, ok := eg.embeddingCache[cacheKey]; ok {
+		eg.cacheMu.RUnlock()
+		return cached
+	}
+	eg.cacheMu.RUnlock()
+
 	dims := 768
 
 	eg.mu.Lock()
 	skip := time.Since(eg.lastFail) < ollamaCacheTTL
 	eg.mu.Unlock()
 
+	var vec []float32
 	if !skip {
-		vec, err := eg.queryOllama(text)
+		var err error
+		vec, err = eg.queryOllama(text)
 		if err == nil && len(vec) == dims {
+			eg.cacheMu.Lock()
+			eg.embeddingCache[cacheKey] = vec
+			eg.cacheMu.Unlock()
 			return vec
 		}
 		eg.mu.Lock()
@@ -78,7 +97,16 @@ func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
 		eg.mu.Unlock()
 	}
 
-	return GenerateLocalHashVector(text, dims)
+	vec = GenerateLocalHashVector(text, dims)
+	eg.cacheMu.Lock()
+	eg.embeddingCache[cacheKey] = vec
+	eg.cacheMu.Unlock()
+	return vec
+}
+
+func (eg *EmbeddingsGenerator) cacheKey(text string) string {
+	h := sha256.Sum256([]byte(text))
+	return fmt.Sprintf("%x", h[:16])
 }
 
 func (eg *EmbeddingsGenerator) queryOllama(text string) ([]float32, error) {

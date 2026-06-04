@@ -51,7 +51,7 @@ var ruleAddCmd = &cobra.Command{
 			Metadata: meta,
 		}
 
-		if err := RootDB.SaveRule(r); err != nil {
+		if err := GetDB().SaveRule(r); err != nil {
 			fmt.Fprintf(os.Stderr, "Error saving rule: %v\n", err)
 			os.Exit(1)
 		}
@@ -70,7 +70,7 @@ var ruleListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all behavioral rules",
 	Run: func(cmd *cobra.Command, args []string) {
-		rules, err := RootDB.ListRules(ruleScope)
+		rules, err := GetDB().ListRules(ruleScope)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Database read failure: %v\n", err)
 			os.Exit(1)
@@ -81,7 +81,11 @@ var ruleListCmd = &cobra.Command{
 			return
 		}
 
-		bytes, _ := json.MarshalIndent(rules, "", "  ")
+		bytes, err := json.MarshalIndent(rules, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode rules: %v\n", err)
+			os.Exit(1)
+		}
 		fmt.Println(string(bytes))
 	},
 }
@@ -92,7 +96,7 @@ var ruleDeleteCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		id := args[0]
-		if err := RootDB.DeleteRule(id); err != nil {
+		if err := GetDB().DeleteRule(id); err != nil {
 			fmt.Fprintf(os.Stderr, "Delete error: %v\n", err)
 			os.Exit(1)
 		}

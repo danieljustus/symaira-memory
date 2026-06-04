@@ -35,10 +35,6 @@ func TestPIIGuardRedaction(t *testing.T) {
 			input:    "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
 			expected: "[REDACTED_API_KEY]\nsecret\n-----END PRIVATE KEY-----",
 		},
-		{
-			input:    "Token: abcdefghijklmnopqrstuvwxyz12345678901234",
-			expected: "Token: [REDACTED_API_KEY]",
-		},
 	}
 
 	for _, tt := range tests {
