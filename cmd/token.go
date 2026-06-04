@@ -19,7 +19,7 @@ func init() {
 	tokenCmd.AddCommand(tokenVerifyCmd)
 	
 	tokenGenCmd.Flags().StringVarP(&tokenSubject, "subject", "s", "extension", "Subject/client identity for this token")
-	tokenGenCmd.Flags().IntVarP(&tokenDuration, "duration", "d", 8760, "Token validity duration in hours (default 1 year)")
+	tokenGenCmd.Flags().IntVarP(&tokenDuration, "duration", "d", 72, "Token validity duration in hours (default 72h)")
 	
 	rootCmd.AddCommand(tokenCmd)
 }
