@@ -4,8 +4,8 @@ import "math/rand"
 
 const (
 	// LSHBits controls the number of hash bits (and thus bucket count = 2^LSHBits).
-	// 8 bits → 256 buckets, good trade-off between recall and speed.
-	LSHBits = 8
+	// 16 bits → 65,536 buckets for good recall on datasets up to ~100K memories.
+	LSHBits = 16
 	// EmbeddingDim is the expected vector dimensionality.
 	EmbeddingDim = 768
 )
