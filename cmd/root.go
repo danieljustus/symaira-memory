@@ -35,7 +35,7 @@ var rootCmd = &cobra.Command{
 built for AI-Agent workflows. It stores facts, summaries, and scopes offline utilizing 
 SQLite, and exposes them to agents through the Model Context Protocol (MCP).`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if cmd.Name() == "version" || cmd.Name() == "mcp-config" || (cmd.Parent() != nil && cmd.Parent().Name() == "mcp-config") {
+		if cmd.Name() == "version" || cmd.Name() == "mcp-config" || cmd.Name() == "init" || (cmd.Parent() != nil && cmd.Parent().Name() == "mcp-config") {
 			return nil
 		}
 		database, err := db.Open()
