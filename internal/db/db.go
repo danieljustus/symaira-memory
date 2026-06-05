@@ -265,11 +265,6 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 
 	var final []SearchResult
 	for i := 0; i < limit; i++ {
-		metaCopy := make(map[string]string, len(results[i].m.Metadata)+1)
-		for k, v := range results[i].m.Metadata {
-			metaCopy[k] = v
-		}
-		metaCopy["similarity_score"] = fmt.Sprintf("%.4f", results[i].score)
 		final = append(final, SearchResult{
 			Memory: results[i].m,
 			Score:  results[i].score,
