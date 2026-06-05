@@ -147,18 +147,18 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	return &m, nil
 }
 
-// ListMemories returns all memories, optionally filtered by scope.
-func (db *DB) ListMemories(scope string) ([]*Memory, error) {
+// ListMemories returns memories with pagination, optionally filtered by scope.
+func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var query string
 	var rows *sql.Rows
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC"
-		rows, err = db.conn.Query(query, scope)
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories ORDER BY created_at DESC"
-		rows, err = db.conn.Query(query)
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, limit, offset)
 	}
 
 	if err != nil {
@@ -179,6 +179,43 @@ func (db *DB) ListMemories(scope string) ([]*Memory, error) {
 		}
 
 		if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+			return nil, err
+		}
+
+		memories = append(memories, &m)
+	}
+
+	return memories, nil
+}
+
+// ListMemoriesLite returns memories without embedding data, with pagination.
+func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, error) {
+	var query string
+	var rows *sql.Rows
+	var err error
+
+	if scope != "" {
+		query = "SELECT id, content, scope, metadata, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, scope, limit, offset)
+	} else {
+		query = "SELECT id, content, scope, metadata, created_at, updated_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, limit, offset)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		var m Memory
+		var metaStr string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+
+		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
 			return nil, err
 		}
 

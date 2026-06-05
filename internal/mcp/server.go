@@ -389,7 +389,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		memories, err := s.db.ListMemories(args.Scope)
+		memories, err := s.db.ListMemoriesLite(args.Scope, 0, 1000)
 		if err != nil {
 			s.sendToolError(reqID, "Failed to list memories", err)
 			return
@@ -673,7 +673,7 @@ func (s *Server) StartHTTPServer(port int) error {
 			return
 		}
 		scope := r.URL.Query().Get("scope")
-		memories, err := s.db.ListMemories(scope)
+		memories, err := s.db.ListMemoriesLite(scope, 0, 1000)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
