@@ -34,9 +34,13 @@ func helperDB(t *testing.T) *db.DB {
 // Model Init
 // --------------------------------------------------------------------------
 
+func newTestModel(database *db.DB) model {
+	return InitialModel(database, ":memory:", "http://localhost:11434/api/embeddings", "nomic-embed-text", 0)
+}
+
 func TestInitialModel(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	if m.db != database {
 		t.Error("expected model.db to be set")
@@ -51,7 +55,7 @@ func TestInitialModel(t *testing.T) {
 
 func TestModelInit(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 	cmd := m.Init()
 	if cmd != nil {
 		t.Error("expected Init() to return nil command")
@@ -64,7 +68,7 @@ func TestModelInit(t *testing.T) {
 
 func TestModelUpdateQuit(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("q")})
 	if cmd == nil {
@@ -75,7 +79,7 @@ func TestModelUpdateQuit(t *testing.T) {
 
 func TestModelUpdateNavigationEmpty(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	// Navigating down on empty list should not crash
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -102,7 +106,7 @@ func TestModelUpdateNavigationWithMemories(t *testing.T) {
 		Embedding: []float32{2.0},
 	})
 
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	if len(m.memories) != 2 {
 		t.Fatalf("expected 2 memories, got %d", len(m.memories))
@@ -149,7 +153,7 @@ func TestModelUpdateNavigationWithMemories(t *testing.T) {
 
 func TestModelUpdateScopeFilters(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	tests := []struct {
 		key         string
@@ -184,7 +188,7 @@ func TestModelUpdateScopeFilters(t *testing.T) {
 
 func TestModelUpdateSearchMode(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	// Enter search mode
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -216,7 +220,7 @@ func TestModelUpdateSearchMode(t *testing.T) {
 
 func TestModelUpdateSearchBackspace(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	// Enter search mode and type 'ab'
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
@@ -248,7 +252,7 @@ func TestModelUpdateDeleteMemory(t *testing.T) {
 		Embedding: []float32{1.0},
 	})
 
-	m := InitialModel(database)
+	m := newTestModel(database)
 	if len(m.memories) != 1 {
 		t.Fatalf("expected 1 memory before delete, got %d", len(m.memories))
 	}
@@ -270,7 +274,7 @@ func TestModelUpdateDeleteMemory(t *testing.T) {
 
 func TestModelView(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	view := m.View()
 	if !strings.Contains(view, "SYMAIRA MEMORY") {
@@ -293,7 +297,7 @@ func TestModelViewWithMemories(t *testing.T) {
 		Embedding: []float32{0.5},
 	})
 
-	m := InitialModel(database)
+	m := newTestModel(database)
 	view := m.View()
 
 	if !strings.Contains(view, "Test memory view") {
@@ -309,7 +313,7 @@ func TestModelViewWithMemories(t *testing.T) {
 
 func TestModelViewWithScopeFilter(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 	m.scope = "project"
 	m.loadMemories()
 
@@ -324,7 +328,7 @@ func TestModelViewWithScopeFilter(t *testing.T) {
 
 func TestModelViewEmptyState(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 	view := m.View()
 
 	if !strings.Contains(view, "No memories match") {
@@ -338,7 +342,7 @@ func TestModelViewEmptyState(t *testing.T) {
 
 func TestModelViewSearchIndicator(t *testing.T) {
 	database := helperDB(t)
-	m := InitialModel(database)
+	m := newTestModel(database)
 
 	// Active search shows search indicator
 	m.search = "test-query"

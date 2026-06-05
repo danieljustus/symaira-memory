@@ -2,7 +2,9 @@ package tui
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -76,16 +78,42 @@ type model struct {
 	search    string
 	searching bool
 	err       error
+
+	dbPath           string
+	ollamaURL        string
+	ollamaModel      string
+	ollamaReachable  bool
+	httpPort         int
 }
 
 // InitialModel configures state.
-func InitialModel(database *db.DB) model {
+func InitialModel(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPort int) model {
+	ollamaReachable := checkOllamaReachable(ollamaURL)
 	m := model{
-		db:    database,
-		scope: "",
+		db:              database,
+		scope:           "",
+		dbPath:          dbPath,
+		ollamaURL:       ollamaURL,
+		ollamaModel:     ollamaModel,
+		ollamaReachable: ollamaReachable,
+		httpPort:        httpPort,
 	}
 	m.loadMemories()
 	return m
+}
+
+func checkOllamaReachable(url string) bool {
+	if url == "" {
+		return false
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	baseURL := strings.TrimSuffix(url, "/api/embeddings")
+	resp, err := client.Get(baseURL)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
 }
 
 func (m *model) loadMemories() {
@@ -219,8 +247,18 @@ func (m model) View() string {
 		activeFilter = strings.ToUpper(m.scope)
 	}
 
-	statsText := fmt.Sprintf("Active Filter: %s\nTotal Memories: %d\nEstimated Saved Tokens: %d\nStatus: Offline Active",
-		activeFilter, len(m.memories), len(m.memories)*350)
+	ollamaStatus := "down"
+	if m.ollamaReachable {
+		ollamaStatus = "up"
+	}
+	httpStatus := "stdio only"
+	if m.httpPort > 0 {
+		httpStatus = fmt.Sprintf(":%d", m.httpPort)
+	}
+	statsText := fmt.Sprintf("Active Filter: %s\nTotal Memories: %d\nDB: %s\nOllama: %s (%s %s)\nHTTP: %s",
+		activeFilter, len(m.memories), m.dbPath,
+		m.ollamaModel, ollamaStatus, m.ollamaURL,
+		httpStatus)
 	
 	s.WriteString(statsStyle.Render(statsText) + "\n\n")
 
@@ -261,8 +299,8 @@ func (m model) View() string {
 }
 
 // RunDashboard launches the Bubble Tea console.
-func RunDashboard(database *db.DB) error {
-	p := tea.NewProgram(InitialModel(database), tea.WithAltScreen())
+func RunDashboard(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPort int) error {
+	p := tea.NewProgram(InitialModel(database, dbPath, ollamaURL, ollamaModel, httpPort), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }
