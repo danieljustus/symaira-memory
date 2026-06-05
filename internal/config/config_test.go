@@ -98,6 +98,7 @@ model = "custom-model"
 }
 
 func TestLoadGlobalConfig(t *testing.T) {
+	resetCache()
 	dir := t.TempDir()
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", dir)
@@ -128,6 +129,7 @@ http_port = 8080
 }
 
 func TestLoadProjectOverride(t *testing.T) {
+	resetCache()
 	dir := t.TempDir()
 	oldHome := os.Getenv("HOME")
 	os.Setenv("HOME", dir)

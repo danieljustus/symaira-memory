@@ -47,7 +47,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 	}
 
 	// Test List
-	mems, err := database.ListMemories("")
+	mems, err := database.ListMemories("", 0, 100)
 	if err != nil {
 		t.Fatalf("failed to list memories: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 		t.Fatalf("failed to delete memory: %v", err)
 	}
 
-	mems, err = database.ListMemories("")
+	mems, err = database.ListMemories("", 0, 100)
 	if err != nil {
 		t.Fatalf("failed to list: %v", err)
 	}

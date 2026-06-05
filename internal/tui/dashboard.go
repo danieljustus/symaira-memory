@@ -117,7 +117,7 @@ func checkOllamaReachable(url string) bool {
 }
 
 func (m *model) loadMemories() {
-	mems, err := m.db.ListMemories(m.scope)
+	mems, err := m.db.ListMemoriesLite(m.scope, 0, 1000)
 	if err != nil {
 		m.err = err
 		return

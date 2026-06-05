@@ -147,18 +147,18 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	return &m, nil
 }
 
-// ListMemories returns all memories, optionally filtered by scope.
-func (db *DB) ListMemories(scope string) ([]*Memory, error) {
+// ListMemories returns memories with pagination, optionally filtered by scope.
+func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var query string
 	var rows *sql.Rows
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC"
-		rows, err = db.conn.Query(query, scope)
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories ORDER BY created_at DESC"
-		rows, err = db.conn.Query(query)
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, limit, offset)
 	}
 
 	if err != nil {
@@ -188,6 +188,43 @@ func (db *DB) ListMemories(scope string) ([]*Memory, error) {
 	return memories, nil
 }
 
+// ListMemoriesLite returns memories without embedding data, with pagination.
+func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, error) {
+	var query string
+	var rows *sql.Rows
+	var err error
+
+	if scope != "" {
+		query = "SELECT id, content, scope, metadata, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, scope, limit, offset)
+	} else {
+		query = "SELECT id, content, scope, metadata, created_at, updated_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, limit, offset)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		var m Memory
+		var metaStr string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+
+		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+			return nil, err
+		}
+
+		memories = append(memories, &m)
+	}
+
+	return memories, nil
+}
+
 // SearchResult wraps a Memory with its similarity score without mutating the original.
 type SearchResult struct {
 	Memory *Memory `json:"memory"`
@@ -198,6 +235,7 @@ type SearchResult struct {
 // then ranks the reduced candidate set by cosine similarity.
 func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]SearchResult, error) {
 	const chunkSize = 200
+	const maxCandidates = chunkSize * 10
 	type scored struct {
 		m     *Memory
 		score float32
@@ -205,54 +243,69 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 	var results []scored
 
 	queryLSH := ComputeLSH(queryVec)
+	buckets := LSHNeighbors(queryLSH, 2)
 
-	offset := 0
-	for {
-		var rows *sql.Rows
-		var err error
-		if scope != "" {
-			rows, err = db.conn.Query(
-				"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? AND lsh_hash = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-				scope, queryLSH, chunkSize, offset,
-			)
-		} else {
-			rows, err = db.conn.Query(
-				"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE lsh_hash = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-				queryLSH, chunkSize, offset,
-			)
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		rowCount := 0
-		for rows.Next() {
-			var m Memory
-			var metaStr, embStr string
-			if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if len(m.Embedding) > 0 {
-				score := CosineSimilarity(queryVec, m.Embedding)
-				results = append(results, scored{m: &m, score: score})
-			}
-			rowCount++
-		}
-		rows.Close()
-
-		if rowCount < chunkSize {
+	for _, bucket := range buckets {
+		if len(results) >= maxCandidates {
 			break
 		}
-		offset += chunkSize
+		offset := 0
+		for {
+			remaining := maxCandidates - len(results)
+			if remaining <= 0 {
+				break
+			}
+			pageSize := chunkSize
+			if remaining < pageSize {
+				pageSize = remaining
+			}
+
+			var rows *sql.Rows
+			var err error
+			if scope != "" {
+				rows, err = db.conn.Query(
+					"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? AND lsh_hash = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+					scope, bucket, pageSize, offset,
+				)
+			} else {
+				rows, err = db.conn.Query(
+					"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE lsh_hash = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+					bucket, pageSize, offset,
+				)
+			}
+			if err != nil {
+				return nil, err
+			}
+
+			rowCount := 0
+			for rows.Next() {
+				var m Memory
+				var metaStr, embStr string
+				if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+					rows.Close()
+					return nil, err
+				}
+				if len(m.Embedding) > 0 {
+					score := CosineSimilarity(queryVec, m.Embedding)
+					results = append(results, scored{m: &m, score: score})
+				}
+				rowCount++
+			}
+			rows.Close()
+
+			if rowCount < pageSize {
+				break
+			}
+			offset += pageSize
+		}
 	}
 
 	sort.Slice(results, func(i, j int) bool {
@@ -265,11 +318,6 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 
 	var final []SearchResult
 	for i := 0; i < limit; i++ {
-		metaCopy := make(map[string]string, len(results[i].m.Metadata)+1)
-		for k, v := range results[i].m.Metadata {
-			metaCopy[k] = v
-		}
-		metaCopy["similarity_score"] = fmt.Sprintf("%.4f", results[i].score)
 		final = append(final, SearchResult{
 			Memory: results[i].m,
 			Score:  results[i].score,

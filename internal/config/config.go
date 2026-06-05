@@ -4,8 +4,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/BurntSushi/toml"
+)
+
+var (
+	cachedCfg  *Config
+	cachedOnce sync.Once
+	cachedErr  error
 )
 
 // Config holds all runtime configuration loaded from TOML files.
@@ -56,7 +63,23 @@ func Defaults() *Config {
 
 // Load reads the global config from ~/.config/symmemory/config.toml,
 // then merges a project-level .symmemory.toml override if present.
+// The config is loaded once and cached for subsequent calls.
 func Load() (*Config, error) {
+	cachedOnce.Do(func() {
+		cachedCfg, cachedErr = loadOnce()
+	})
+	return cachedCfg, cachedErr
+}
+
+// resetCache clears the cached config so the next Load() call reads from disk again.
+// It is used only by tests.
+func resetCache() {
+	cachedCfg = nil
+	cachedErr = nil
+	cachedOnce = sync.Once{}
+}
+
+func loadOnce() (*Config, error) {
 	cfg := Defaults()
 
 	home, err := os.UserHomeDir()

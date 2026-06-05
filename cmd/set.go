@@ -6,9 +6,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
-	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
-	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/danieljustus/symaira-memory/internal/memory"
 )
 
 var (
@@ -29,35 +28,16 @@ var setCmd = &cobra.Command{
 	Long: `Save a new fact or context snippet to local SQLite storage. 
 Automatically triggers embedding generation, PII redaction, and project scope detection.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := security.ValidateScope(setScope); err != nil {
+		meta := map[string]string{"source": "cli_set"}
+		m, err := memory.Prepare(setValue, setScope, meta, true)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-
-		// Security Integration: PII Guard Redaction
-		piiGuard := security.NewPIIGuard()
-		cleanValue := piiGuard.Redact(setValue)
-
-		meta := map[string]string{"source": "cli_set"}
-
-		// Security Integration: Active Project Scope detection
-		if setScope == "project" {
-			detector := security.NewProjectScopeDetector()
-			projName := detector.DetectActiveProject()
-			meta["project_name"] = projName
-		}
+		m.ID = uuid.New().String()
 
 		embeddings := extractor.NewEmbeddingsGenerator()
-		vector := embeddings.GenerateVector(cleanValue)
-
-		id := uuid.New().String()
-		m := &db.Memory{
-			ID:        id,
-			Content:   cleanValue,
-			Scope:     setScope,
-			Metadata:  meta,
-			Embedding: vector,
-		}
+		m.Embedding = embeddings.GenerateVector(m.Content)
 
 		if err := GetDB().SaveMemory(m); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing memory to SQLite: %v\n", err)
@@ -65,11 +45,11 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 		}
 
 		fmt.Printf("⚡ Memory saved successfully!\n")
-		fmt.Printf("  ID:      %s\n", id)
-		fmt.Printf("  Content: %s\n", cleanValue)
-		fmt.Printf("  Scope:   %s\n", setScope)
-		if setScope == "project" {
-			fmt.Printf("  Project: %s\n", meta["project_name"])
+		fmt.Printf("  ID:      %s\n", m.ID)
+		fmt.Printf("  Content: %s\n", m.Content)
+		fmt.Printf("  Scope:   %s\n", m.Scope)
+		if m.Scope == "project" {
+			fmt.Printf("  Project: %s\n", m.Metadata["project_name"])
 		}
 	},
 }
