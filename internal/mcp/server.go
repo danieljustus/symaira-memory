@@ -14,6 +14,7 @@ import (
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/google/uuid"
 )
@@ -254,45 +255,18 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			return
 		}
 
-		cleanContent := args.Content
-		if s.piiEnabled {
-			piiGuard := security.NewPIIGuard()
-			cleanContent = piiGuard.Redact(args.Content)
-		}
-
-		scope := args.Scope
-		if scope == "" {
-			scope = "global"
-		}
-		if err := security.ValidateScope(scope); err != nil {
-			s.sendToolResponse(reqID, err.Error(), true)
-			return
-		}
-
 		meta := make(map[string]string)
 		if args.Metadata != "" {
 			_ = json.Unmarshal([]byte(args.Metadata), &meta)
 		}
 
-		// Security Integration: Active Project Scope detection
-		if scope == "project" {
-			detector := security.NewProjectScopeDetector()
-			projName := detector.DetectActiveProject()
-			meta["project_name"] = projName
+		m, err := memory.Prepare(args.Content, args.Scope, meta, s.piiEnabled)
+		if err != nil {
+			s.sendToolResponse(reqID, err.Error(), true)
+			return
 		}
-
-		// Calculate semantic vector embedding for the content
-		vector := s.embeddings.GenerateVector(cleanContent)
-
-		// Create and save core memory
-		memID := uuid.New().String()
-		m := &db.Memory{
-			ID:        memID,
-			Content:   cleanContent,
-			Scope:     scope,
-			Metadata:  meta,
-			Embedding: vector,
-		}
+		m.ID = uuid.New().String()
+		m.Embedding = s.embeddings.GenerateVector(m.Content)
 
 		if err := s.db.SaveMemory(m); err != nil {
 			s.sendToolError(reqID, "Failed to save memory", err)
@@ -300,7 +274,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		}
 
 		// Also execute pattern extractor offline to see if there are any secondary facts we can automatically extract!
-		extractedFacts := s.extractor.ExtractFacts(cleanContent)
+		extractedFacts := s.extractor.ExtractFacts(m.Content)
 		var extractedStr []string
 		for _, f := range extractedFacts {
 			subID := uuid.New().String()
@@ -317,14 +291,14 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			if subMeta == nil {
 				subMeta = make(map[string]string)
 			}
-			if scope == "project" {
-				subMeta["project_name"] = meta["project_name"]
+			if m.Scope == "project" {
+				subMeta["project_name"] = m.Metadata["project_name"]
 			}
 
 			subMem := &db.Memory{
 				ID:        subID,
 				Content:   cleanFactContent,
-				Scope:     scope,
+				Scope:     m.Scope,
 				Metadata:  subMeta,
 				Embedding: subVector,
 			}
@@ -333,9 +307,9 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			}
 		}
 
-		responseMsg := fmt.Sprintf("Successfully saved memory!\nMemory ID: %s\nContent: %s\nScope: %s", memID, cleanContent, scope)
-		if scope == "project" {
-			responseMsg += fmt.Sprintf("\nProject: %s", meta["project_name"])
+		responseMsg := fmt.Sprintf("Successfully saved memory!\nMemory ID: %s\nContent: %s\nScope: %s", m.ID, m.Content, m.Scope)
+		if m.Scope == "project" {
+			responseMsg += fmt.Sprintf("\nProject: %s", m.Metadata["project_name"])
 		}
 		if len(extractedStr) > 0 {
 			responseMsg += "\n\nAdditionally, secondary facts were successfully extracted:\n" + strings.Join(extractedStr, "\n")
