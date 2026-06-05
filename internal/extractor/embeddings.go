@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 // EmbeddingsGenerator coordinates local and cloud-fallback embedding generation.
@@ -24,8 +25,7 @@ type EmbeddingsGenerator struct {
 	httpClient    *http.Client
 	mu            sync.Mutex
 	lastFail      time.Time
-	cacheMu       sync.RWMutex
-	embeddingCache map[string][]float32
+	embeddingCache *lru.Cache[string, []float32]
 }
 
 const (
@@ -51,6 +51,8 @@ func NewEmbeddingsGenerator() *EmbeddingsGenerator {
 		log.Printf("config: %v", err)
 	}
 
+	cache, _ := lru.New[string, []float32](10000)
+
 	return &EmbeddingsGenerator{
 		OllamaURL: ollamaURL,
 		Model:     model,
@@ -61,7 +63,7 @@ func NewEmbeddingsGenerator() *EmbeddingsGenerator {
 				IdleConnTimeout: 90 * time.Second,
 			},
 		},
-		embeddingCache: make(map[string][]float32),
+		embeddingCache: cache,
 	}
 }
 
@@ -69,12 +71,9 @@ func NewEmbeddingsGenerator() *EmbeddingsGenerator {
 // Results are cached by content hash to avoid redundant computation for identical text.
 func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
 	cacheKey := eg.cacheKey(text)
-	eg.cacheMu.RLock()
-	if cached, ok := eg.embeddingCache[cacheKey]; ok {
-		eg.cacheMu.RUnlock()
+	if cached, ok := eg.embeddingCache.Get(cacheKey); ok {
 		return cached
 	}
-	eg.cacheMu.RUnlock()
 
 	dims := 768
 
@@ -87,9 +86,7 @@ func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
 		var err error
 		vec, err = eg.queryOllama(text)
 		if err == nil && len(vec) == dims {
-			eg.cacheMu.Lock()
-			eg.embeddingCache[cacheKey] = vec
-			eg.cacheMu.Unlock()
+			eg.embeddingCache.Add(cacheKey, vec)
 			return vec
 		}
 		eg.mu.Lock()
@@ -98,9 +95,7 @@ func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
 	}
 
 	vec = GenerateLocalHashVector(text, dims)
-	eg.cacheMu.Lock()
-	eg.embeddingCache[cacheKey] = vec
-	eg.cacheMu.Unlock()
+	eg.embeddingCache.Add(cacheKey, vec)
 	return vec
 }
 
