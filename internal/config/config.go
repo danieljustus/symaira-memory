@@ -71,6 +71,14 @@ func Load() (*Config, error) {
 	return cachedCfg, cachedErr
 }
 
+// resetCache clears the cached config so the next Load() call reads from disk again.
+// It is used only by tests.
+func resetCache() {
+	cachedCfg = nil
+	cachedErr = nil
+	cachedOnce = sync.Once{}
+}
+
 func loadOnce() (*Config, error) {
 	cfg := Defaults()
 
