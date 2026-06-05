@@ -45,3 +45,28 @@ func ComputeLSH(vec []float32) int {
 	}
 	return hash
 }
+
+// LSHNeighbors returns all LSH hashes within the given Hamming distance of base.
+// The result always includes base itself (distance 0).
+func LSHNeighbors(base int, maxDistance int) []int {
+	if maxDistance <= 0 {
+		return []int{base}
+	}
+	var neighbors []int
+	var dfs func(idx int, dist int, current int)
+	dfs = func(idx int, dist int, current int) {
+		if idx == LSHBits {
+			neighbors = append(neighbors, current)
+			return
+		}
+		// Keep bit as-is
+		dfs(idx+1, dist, current)
+		// Flip bit if we still have distance budget
+		if dist < maxDistance {
+			mask := 1 << idx
+			dfs(idx+1, dist+1, current^mask)
+		}
+	}
+	dfs(0, 0, base)
+	return neighbors
+}
