@@ -497,7 +497,7 @@ func (s *Server) StartHTTPServer(port int) error {
 		}
 		token := strings.TrimPrefix(auth, "Bearer ")
 		if _, err := s.jwts.VerifyToken(token); err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, "invalid or expired token", err)
 			return false
 		}
 		return true
