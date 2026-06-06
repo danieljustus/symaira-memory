@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 )
 
@@ -22,7 +23,7 @@ func helperDB(t *testing.T) *db.DB {
 	os.Setenv("HOME", tempDir)
 	t.Cleanup(func() { os.Setenv("HOME", oldHome) })
 
-	database, err := db.Open()
+	database, err := db.Open(config.Defaults())
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}

@@ -38,12 +38,16 @@ type DB struct {
 }
 
 // Open initializes the SQLite database at the standard XDG path,
-// or at the path specified in the configuration file.
-func Open() (*DB, error) {
-	cfg, cfgErr := config.Load()
+// or at the path specified in the supplied configuration. The caller
+// (typically cmd/) is responsible for loading configuration via
+// config.Load(); library code never reads from disk directly.
+func Open(cfg *config.Config) (*DB, error) {
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
 
 	var dbPath string
-	if cfgErr == nil && cfg.Database.Path != "" {
+	if cfg.Database.Path != "" {
 		dbPath = cfg.Database.Path
 	} else {
 		home, err := os.UserHomeDir()

@@ -86,7 +86,7 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider) *Server {
 	return &Server{
 		db:             database,
 		extractor:      extractor.NewPatternExtractor(),
-		embeddings:     extractor.NewEmbeddingsGenerator(),
+		embeddings:     extractor.NewEmbeddingsGenerator(nil),
 		jwts:           jwtProvider,
 		allowedOrigins: []string{"chrome-extension://*", "moz-extension://*"},
 		piiEnabled:     true,

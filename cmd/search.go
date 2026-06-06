@@ -26,7 +26,7 @@ var searchCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		query := args[0]
-		embeddings := extractor.NewEmbeddingsGenerator()
+		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
 		queryVector := embeddings.GenerateVector(query)
 
 		results, err := GetDB().SearchMemories(queryVector, searchScope, searchLimit)

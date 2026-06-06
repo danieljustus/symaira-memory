@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/security"
 )
@@ -25,7 +26,7 @@ func helperDB(t *testing.T) *db.DB {
 	os.Setenv("HOME", tempDir)
 	t.Cleanup(func() { os.Setenv("HOME", oldHome) })
 
-	database, err := db.Open()
+	database, err := db.Open(config.Defaults())
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
@@ -37,7 +38,7 @@ func helperDB(t *testing.T) *db.DB {
 func helperServer(t *testing.T) *Server {
 	t.Helper()
 	database := helperDB(t)
-	jwtProvider, err := security.NewJWTProvider("test-secret", nil)
+	jwtProvider, err := security.NewJWTProvider(config.Defaults(), nil)
 	if err != nil {
 		t.Fatalf("failed to create JWT provider: %v", err)
 	}
