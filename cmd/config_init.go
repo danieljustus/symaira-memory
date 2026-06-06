@@ -73,7 +73,7 @@ pii_enabled = true
 # HTTP port for the REST API daemon (0 = disabled, stdio-only).
 http_port = 0
 `
-		if err := os.WriteFile(filePath, []byte(template), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte(template), 0600); err != nil {
 			return fmt.Errorf("failed to write config file: %w", err)
 		}
 
