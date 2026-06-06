@@ -441,6 +441,18 @@ func (s *Server) sendResponse(res *JSONRPCResponse) {
 	os.Stdout.Sync()
 }
 
+// writeJSONError writes a user-safe JSON error body and logs the full internal
+// error to stderr for diagnostics. The HTTP response body never reveals
+// internal state (DB errors, file paths, SQL details, etc).
+func writeJSONError(w http.ResponseWriter, status int, safeMsg string, internal error) {
+	if internal != nil {
+		fmt.Fprintf(os.Stderr, "[HTTP ERROR] %s: %v\n", safeMsg, internal)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": safeMsg})
+}
+
 // StartHTTPServer launches a local HTTP listener exposing REST endpoints for the browser extension.
 func (s *Server) StartHTTPServer(port int) error {
 	mux := http.NewServeMux()
@@ -534,7 +546,7 @@ func (s *Server) StartHTTPServer(port int) error {
 		queryVector := s.embeddings.GenerateVector(args.Query)
 		results, err := s.db.SearchMemories(queryVector, args.Scope, args.Limit)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("Search failed: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Search failed", err)
 			return
 		}
 
@@ -576,7 +588,7 @@ func (s *Server) StartHTTPServer(port int) error {
 			scope = "global"
 		}
 		if err := security.ValidateScope(scope); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			writeJSONError(w, http.StatusBadRequest, "Failed to save memory", err)
 			return
 		}
 
@@ -601,7 +613,7 @@ func (s *Server) StartHTTPServer(port int) error {
 		}
 
 		if err := s.db.SaveMemory(m); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to save: %v", err), http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to save memory", err)
 			return
 		}
 
@@ -649,7 +661,7 @@ func (s *Server) StartHTTPServer(port int) error {
 		scope := r.URL.Query().Get("scope")
 		memories, err := s.db.ListMemoriesLite(scope, 0, 1000)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to list memories", err)
 			return
 		}
 
