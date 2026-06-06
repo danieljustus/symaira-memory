@@ -117,7 +117,7 @@ func (eg *EmbeddingsGenerator) queryOllama(text string) ([]float32, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, err
+		return nil, fmt.Errorf("ollama returned status %d", resp.StatusCode)
 	}
 
 	var res struct {
