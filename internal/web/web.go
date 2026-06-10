@@ -5,11 +5,10 @@ import (
 	"io/fs"
 )
 
-//go:embed static/*
+//go:embed static/index.html static/style.css static/app.js
 var staticFiles embed.FS
 
 // StaticFS returns the embedded static files as an fs.FS rooted at "static".
-// This can be passed to http.FS() for serving.
 func StaticFS() fs.FS {
 	sub, err := fs.Sub(staticFiles, "static")
 	if err != nil {
