@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/spf13/cobra"
 )
 
 var (

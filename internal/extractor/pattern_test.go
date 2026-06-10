@@ -57,19 +57,19 @@ func TestPatternExtraction(t *testing.T) {
 
 func TestKeywordFilterFallback(t *testing.T) {
 	pe := NewPatternExtractor()
-	
+
 	// Sentence with no explicit regex trigger, but high-value keywords
 	input := "Wir planen das symaira projekt aufzubauen."
 	facts := pe.ExtractFacts(input)
-	
+
 	if len(facts) == 0 {
 		t.Fatalf("expected keyword fallback fact to be extracted")
 	}
-	
+
 	if facts[0].Category != "general" {
 		t.Errorf("expected category 'general', got '%s'", facts[0].Category)
 	}
-	
+
 	if !stringsContains(facts[0].Content, "symaira projekt") {
 		t.Errorf("expected content to contain 'symaira projekt', got '%s'", facts[0].Content)
 	}

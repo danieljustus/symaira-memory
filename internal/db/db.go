@@ -229,6 +229,83 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 	return memories, nil
 }
 
+// GetMemoriesSince returns all memories with updated_at strictly after t.
+// Embedding data is omitted (sync payloads do not need vectors).
+func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, content, scope, metadata, created_at, updated_at FROM memories ORDER BY updated_at ASC",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		var m Memory
+		var metaStr string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+			return nil, err
+		}
+		if m.UpdatedAt.After(t) {
+			memories = append(memories, &m)
+		}
+	}
+	return memories, nil
+}
+
+// UpsertMemoryIfNewer inserts or updates a memory only if the incoming
+// updated_at is strictly newer than the stored row. Returns true when the
+// row was inserted or overwritten, false when it was skipped.
+func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
+	metadataJSON, err := json.Marshal(m.Metadata)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	embeddingJSON, err := json.Marshal(m.Embedding)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal embedding: %w", err)
+	}
+
+	embeddingDim := len(m.Embedding)
+	lshHash := ComputeLSH(m.Embedding)
+
+	var existingUpdated time.Time
+	err = db.conn.QueryRow("SELECT updated_at FROM memories WHERE id = ?", m.ID).Scan(&existingUpdated)
+	if err != nil && err != sql.ErrNoRows {
+		return false, err
+	}
+
+	if err == sql.ErrNoRows {
+		_, err = db.conn.Exec(
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt,
+		)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	if !m.UpdatedAt.After(existingUpdated) {
+		return false, nil
+	}
+
+	_, err = db.conn.Exec(
+		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, lsh_hash=?, updated_at=? WHERE id=?`,
+		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.UpdatedAt, m.ID,
+	)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // SearchResult wraps a Memory with its similarity score without mutating the original.
 type SearchResult struct {
 	Memory *Memory `json:"memory"`
@@ -369,6 +446,32 @@ func (db *DB) IsTokenRevoked(jti string) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+// GetSyncCursor returns the last sync timestamp for a given remote URL.
+// Returns zero time if no cursor has been stored yet.
+func (db *DB) GetSyncCursor(remote string) (time.Time, error) {
+	var t time.Time
+	err := db.conn.QueryRow(
+		"SELECT last_sync FROM sync_state WHERE remote = ?", remote,
+	).Scan(&t)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	return t, nil
+}
+
+// SetSyncCursor upserts the last sync timestamp for a given remote URL.
+func (db *DB) SetSyncCursor(remote string, t time.Time) error {
+	_, err := db.conn.Exec(
+		`INSERT INTO sync_state (remote, last_sync) VALUES (?, ?)
+		 ON CONFLICT(remote) DO UPDATE SET last_sync = excluded.last_sync`,
+		remote, t,
+	)
+	return err
 }
 
 // SaveSessionSummary inserts or updates a session summary.

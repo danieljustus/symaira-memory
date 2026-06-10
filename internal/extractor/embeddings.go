@@ -18,11 +18,11 @@ import (
 
 // EmbeddingsGenerator coordinates local and cloud-fallback embedding generation.
 type EmbeddingsGenerator struct {
-	OllamaURL     string
-	Model         string
-	httpClient    *http.Client
-	mu            sync.Mutex
-	lastFail      time.Time
+	OllamaURL      string
+	Model          string
+	httpClient     *http.Client
+	mu             sync.Mutex
+	lastFail       time.Time
 	embeddingCache *lru.Cache[string, []float32]
 }
 
@@ -133,14 +133,14 @@ func (eg *EmbeddingsGenerator) queryOllama(text string) ([]float32, error) {
 // GenerateLocalHashVector utilizes the "Hashing Trick" to produce a normalized 768-dim vector in microseconds.
 func GenerateLocalHashVector(text string, dimensions int) []float32 {
 	vec := make([]float32, dimensions)
-	
+
 	// Normalize and tokenize text
 	cleaned := strings.ToLower(text)
 	// Replace punctuation with spaces
 	for _, char := range []string{".", ",", "!", "?", ";", ":", "-", "_", "(", ")", "[", "]", "{", "}"} {
 		cleaned = strings.ReplaceAll(cleaned, char, " ")
 	}
-	
+
 	words := strings.Fields(cleaned)
 	if len(words) == 0 {
 		return vec
@@ -151,13 +151,13 @@ func GenerateLocalHashVector(text string, dimensions int) []float32 {
 		if isStopWord(word) {
 			continue
 		}
-		
+
 		h := fnv.New32a()
 		h.Write([]byte(word))
 		hashVal := h.Sum32()
-		
+
 		idx := int(hashVal) % dimensions
-		
+
 		// Add weighting based on hash signature
 		vec[idx] += 1.0
 	}

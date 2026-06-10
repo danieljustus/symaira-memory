@@ -50,6 +50,7 @@ dist/
 build/
 coverage/
 *.html
+!internal/web/static/index.html
 
 # Agent/developer workspace files (local-only, not for release)
 AGENTS.md

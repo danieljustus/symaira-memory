@@ -157,7 +157,7 @@ func TestModelUpdateScopeFilters(t *testing.T) {
 	m := newTestModel(database)
 
 	tests := []struct {
-		key         string
+		key           string
 		expectedScope string
 	}{
 		{"g", "global"},

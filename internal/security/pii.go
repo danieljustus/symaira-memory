@@ -15,13 +15,13 @@ type PIIGuard struct {
 func NewPIIGuard() *PIIGuard {
 	patterns := []*regexp.Regexp{
 		// API Keys & Tokens
-		regexp.MustCompile(`(?i)(?:sk-proj-[a-zA-Z0-9]{32,})`),                          // OpenAI Project Key
-		regexp.MustCompile(`(?i)(?:ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36})`),            // GitHub Token
-		regexp.MustCompile(`(?i)(?:AIzaSy[a-zA-Z0-9-_]{33})`),                            // Google API Key
-		regexp.MustCompile(`(?i)(?:bearer\s+[a-zA-Z0-9-_\.]{20,})`),                      // General Bearer Token
-		regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16})`),                                   // AWS Access Key
-		regexp.MustCompile(`(?i)(?:xox[abposr]-[a-zA-Z0-9-]{10,60})`),                    // Slack Token
-		regexp.MustCompile(`(?i)(?:sk_live_[a-zA-Z0-9]{24,})`),                           // Stripe Live Key
+		regexp.MustCompile(`(?i)(?:sk-proj-[a-zA-Z0-9]{32,})`),                                     // OpenAI Project Key
+		regexp.MustCompile(`(?i)(?:ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36})`),                      // GitHub Token
+		regexp.MustCompile(`(?i)(?:AIzaSy[a-zA-Z0-9-_]{33})`),                                      // Google API Key
+		regexp.MustCompile(`(?i)(?:bearer\s+[a-zA-Z0-9-_\.]{20,})`),                                // General Bearer Token
+		regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16})`),                                             // AWS Access Key
+		regexp.MustCompile(`(?i)(?:xox[abposr]-[a-zA-Z0-9-]{10,60})`),                              // Slack Token
+		regexp.MustCompile(`(?i)(?:sk_live_[a-zA-Z0-9]{24,})`),                                     // Stripe Live Key
 		regexp.MustCompile(`(?i)(?:-----BEGIN\s(?:RSA\s|EC\s|DSA\s|OPENSSH\s)?PRIVATE\sKEY-----)`), // Private Key Header
 
 		// E-mail Addresses

@@ -144,6 +144,218 @@ paths:
         '401':
           description: Unauthorized
 
+  /api/get:
+    get:
+      summary: Retrieve a single memory by ID
+      description: Returns the full memory object for the given UUID.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique memory identifier.
+          example: e114ff39-fd89-4efc-8955-2ce5bc67c896
+      responses:
+        '200':
+          description: Memory found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Memory'
+        '400':
+          description: Bad request - missing id parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Memory not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/delete:
+    delete:
+      summary: Delete a memory by ID
+      description: Permanently removes a stored memory. Also accepts POST for clients that cannot send DELETE.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique memory identifier.
+          example: e114ff39-fd89-4efc-8955-2ce5bc67c896
+      responses:
+        '200':
+          description: Memory deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad request - missing id parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+        '404':
+          description: Memory not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Delete a memory by ID (POST alternative)
+      description: Same as DELETE but accepts POST for clients that cannot send DELETE requests.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: Unique memory identifier.
+      responses:
+        '200':
+          description: Memory deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+        '400':
+          description: Bad request - missing id parameter
+        '401':
+          description: Unauthorized
+        '404':
+          description: Memory not found
+
+  /api/rules:
+    get:
+      summary: List behavioral rules
+      description: Returns all stored procedural memory rules, optionally filtered by scope.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: scope
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional scope filter.
+          example: global
+      responses:
+        '200':
+          description: Rules retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Rule'
+        '401':
+          description: Unauthorized
+
+  /api/sync/changes:
+    get:
+      summary: Pull memories changed since a timestamp
+      description: Returns all memories with updated_at strictly after the supplied RFC 3339 timestamp. If since is missing or invalid, all rows are returned.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: RFC 3339 timestamp; only memories updated after this instant are returned.
+          example: "2026-06-01T00:00:00Z"
+      responses:
+        '200':
+          description: Changes retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Memory'
+                  server_time:
+                    type: string
+                    format: date-time
+                    description: Current server time in RFC 3339 format.
+                    example: "2026-06-10T12:00:00Z"
+        '400':
+          description: Bad request - invalid since parameter format
+        '401':
+          description: Unauthorized
+
+  /api/sync/apply:
+    post:
+      summary: Push memories with last-write-wins conflict resolution
+      description: Accepts a batch of memories and upserts each by ID. A row is only overwritten when the incoming updated_at is strictly newer than the stored value.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - memories
+              properties:
+                memories:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Memory'
+      responses:
+        '200':
+          description: Apply completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applied:
+                    type: integer
+                    description: Number of memories inserted or updated.
+                    example: 3
+                  skipped:
+                    type: integer
+                    description: Number of memories skipped (older or missing ID).
+                    example: 1
+        '401':
+          description: Unauthorized
+
 components:
   securitySchemes:
     BearerAuth:
@@ -185,3 +397,32 @@ components:
           type: string
           format: date-time
           example: "2026-06-02T16:20:23Z"
+    Rule:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: b3a7c1f2-9d4e-4a12-b5f6-1e2d3c4b5a69
+        content:
+          type: string
+          example: Always respond in concise bullet points.
+        scope:
+          type: string
+          example: global
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            source: cli_rule_add
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-06-02T16:20:23Z"
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: not found

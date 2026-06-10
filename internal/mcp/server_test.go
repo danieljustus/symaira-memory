@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -419,8 +422,8 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 
 	// Set a memory
 	args, _ := json.Marshal(map[string]string{
-		"content": "The API server runs on port 8080",
-		"scope":   "project",
+		"content":  "The API server runs on port 8080",
+		"scope":    "project",
 		"metadata": `{"source":"test"}`,
 	})
 	params := CallToolParams{Name: "memory_set", Arguments: args}
@@ -666,5 +669,618 @@ func TestSendToolResponseError(t *testing.T) {
 	}
 	if !strings.Contains(text, "Something failed") {
 		t.Errorf("expected 'Something failed', got %q", text)
+	}
+}
+
+// --------------------------------------------------------------------------
+// HTTP sync endpoint helpers
+// --------------------------------------------------------------------------
+
+func helperAuthToken(t *testing.T, s *Server) string {
+	t.Helper()
+	token, err := s.jwts.GenerateToken("test", time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate test token: %v", err)
+	}
+	return token
+}
+
+// --------------------------------------------------------------------------
+// Sync: unauthenticated requests return 401
+// --------------------------------------------------------------------------
+
+func TestSyncChangesUnauthenticated(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/api/sync/changes")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+func TestSyncApplyUnauthenticated(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/api/sync/apply", "application/json", strings.NewReader(`{"memories":[]}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Sync: pull with since filters correctly
+// --------------------------------------------------------------------------
+
+func TestSyncChangesSinceFilter(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	old := &db.Memory{
+		ID:        "sync-old",
+		Content:   "old memory",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+	}
+	s.db.SaveMemory(old)
+
+	got, _ := s.db.GetMemory("sync-old")
+	cutoff := got.UpdatedAt
+	time.Sleep(50 * time.Millisecond)
+
+	new := &db.Memory{
+		ID:        "sync-new",
+		Content:   "new memory",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.2},
+	}
+	s.db.SaveMemory(new)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?since="+cutoff.UTC().Format(time.RFC3339Nano), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Memories   []*db.Memory `json:"memories"`
+		ServerTime string       `json:"server_time"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body.Memories) != 1 {
+		t.Fatalf("expected 1 memory after since cutoff, got %d", len(body.Memories))
+	}
+	if body.Memories[0].ID != "sync-new" {
+		t.Errorf("expected memory ID 'sync-new', got %q", body.Memories[0].ID)
+	}
+	if body.ServerTime == "" {
+		t.Error("expected non-empty server_time")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Sync: apply skips older, overwrites newer
+// --------------------------------------------------------------------------
+
+func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	existing := &db.Memory{
+		ID:        "apply-1",
+		Content:   "original content",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+	}
+	s.db.SaveMemory(existing)
+
+	got, _ := s.db.GetMemory("apply-1")
+	existingTime := got.UpdatedAt
+
+	older := &db.Memory{
+		ID:        "apply-1",
+		Content:   "should be skipped",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+		UpdatedAt: existingTime.Add(-1 * time.Hour),
+		CreatedAt: existingTime.Add(-1 * time.Hour),
+	}
+	newer := &db.Memory{
+		ID:        "apply-1",
+		Content:   "should overwrite",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+		UpdatedAt: existingTime.Add(1 * time.Hour),
+		CreatedAt: existingTime,
+	}
+	fresh := &db.Memory{
+		ID:        "apply-2",
+		Content:   "brand new",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.3},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	payload, _ := json.Marshal(map[string][]*db.Memory{
+		"memories": {older, newer, fresh},
+	})
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/sync/apply", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Applied int `json:"applied"`
+		Skipped int `json:"skipped"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.Applied != 2 {
+		t.Errorf("expected 2 applied (newer + fresh), got %d", result.Applied)
+	}
+	if result.Skipped != 1 {
+		t.Errorf("expected 1 skipped (older), got %d", result.Skipped)
+	}
+
+	updated, _ := s.db.GetMemory("apply-1")
+	if updated.Content != "should overwrite" {
+		t.Errorf("expected content 'should overwrite', got %q", updated.Content)
+	}
+}
+
+// --------------------------------------------------------------------------
+// GET /api/get
+// --------------------------------------------------------------------------
+
+func TestApiGetUnauthenticated(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/api/get?id=anything")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+func TestApiGetMissingID(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/get", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestApiGetNotFound(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/get?id=nonexistent-id", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	if body["error"] != "not found" {
+		t.Errorf("expected error 'not found', got %q", body["error"])
+	}
+}
+
+func TestApiGetSuccess(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	m := &db.Memory{
+		ID:        "get-test-1",
+		Content:   "Test memory for GET endpoint",
+		Scope:     "global",
+		Metadata:  map[string]string{"source": "test"},
+		Embedding: []float32{0.1, 0.2},
+	}
+	s.db.SaveMemory(m)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/get?id=get-test-1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var got db.Memory
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if got.ID != "get-test-1" {
+		t.Errorf("expected ID 'get-test-1', got %q", got.ID)
+	}
+	if got.Content != "Test memory for GET endpoint" {
+		t.Errorf("expected content match, got %q", got.Content)
+	}
+}
+
+// --------------------------------------------------------------------------
+// DELETE /api/delete
+// --------------------------------------------------------------------------
+
+func TestApiDeleteUnauthenticated(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/api/delete?id=anything", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+func TestApiDeleteMissingID(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/api/delete", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", resp.StatusCode)
+	}
+}
+
+func TestApiDeleteNotFound(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/api/delete?id=nonexistent-id", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("expected 404, got %d", resp.StatusCode)
+	}
+}
+
+func TestApiDeleteSuccess(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	m := &db.Memory{
+		ID:        "del-test-1",
+		Content:   "To be deleted",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+	}
+	s.db.SaveMemory(m)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("DELETE", ts.URL+"/api/delete?id=del-test-1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body map[string]bool
+	json.NewDecoder(resp.Body).Decode(&body)
+	if !body["deleted"] {
+		t.Error("expected deleted: true")
+	}
+
+	got, _ := s.db.GetMemory("del-test-1")
+	if got != nil {
+		t.Error("expected memory to be deleted from database")
+	}
+}
+
+func TestApiDeleteViaPost(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	m := &db.Memory{
+		ID:        "del-post-1",
+		Content:   "To be deleted via POST",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+	}
+	s.db.SaveMemory(m)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/delete?id=del-post-1", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	got, _ := s.db.GetMemory("del-post-1")
+	if got != nil {
+		t.Error("expected memory to be deleted from database")
+	}
+}
+
+// --------------------------------------------------------------------------
+// GET /api/rules
+// --------------------------------------------------------------------------
+
+func TestApiRulesUnauthenticated(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/api/rules")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+func TestApiRulesEmpty(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Rules []db.Rule `json:"rules"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Rules) != 0 {
+		t.Errorf("expected 0 rules, got %d", len(body.Rules))
+	}
+}
+
+func TestApiRulesWithData(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	r := &db.Rule{
+		ID:       "rule-1",
+		Content:  "Always use tabs for indentation",
+		Scope:    "global",
+		Metadata: map[string]string{"source": "test"},
+	}
+	s.db.SaveRule(r)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/rules", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Rules []db.Rule `json:"rules"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Rules) != 1 {
+		t.Fatalf("expected 1 rule, got %d", len(body.Rules))
+	}
+	if body.Rules[0].ID != "rule-1" {
+		t.Errorf("expected rule ID 'rule-1', got %q", body.Rules[0].ID)
+	}
+	if body.Rules[0].Content != "Always use tabs for indentation" {
+		t.Errorf("expected rule content match, got %q", body.Rules[0].Content)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Web Console: embedded dashboard
+// --------------------------------------------------------------------------
+
+func TestWebConsoleReturnsHTML(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", res.StatusCode)
+	}
+
+	contentType := res.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		t.Errorf("expected text/html content type, got %q", contentType)
+	}
+
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "Symaira Memory Console") {
+		t.Error("expected HTML to contain 'Symaira Memory Console'")
+	}
+}
+
+func TestWebConsoleStaticAssets(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	assets := []struct {
+		path        string
+		contentType string
+	}{
+		{"/style.css", "text/css"},
+		{"/app.js", "javascript"},
+	}
+
+	for _, asset := range assets {
+		res, err := http.Get(ts.URL + asset.path)
+		if err != nil {
+			t.Errorf("request for %s failed: %v", asset.path, err)
+			continue
+		}
+		res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", asset.path, res.StatusCode)
+		}
+
+		ct := res.Header.Get("Content-Type")
+		if !strings.Contains(ct, asset.contentType) {
+			t.Errorf("expected %s content type for %s, got %q", asset.contentType, asset.path, ct)
+		}
+	}
+}
+
+func TestWebConsoleDoesNotShadowAPIRoutes(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/status", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for /api/status, got %d", resp.StatusCode)
+	}
+
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	if body["status"] != "healthy" {
+		t.Errorf("expected status 'healthy', got %q", body["status"])
 	}
 }

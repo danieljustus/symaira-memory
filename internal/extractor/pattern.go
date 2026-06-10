@@ -140,7 +140,7 @@ func cleanCapturedMatch(text string) string {
 	// Trim trailing periods, spaces, particles
 	t := strings.TrimSpace(text)
 	t = strings.Trim(t, `."';!?,`)
-	
+
 	// Remove leading auxiliary or filler words
 	fillers := []string{"gerade", "jetzt", "momentan", "basically", "mostly", "always", "immer"}
 	for _, f := range fillers {
@@ -169,7 +169,7 @@ func containsHighValueKeywords(text string) bool {
 func cleanSentenceForFact(text string) string {
 	t := strings.TrimSpace(text)
 	t = strings.Trim(t, `*-_# `)
-	
+
 	// Replace "ich/I" with "User" in the final text for descriptive memory statements
 	// A simple mapping
 	replacer := strings.NewReplacer(
@@ -189,6 +189,6 @@ func cleanSentenceForFact(text string) string {
 		"i prefer", "User prefers",
 		"i use", "User uses",
 	)
-	
+
 	return replacer.Replace(t)
 }

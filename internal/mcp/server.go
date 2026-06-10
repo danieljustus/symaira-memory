@@ -11,11 +11,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/danieljustus/symaira-memory/internal/web"
 	"github.com/google/uuid"
 )
 
@@ -278,15 +280,15 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		var extractedStr []string
 		for _, f := range extractedFacts {
 			subID := uuid.New().String()
-			
+
 			cleanFactContent := f.Content
 			if s.piiEnabled {
 				piiGuard := security.NewPIIGuard()
 				cleanFactContent = piiGuard.Redact(f.Content)
 			}
-			
+
 			subVector := s.embeddings.GenerateVector(cleanFactContent)
-			
+
 			subMeta := f.Metadata
 			if subMeta == nil {
 				subMeta = make(map[string]string)
@@ -455,6 +457,12 @@ func writeJSONError(w http.ResponseWriter, status int, safeMsg string, internal 
 
 // StartHTTPServer launches a local HTTP listener exposing REST endpoints for the browser extension.
 func (s *Server) StartHTTPServer(port int) error {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	log.Printf("⚡ Symaira Memory API Listening on http://%s\n", addr)
+	return http.ListenAndServe(addr, s.httpMux())
+}
+
+func (s *Server) httpMux() http.Handler {
 	mux := http.NewServeMux()
 
 	// CORS Helper for extension origin requests
@@ -603,7 +611,7 @@ func (s *Server) StartHTTPServer(port int) error {
 
 		vector := s.embeddings.GenerateVector(cleanContent)
 		memID := uuid.New().String()
-		
+
 		m := &db.Memory{
 			ID:        memID,
 			Content:   cleanContent,
@@ -669,9 +677,211 @@ func (s *Server) StartHTTPServer(port int) error {
 		json.NewEncoder(w).Encode(memories)
 	})
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	log.Printf("⚡ Symaira Memory API Listening on http://%s\n", addr)
-	return http.ListenAndServe(addr, mux)
+	// GET /api/sync/changes
+	mux.HandleFunc("/api/sync/changes", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var since time.Time
+		sinceStr := r.URL.Query().Get("since")
+		if sinceStr != "" {
+			parsed, err := time.Parse(time.RFC3339, sinceStr)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid since parameter; expected RFC3339"})
+				return
+			}
+			since = parsed
+		}
+
+		var memories []*db.Memory
+		var err error
+		if since.IsZero() {
+			memories, err = s.db.ListMemoriesLite("", 0, 100000)
+		} else {
+			memories, err = s.db.GetMemoriesSince(since)
+		}
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch changes", err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"memories":    memories,
+			"server_time": time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
+	// POST /api/sync/apply
+	mux.HandleFunc("/api/sync/apply", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			Memories []*db.Memory `json:"memories"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "Bad request body", http.StatusBadRequest)
+			return
+		}
+
+		var applied, skipped int
+		for _, m := range body.Memories {
+			if m.ID == "" {
+				skipped++
+				continue
+			}
+			ok, err := s.db.UpsertMemoryIfNewer(m)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "Failed to apply memory", err)
+				return
+			}
+			if ok {
+				applied++
+			} else {
+				skipped++
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{
+			"applied": applied,
+			"skipped": skipped,
+		})
+	})
+
+	// GET /api/get?id=<memory-id>
+	mux.HandleFunc("/api/get", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing required parameter: id"})
+			return
+		}
+
+		m, err := s.db.GetMemory(id)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to fetch memory", err)
+			return
+		}
+		if m == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(m)
+	})
+
+	// DELETE|POST /api/delete?id=<memory-id>
+	mux.HandleFunc("/api/delete", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "DELETE" && r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing required parameter: id"})
+			return
+		}
+
+		m, err := s.db.GetMemory(id)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to fetch memory", err)
+			return
+		}
+		if m == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+			return
+		}
+
+		if err := s.db.DeleteMemory(id); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to delete memory", err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
+	})
+
+	// GET /api/rules
+	mux.HandleFunc("/api/rules", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		scope := r.URL.Query().Get("scope")
+		rules, err := s.db.ListRules(scope)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to list rules", err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"rules": rules})
+	})
+
+	fileServer := http.FileServer(http.FS(web.StaticFS()))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(web.IndexHTML())
+			return
+		}
+		fileServer.ServeHTTP(w, r)
+	})
+
+	return mux
 }
 
 func matchOrigin(origin, pattern string) bool {

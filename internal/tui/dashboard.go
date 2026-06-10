@@ -79,11 +79,11 @@ type model struct {
 	searching bool
 	err       error
 
-	dbPath           string
-	ollamaURL        string
-	ollamaModel      string
-	ollamaReachable  bool
-	httpPort         int
+	dbPath          string
+	ollamaURL       string
+	ollamaModel     string
+	ollamaReachable bool
+	httpPort        int
 }
 
 // InitialModel configures state.
@@ -259,7 +259,7 @@ func (m model) View() string {
 		activeFilter, len(m.memories), m.dbPath,
 		m.ollamaModel, ollamaStatus, m.ollamaURL,
 		httpStatus)
-	
+
 	s.WriteString(statsStyle.Render(statsText) + "\n\n")
 
 	// Search Indicator
@@ -278,7 +278,7 @@ func (m model) View() string {
 	} else {
 		for i, mem := range m.memories {
 			badge := scopeBadge(mem.Scope)
-			
+
 			// Highlight selected memory
 			if i == m.selected {
 				s.WriteString(selectedStyle.Render(fmt.Sprintf("👉 %s  %s", badge, mem.Content)) + "\n")
