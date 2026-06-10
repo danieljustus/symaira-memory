@@ -767,6 +767,109 @@ func (s *Server) httpMux() http.Handler {
 		})
 	})
 
+	// GET /api/get?id=<memory-id>
+	mux.HandleFunc("/api/get", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing required parameter: id"})
+			return
+		}
+
+		m, err := s.db.GetMemory(id)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to fetch memory", err)
+			return
+		}
+		if m == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(m)
+	})
+
+	// DELETE|POST /api/delete?id=<memory-id>
+	mux.HandleFunc("/api/delete", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "DELETE" && r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing required parameter: id"})
+			return
+		}
+
+		m, err := s.db.GetMemory(id)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to fetch memory", err)
+			return
+		}
+		if m == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+			return
+		}
+
+		if err := s.db.DeleteMemory(id); err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to delete memory", err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
+	})
+
+	// GET /api/rules
+	mux.HandleFunc("/api/rules", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		scope := r.URL.Query().Get("scope")
+		rules, err := s.db.ListRules(scope)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to list rules", err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"rules": rules})
+	})
+
 	return mux
 }
 
