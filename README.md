@@ -25,6 +25,7 @@ In the Human-AI Symbiosis Era, the bottleneck of productivity is no longer compu
 - **Hybrid semantic search**: Two-layer embedding pipeline. Tries Ollama (`nomic-embed-text`) first for real vector embeddings, falls back to a deterministic word-hash vectorizer (FNV-1a) when Ollama is offline. Search uses pure Go cosine similarity with zero CGO.
 - **Model Context Protocol (MCP) server**: Speak the MCP stdio JSON-RPC 2.0 protocol natively. Plug into Claude Desktop, Cursor, VS Code (Cline / Roo Code / Continue.dev), and any MCP-compatible host.
 - **HTTP REST API daemon**: Run `symmemory serve -p 8787` for browser extensions, dashboards, and remote clients. Protected by JWT authentication.
+- **Web Console**: Built-in browser dashboard served at `http://localhost:8787/` when running `symmemory serve`. Browse, search, and delete memories with a clean UI. No npm, no frameworks, no CDN — fully offline.
 - **Browser extension**: Chrome/Edge/Brave Manifest V3 extension injects memory context into ChatGPT, Claude Web, and Perplexity. Ships in `extension/`.
 - **TUI dashboard**: Terminal-based memory browser and curator built with Bubble Tea and Lip Gloss. Launch with `symmemory console`.
 - **PII Guard**: Automatic regex-based redaction of credit cards, email addresses, and API keys before anything touches disk.
@@ -98,6 +99,33 @@ Run `symmemory mcp-config` to print ready-to-paste configuration blocks for Clau
 
 ---
 
+## Web Console
+
+Start the HTTP daemon and open the built-in dashboard:
+
+```bash
+# Generate a token
+TOKEN=$(symmemory token generate --subject "console" --duration 720)
+
+# Start the server
+symmemory serve -p 8787
+
+# Open http://localhost:8787 in your browser
+# Paste the token in the console to authenticate
+```
+
+The Web Console provides:
+
+- **Memory browser**: List all memories with scope filtering (global/project/user/agent/session)
+- **Semantic search**: Query memories by natural language with relevance scores
+- **Delete management**: Remove memories with confirmation
+- **Rules viewer**: Read-only list of behavioral rules
+- **Status monitoring**: Real-time connection status
+
+The dashboard is embedded in the binary via `//go:embed` — no external dependencies, no build step, works fully offline.
+
+---
+
 ## Configuration
 
 Settings live in `~/.config/symmemory/config.toml`. Run `symmemory config init` to scaffold a file with all supported fields and their defaults.
@@ -132,9 +160,9 @@ Per-project scoping is configured with a `.symmemory.toml` file in your project 
 2. **Phase 2**: Local memory core and SQLite/Vector storage implementation
 3. **Phase 3**: Model Context Protocol (MCP) Server support and HTTP REST API
 4. **Phase 4**: Multi-device sync and encrypted cloud backup (Symaira Memory Pro) *Next*
-5. **Phase 5**: Web-based Memory Console (Dashboard) *Next*
+5. **Phase 5**: Web-based Memory Console (Dashboard)
 
-Phases 1 through 3 are implemented and shipped. Phases 4 and 5 are in planning.
+Phases 1 through 3 and Phase 5 are implemented and shipped. Phase 4 is in planning.
 
 ---
 

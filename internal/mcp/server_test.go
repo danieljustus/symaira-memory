@@ -1196,3 +1196,91 @@ func TestApiRulesWithData(t *testing.T) {
 		t.Errorf("expected rule content match, got %q", body.Rules[0].Content)
 	}
 }
+
+// --------------------------------------------------------------------------
+// Web Console: embedded dashboard
+// --------------------------------------------------------------------------
+
+func TestWebConsoleReturnsHTML(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", res.StatusCode)
+	}
+
+	contentType := res.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "text/html") {
+		t.Errorf("expected text/html content type, got %q", contentType)
+	}
+
+	body, _ := io.ReadAll(res.Body)
+	if !strings.Contains(string(body), "Symaira Memory Console") {
+		t.Error("expected HTML to contain 'Symaira Memory Console'")
+	}
+}
+
+func TestWebConsoleStaticAssets(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	assets := []struct {
+		path        string
+		contentType string
+	}{
+		{"/style.css", "text/css"},
+		{"/app.js", "javascript"},
+	}
+
+	for _, asset := range assets {
+		res, err := http.Get(ts.URL + asset.path)
+		if err != nil {
+			t.Errorf("request for %s failed: %v", asset.path, err)
+			continue
+		}
+		res.Body.Close()
+
+		if res.StatusCode != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", asset.path, res.StatusCode)
+		}
+
+		ct := res.Header.Get("Content-Type")
+		if !strings.Contains(ct, asset.contentType) {
+			t.Errorf("expected %s content type for %s, got %q", asset.contentType, asset.path, ct)
+		}
+	}
+}
+
+func TestWebConsoleDoesNotShadowAPIRoutes(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/status", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for /api/status, got %d", resp.StatusCode)
+	}
+
+	var body map[string]string
+	json.NewDecoder(resp.Body).Decode(&body)
+	if body["status"] != "healthy" {
+		t.Errorf("expected status 'healthy', got %q", body["status"])
+	}
+}

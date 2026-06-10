@@ -17,6 +17,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/danieljustus/symaira-memory/internal/web"
 	"github.com/google/uuid"
 )
 
@@ -869,6 +870,8 @@ func (s *Server) httpMux() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"rules": rules})
 	})
+
+	mux.Handle("/", http.FileServer(http.FS(web.StaticFS())))
 
 	return mux
 }
