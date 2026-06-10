@@ -422,8 +422,8 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 
 	// Set a memory
 	args, _ := json.Marshal(map[string]string{
-		"content": "The API server runs on port 8080",
-		"scope":   "project",
+		"content":  "The API server runs on port 8080",
+		"scope":    "project",
 		"metadata": `{"source":"test"}`,
 	})
 	params := CallToolParams{Name: "memory_set", Arguments: args}

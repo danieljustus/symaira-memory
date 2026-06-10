@@ -280,15 +280,15 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		var extractedStr []string
 		for _, f := range extractedFacts {
 			subID := uuid.New().String()
-			
+
 			cleanFactContent := f.Content
 			if s.piiEnabled {
 				piiGuard := security.NewPIIGuard()
 				cleanFactContent = piiGuard.Redact(f.Content)
 			}
-			
+
 			subVector := s.embeddings.GenerateVector(cleanFactContent)
-			
+
 			subMeta := f.Metadata
 			if subMeta == nil {
 				subMeta = make(map[string]string)
@@ -611,7 +611,7 @@ func (s *Server) httpMux() http.Handler {
 
 		vector := s.embeddings.GenerateVector(cleanContent)
 		memID := uuid.New().String()
-		
+
 		m := &db.Memory{
 			ID:        memID,
 			Content:   cleanContent,

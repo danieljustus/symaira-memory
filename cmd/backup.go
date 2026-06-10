@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -20,7 +20,7 @@ var (
 func init() {
 	backupCmd.AddCommand(exportCmd)
 	backupCmd.AddCommand(importCmd)
-	
+
 	backupCmd.PersistentFlags().StringVarP(&backupPassword, "password", "p", "", "Optional password to encrypt/decrypt the backup payload")
 	rootCmd.AddCommand(backupCmd)
 }
@@ -37,17 +37,17 @@ var exportCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		destPath := args[0]
-		
+
 		// Find source database path
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: failed to resolve user home: %v\n", err)
 			os.Exit(1)
 		}
-		
+
 		dbDir := filepath.Join(home, ".local", "share", "symmemory")
 		dbPath := filepath.Join(dbDir, "default.db")
-		
+
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 			fmt.Fprintf(os.Stderr, "Error: database file does not exist yet. Add memories first!\n")
 			os.Exit(1)

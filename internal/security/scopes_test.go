@@ -8,7 +8,7 @@ import (
 
 func TestProjectScopeDetection(t *testing.T) {
 	detector := NewProjectScopeDetector()
-	
+
 	// Test on standard local directory stat
 	active := detector.DetectActiveProject()
 	if active == "" {
@@ -25,7 +25,7 @@ func TestProjectScopeDetection(t *testing.T) {
 	// Create a nested subfolder mimicking an active project root
 	projectRoot := filepath.Join(tempDir, "symaira-test-repo")
 	nestedFolder := filepath.Join(projectRoot, "internal", "nested", "src")
-	
+
 	if err := os.MkdirAll(nestedFolder, 0755); err != nil {
 		t.Fatalf("failed to create nested subfolder structure: %v", err)
 	}

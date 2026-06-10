@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -17,10 +17,10 @@ var (
 func init() {
 	tokenCmd.AddCommand(tokenGenCmd)
 	tokenCmd.AddCommand(tokenVerifyCmd)
-	
+
 	tokenGenCmd.Flags().StringVarP(&tokenSubject, "subject", "s", "extension", "Subject/client identity for this token")
 	tokenGenCmd.Flags().IntVarP(&tokenDuration, "duration", "d", 72, "Token validity duration in hours (default 72h)")
-	
+
 	rootCmd.AddCommand(tokenCmd)
 }
 
@@ -40,7 +40,7 @@ var tokenGenCmd = &cobra.Command{
 			os.Exit(1)
 		}
 		duration := time.Duration(tokenDuration) * time.Hour
-		
+
 		var token string
 		token, err = provider.GenerateToken(tokenSubject, duration)
 		if err != nil {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 func init() {

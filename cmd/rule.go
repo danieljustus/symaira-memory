@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/google/uuid"
-	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -19,7 +19,7 @@ func init() {
 	ruleCmd.AddCommand(ruleAddCmd)
 	ruleCmd.AddCommand(ruleListCmd)
 	ruleCmd.AddCommand(ruleDeleteCmd)
-	
+
 	ruleCmd.PersistentFlags().StringVarP(&ruleScope, "scope", "s", "global", "Scope level: global, project, agent, user")
 	rootCmd.AddCommand(ruleCmd)
 }

@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/mcp"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/spf13/cobra"
 )
 
 var (

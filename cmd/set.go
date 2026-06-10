@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/google/uuid"
-	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
+	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 )
 
 var (

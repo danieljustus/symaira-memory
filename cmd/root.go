@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -16,7 +16,7 @@ var (
 )
 
 var (
-	rootDB *db.DB
+	rootDB  *db.DB
 	rootCfg *config.Config
 )
 
