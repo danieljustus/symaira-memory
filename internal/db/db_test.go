@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/danieljustus/symaira-memory/internal/config"
 )
 
 func TestDBSchemaAndOperations(t *testing.T) {
@@ -20,7 +22,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 	defer os.Setenv("HOME", oldHome)
 
 	// Open temp DB
-	database, err := Open()
+	database, err := Open(config.Defaults())
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
@@ -116,7 +118,7 @@ func TestMigrationsApplied(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", oldHome)
 
-	database, err := Open()
+	database, err := Open(config.Defaults())
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
@@ -153,13 +155,13 @@ func TestMigrationsIdempotent(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", oldHome)
 
-	db1, err := Open()
+	db1, err := Open(config.Defaults())
 	if err != nil {
 		t.Fatalf("first open failed: %v", err)
 	}
 	db1.Close()
 
-	db2, err := Open()
+	db2, err := Open(config.Defaults())
 	if err != nil {
 		t.Fatalf("second open failed: %v", err)
 	}
@@ -277,7 +279,7 @@ func TestSearchWithLSHIndex(t *testing.T) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", oldHome)
 
-	database, err := Open()
+	database, err := Open(config.Defaults())
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
@@ -324,7 +326,7 @@ func BenchmarkSearchWithLSH(b *testing.B) {
 	os.Setenv("HOME", tempDir)
 	defer os.Setenv("HOME", oldHome)
 
-	database, err := Open()
+	database, err := Open(config.Defaults())
 	if err != nil {
 		b.Fatalf("failed to open database: %v", err)
 	}

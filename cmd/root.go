@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 )
 
@@ -16,6 +17,7 @@ var (
 
 var (
 	rootDB *db.DB
+	rootCfg *config.Config
 )
 
 // GetDB returns the current database instance. Returns nil if not yet opened.
@@ -28,6 +30,16 @@ func SetDB(database *db.DB) {
 	rootDB = database
 }
 
+// GetConfig returns the loaded configuration. Returns nil if not yet loaded.
+func GetConfig() *config.Config {
+	return rootCfg
+}
+
+// SetConfig sets the configuration for use by commands.
+func SetConfig(cfg *config.Config) {
+	rootCfg = cfg
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "symmemory",
 	Short: "Symaira Memory (symmemory) — Context layer for the Human-AI Symbiosis Era",
@@ -38,7 +50,12 @@ SQLite, and exposes them to agents through the Model Context Protocol (MCP).`,
 		if cmd.Name() == "version" || cmd.Name() == "mcp-config" || cmd.Name() == "init" || (cmd.Parent() != nil && cmd.Parent().Name() == "mcp-config") {
 			return nil
 		}
-		database, err := db.Open()
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("failed to load configuration: %w", err)
+		}
+		SetConfig(cfg)
+		database, err := db.Open(cfg)
 		if err != nil {
 			return fmt.Errorf("failed to open SQLite database: %w", err)
 		}

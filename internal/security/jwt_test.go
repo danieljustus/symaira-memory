@@ -1,17 +1,44 @@
 package security
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/danieljustus/symaira-memory/internal/config"
 )
 
-func TestJWTGenerationAndVerification(t *testing.T) {
-	secret := "my_custom_secure_test_signing_key_2026"
-	provider, err := NewJWTProvider(secret, nil)
+// testConfigWithSecret builds a Config whose JWT secret_path points at a
+// temp file containing the given secret. The previous NewJWTProvider(secret
+// string) signature was replaced by config injection in #65; tests that need
+// a stable secret now route the value through the file system to mirror the
+// production path.
+func testConfigWithSecret(t *testing.T, secret string) *config.Config {
+	t.Helper()
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	if err := os.WriteFile(secretPath, []byte(secret), 0600); err != nil {
+		t.Fatalf("failed to write test secret: %v", err)
+	}
+	return &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+}
+
+func jwtProviderWithSecret(t *testing.T, secret string) *JWTProvider {
+	t.Helper()
+	provider, err := NewJWTProvider(testConfigWithSecret(t, secret), nil)
 	if err != nil {
 		t.Fatalf("failed to create jwt provider: %v", err)
 	}
+	return provider
+}
+
+func TestJWTGenerationAndVerification(t *testing.T) {
+	secret := "my_custom_secure_test_signing_key_2026"
+	provider := jwtProviderWithSecret(t, secret)
 
 	subject := "test-agent"
 	duration := 10 * time.Minute
@@ -55,10 +82,7 @@ func TestJWTGenerationAndVerification(t *testing.T) {
 	}
 
 	// Test Expiration Verification
-	expiredProvider, err := NewJWTProvider(secret, nil)
-	if err != nil {
-		t.Fatalf("failed to create expired jwt provider: %v", err)
-	}
+	expiredProvider := jwtProviderWithSecret(t, secret)
 	expiredToken, err := expiredProvider.GenerateToken(subject, -5*time.Second) // expired 5s ago
 	if err != nil {
 		t.Fatalf("failed to generate expired token: %v", err)
@@ -73,10 +97,7 @@ func TestJWTGenerationAndVerification(t *testing.T) {
 }
 
 func TestJWTRevocation(t *testing.T) {
-	provider, err := NewJWTProvider("revocation-test-secret", nil)
-	if err != nil {
-		t.Fatalf("failed to create jwt provider: %v", err)
-	}
+	provider := jwtProviderWithSecret(t, "revocation-test-secret")
 
 	token, err := provider.GenerateToken("agent", 10*time.Minute)
 	if err != nil {
@@ -99,10 +120,7 @@ func TestJWTRevocation(t *testing.T) {
 }
 
 func TestJWTKeyRotation(t *testing.T) {
-	provider, err := NewJWTProvider("old-secret-v1", nil)
-	if err != nil {
-		t.Fatalf("failed to create jwt provider: %v", err)
-	}
+	provider := jwtProviderWithSecret(t, "old-secret-v1")
 
 	oldToken, err := provider.GenerateToken("agent", 10*time.Minute)
 	if err != nil {
@@ -128,7 +146,7 @@ func TestJWTKeyRotation(t *testing.T) {
 	}
 
 	// Token signed with unrelated key should fail
-	forgedProvider, _ := NewJWTProvider("unrelated-key", nil)
+	forgedProvider := jwtProviderWithSecret(t, "unrelated-key")
 	forgedToken, _ := forgedProvider.GenerateToken("agent", 10*time.Minute)
 	_, err = provider.VerifyToken(forgedToken)
 	if err == nil {

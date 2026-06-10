@@ -45,13 +45,19 @@ type JWTPayload struct {
 }
 
 // NewJWTProvider configures a JWT provider with a secret and an optional
-// persistent revocation store. When store is nil, only in-memory revocation is used.
-func NewJWTProvider(secret string, store RevocationStore) (*JWTProvider, error) {
+// persistent revocation store. When store is nil, only in-memory revocation
+// is used. The cfg argument supplies the configured secret path; pass nil
+// to fall back to the default ~/.config/symmemory/jwt.secret location.
+func NewJWTProvider(cfg *config.Config, store RevocationStore) (*JWTProvider, error) {
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+	secret := ""
 	if secret == "" {
 		secret = os.Getenv("JWT_SECRET_KEY")
 	}
 	if secret == "" {
-		loaded, err := loadPersistedSecret()
+		loaded, err := loadPersistedSecret(cfg)
 		if err == nil && loaded != "" {
 			secret = loaded
 		}
@@ -72,12 +78,12 @@ func NewJWTProvider(secret string, store RevocationStore) (*JWTProvider, error) 
 
 // loadPersistedSecret reads the signing key from the configured path
 // or the default ~/.config/symmemory/jwt.secret.
-func loadPersistedSecret() (string, error) {
-	secretPath := ""
-	cfg, cfgErr := config.Load()
-	if cfgErr == nil && cfg.JWT.SecretPath != "" {
-		secretPath = cfg.JWT.SecretPath
-	} else {
+func loadPersistedSecret(cfg *config.Config) (string, error) {
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+	secretPath := cfg.JWT.SecretPath
+	if secretPath == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", err

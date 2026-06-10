@@ -36,7 +36,7 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 		}
 		m.ID = uuid.New().String()
 
-		embeddings := extractor.NewEmbeddingsGenerator()
+		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
 		m.Embedding = embeddings.GenerateVector(m.Content)
 
 		if err := GetDB().SaveMemory(m); err != nil {

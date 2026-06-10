@@ -6,10 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"log"
 	"math"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -33,22 +31,21 @@ const (
 	defaultTimeout = 5 * time.Second
 )
 
-// NewEmbeddingsGenerator sets up configuration from config files with
-// fallback to hardcoded defaults.
-func NewEmbeddingsGenerator() *EmbeddingsGenerator {
-	cfg, err := config.Load()
+// NewEmbeddingsGenerator configures an embeddings generator from the
+// supplied config. The caller (typically cmd/) is responsible for
+// loading configuration via config.Load(); this package never reads
+// config files directly. When cfg is nil, hardcoded defaults are used.
+func NewEmbeddingsGenerator(cfg *config.Config) *EmbeddingsGenerator {
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
 	ollamaURL := "http://localhost:11434/api/embeddings"
 	model := "nomic-embed-text"
-	if err == nil {
-		if cfg.Ollama.URL != "" {
-			ollamaURL = cfg.Ollama.URL
-		}
-		if cfg.Ollama.Model != "" {
-			model = cfg.Ollama.Model
-		}
-	} else {
-		log.SetOutput(os.Stderr)
-		log.Printf("config: %v", err)
+	if cfg.Ollama.URL != "" {
+		ollamaURL = cfg.Ollama.URL
+	}
+	if cfg.Ollama.Model != "" {
+		model = cfg.Ollama.Model
 	}
 
 	cache, _ := lru.New[string, []float32](10000)
@@ -120,7 +117,7 @@ func (eg *EmbeddingsGenerator) queryOllama(text string) ([]float32, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, err
+		return nil, fmt.Errorf("ollama returned status %d", resp.StatusCode)
 	}
 
 	var res struct {

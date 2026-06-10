@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/mcp"
 	"github.com/danieljustus/symaira-memory/internal/security"
 )
@@ -28,15 +27,15 @@ var serveCmd = &cobra.Command{
 	Long: `Starts the stdio transport JSON-RPC 2.0 server (default) or runs a local HTTP REST API 
 server if a port is provided. This HTTP API daemon powers the browser extension.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		jwtProvider, err := security.NewJWTProvider("", GetDB())
+		cfg := GetConfig()
+		jwtProvider, err := security.NewJWTProvider(cfg, GetDB())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize JWT provider: %v\n", err)
 			os.Exit(1)
 		}
 		server := mcp.NewServer(GetDB(), jwtProvider)
 
-		cfg, cfgErr := config.Load()
-		if cfgErr == nil {
+		if cfg != nil {
 			server.SetPIIEnabled(cfg.Security.PIIEnabled)
 		}
 		if servePort > 0 {
