@@ -144,6 +144,81 @@ paths:
         '401':
           description: Unauthorized
 
+  /api/sync/changes:
+    get:
+      summary: Pull memories changed since a timestamp
+      description: Returns all memories with updated_at strictly after the supplied RFC 3339 timestamp. If since is missing or invalid, all rows are returned.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: RFC 3339 timestamp; only memories updated after this instant are returned.
+          example: "2026-06-01T00:00:00Z"
+      responses:
+        '200':
+          description: Changes retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memories:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Memory'
+                  server_time:
+                    type: string
+                    format: date-time
+                    description: Current server time in RFC 3339 format.
+                    example: "2026-06-10T12:00:00Z"
+        '400':
+          description: Bad request - invalid since parameter format
+        '401':
+          description: Unauthorized
+
+  /api/sync/apply:
+    post:
+      summary: Push memories with last-write-wins conflict resolution
+      description: Accepts a batch of memories and upserts each by ID. A row is only overwritten when the incoming updated_at is strictly newer than the stored value.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - memories
+              properties:
+                memories:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Memory'
+      responses:
+        '200':
+          description: Apply completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applied:
+                    type: integer
+                    description: Number of memories inserted or updated.
+                    example: 3
+                  skipped:
+                    type: integer
+                    description: Number of memories skipped (older or missing ID).
+                    example: 1
+        '401':
+          description: Unauthorized
+
 components:
   securitySchemes:
     BearerAuth:

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -666,5 +669,207 @@ func TestSendToolResponseError(t *testing.T) {
 	}
 	if !strings.Contains(text, "Something failed") {
 		t.Errorf("expected 'Something failed', got %q", text)
+	}
+}
+
+// --------------------------------------------------------------------------
+// HTTP sync endpoint helpers
+// --------------------------------------------------------------------------
+
+func helperAuthToken(t *testing.T, s *Server) string {
+	t.Helper()
+	token, err := s.jwts.GenerateToken("test", time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate test token: %v", err)
+	}
+	return token
+}
+
+// --------------------------------------------------------------------------
+// Sync: unauthenticated requests return 401
+// --------------------------------------------------------------------------
+
+func TestSyncChangesUnauthenticated(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/api/sync/changes")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+func TestSyncApplyUnauthenticated(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/api/sync/apply", "application/json", strings.NewReader(`{"memories":[]}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Sync: pull with since filters correctly
+// --------------------------------------------------------------------------
+
+func TestSyncChangesSinceFilter(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	old := &db.Memory{
+		ID:        "sync-old",
+		Content:   "old memory",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+	}
+	s.db.SaveMemory(old)
+
+	got, _ := s.db.GetMemory("sync-old")
+	cutoff := got.UpdatedAt
+	time.Sleep(50 * time.Millisecond)
+
+	new := &db.Memory{
+		ID:        "sync-new",
+		Content:   "new memory",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.2},
+	}
+	s.db.SaveMemory(new)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?since="+cutoff.UTC().Format(time.RFC3339Nano), nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var body struct {
+		Memories   []*db.Memory `json:"memories"`
+		ServerTime string       `json:"server_time"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body.Memories) != 1 {
+		t.Fatalf("expected 1 memory after since cutoff, got %d", len(body.Memories))
+	}
+	if body.Memories[0].ID != "sync-new" {
+		t.Errorf("expected memory ID 'sync-new', got %q", body.Memories[0].ID)
+	}
+	if body.ServerTime == "" {
+		t.Error("expected non-empty server_time")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Sync: apply skips older, overwrites newer
+// --------------------------------------------------------------------------
+
+func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	existing := &db.Memory{
+		ID:        "apply-1",
+		Content:   "original content",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+	}
+	s.db.SaveMemory(existing)
+
+	got, _ := s.db.GetMemory("apply-1")
+	existingTime := got.UpdatedAt
+
+	older := &db.Memory{
+		ID:        "apply-1",
+		Content:   "should be skipped",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+		UpdatedAt: existingTime.Add(-1 * time.Hour),
+		CreatedAt: existingTime.Add(-1 * time.Hour),
+	}
+	newer := &db.Memory{
+		ID:        "apply-1",
+		Content:   "should overwrite",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+		UpdatedAt: existingTime.Add(1 * time.Hour),
+		CreatedAt: existingTime,
+	}
+	fresh := &db.Memory{
+		ID:        "apply-2",
+		Content:   "brand new",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.3},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	payload, _ := json.Marshal(map[string][]*db.Memory{
+		"memories": {older, newer, fresh},
+	})
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/sync/apply", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Applied int `json:"applied"`
+		Skipped int `json:"skipped"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.Applied != 2 {
+		t.Errorf("expected 2 applied (newer + fresh), got %d", result.Applied)
+	}
+	if result.Skipped != 1 {
+		t.Errorf("expected 1 skipped (older), got %d", result.Skipped)
+	}
+
+	updated, _ := s.db.GetMemory("apply-1")
+	if updated.Content != "should overwrite" {
+		t.Errorf("expected content 'should overwrite', got %q", updated.Content)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
@@ -455,6 +456,12 @@ func writeJSONError(w http.ResponseWriter, status int, safeMsg string, internal 
 
 // StartHTTPServer launches a local HTTP listener exposing REST endpoints for the browser extension.
 func (s *Server) StartHTTPServer(port int) error {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	log.Printf("⚡ Symaira Memory API Listening on http://%s\n", addr)
+	return http.ListenAndServe(addr, s.httpMux())
+}
+
+func (s *Server) httpMux() http.Handler {
 	mux := http.NewServeMux()
 
 	// CORS Helper for extension origin requests
@@ -669,9 +676,98 @@ func (s *Server) StartHTTPServer(port int) error {
 		json.NewEncoder(w).Encode(memories)
 	})
 
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	log.Printf("⚡ Symaira Memory API Listening on http://%s\n", addr)
-	return http.ListenAndServe(addr, mux)
+	// GET /api/sync/changes
+	mux.HandleFunc("/api/sync/changes", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var since time.Time
+		sinceStr := r.URL.Query().Get("since")
+		if sinceStr != "" {
+			parsed, err := time.Parse(time.RFC3339, sinceStr)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{"error": "invalid since parameter; expected RFC3339"})
+				return
+			}
+			since = parsed
+		}
+
+		var memories []*db.Memory
+		var err error
+		if since.IsZero() {
+			memories, err = s.db.ListMemoriesLite("", 0, 100000)
+		} else {
+			memories, err = s.db.GetMemoriesSince(since)
+		}
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch changes", err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"memories":    memories,
+			"server_time": time.Now().UTC().Format(time.RFC3339),
+		})
+	})
+
+	// POST /api/sync/apply
+	mux.HandleFunc("/api/sync/apply", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if !requireAuth(w, r) {
+			return
+		}
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var body struct {
+			Memories []*db.Memory `json:"memories"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "Bad request body", http.StatusBadRequest)
+			return
+		}
+
+		var applied, skipped int
+		for _, m := range body.Memories {
+			if m.ID == "" {
+				skipped++
+				continue
+			}
+			ok, err := s.db.UpsertMemoryIfNewer(m)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "Failed to apply memory", err)
+				return
+			}
+			if ok {
+				applied++
+			} else {
+				skipped++
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{
+			"applied": applied,
+			"skipped": skipped,
+		})
+	})
+
+	return mux
 }
 
 func matchOrigin(origin, pattern string) bool {
