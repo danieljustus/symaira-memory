@@ -17,3 +17,12 @@ func StaticFS() fs.FS {
 	}
 	return sub
 }
+
+// IndexHTML returns the raw bytes of the embedded index.html file.
+func IndexHTML() []byte {
+	data, err := staticFiles.ReadFile("static/index.html")
+	if err != nil {
+		panic("web: failed to read embedded index.html: " + err.Error())
+	}
+	return data
+}

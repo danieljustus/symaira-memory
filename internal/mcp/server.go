@@ -871,23 +871,11 @@ func (s *Server) httpMux() http.Handler {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"rules": rules})
 	})
 
-	staticFS := web.StaticFS()
-	fileServer := http.FileServer(http.FS(staticFS))
+	fileServer := http.FileServer(http.FS(web.StaticFS()))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			f, err := staticFS.Open("index.html")
-			if err != nil {
-				http.NotFound(w, r)
-				return
-			}
-			defer f.Close()
-			stat, err := f.Stat()
-			if err != nil || stat.IsDir() {
-				http.NotFound(w, r)
-				return
-			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			io.Copy(w, f)
+			w.Write(web.IndexHTML())
 			return
 		}
 		fileServer.ServeHTTP(w, r)
