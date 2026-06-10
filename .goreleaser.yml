@@ -21,7 +21,8 @@ builds:
       - -s -w -X github.com/danieljustus/symaira-memory/cmd.Version={{.Version}} -X github.com/danieljustus/symaira-memory/cmd.Commit={{.Commit}} -X github.com/danieljustus/symaira-memory/cmd.Date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     name_template: >-
       {{ .ProjectName }}_
       {{- .Os }}_
@@ -30,7 +31,8 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     files:
       - LICENSE
       - README.md
