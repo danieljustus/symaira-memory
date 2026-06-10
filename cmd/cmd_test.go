@@ -94,7 +94,7 @@ func TestRootHasSubcommands(t *testing.T) {
 		t.Logf("  subcommand: %q", cmd.Use)
 	}
 
-	expected := []string{"version", "serve", "set", "get", "list", "search", "delete", "mcp-config", "backup", "console", "rule", "token"}
+	expected := []string{"version", "serve", "set", "get", "list", "search", "delete", "mcp-config", "backup", "console", "rule", "token", "sync"}
 	for _, name := range expected {
 		found := false
 		for _, cmd := range cmds {

@@ -147,6 +147,24 @@ Authorization: Bearer <your-generated-jwt-token>
 
 ---
 
+## 🔄 Bidirectional Sync (`symmemory sync`)
+
+Sync memories between a local instance and a remote Symaira Memory server. Uses last-write-wins (LWW) merge based on `updated_at` timestamps.
+
+```bash
+symmemory sync --remote http://remote-server:8787 --token <jwt-token>
+```
+
+The command performs:
+1. **Pull**: Fetches changes from the remote server since the last sync cursor
+2. **Apply**: Merges pulled records locally using LWW (newer `updated_at` wins)
+3. **Push**: Sends local changes to the remote server
+4. **Cursor update**: Saves the server timestamp as the new sync cursor
+
+On first run (no cursor), all remote memories are pulled. Subsequent runs are incremental. Authentication failures (401) exit with a clear error message. The cursor is only advanced after both pull and push succeed.
+
+---
+
 ## 🌐 Browser Extension Integration (Manifest V3)
 
 The project includes a Google Chrome/Brave/Edge browser extension inside the [extension/](file:///Users/daniel/Dev/symaira-memory/extension) directory. It automatically integrates with ChatGPT, Claude Web, and Perplexity Web interfaces.
