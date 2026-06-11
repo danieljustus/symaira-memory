@@ -55,7 +55,7 @@ func Open(cfg *config.Config) (*DB, error) {
 			return nil, fmt.Errorf("failed to get user home dir: %w", err)
 		}
 		dir := filepath.Join(home, ".local", "share", "symmemory")
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, fmt.Errorf("failed to create db directory: %w", err)
 		}
 		dbPath = filepath.Join(dir, "default.db")
@@ -76,6 +76,20 @@ func Open(cfg *config.Config) (*DB, error) {
 	if err := db.runMigrations(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	// Restrict database file permissions to owner-only (after migrations create the file)
+	if _, err := os.Stat(dbPath); err == nil {
+		if err := os.Chmod(dbPath, 0600); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to set db file permissions: %w", err)
+		}
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		sibling := dbPath + suffix
+		if _, err := os.Stat(sibling); err == nil {
+			_ = os.Chmod(sibling, 0600)
+		}
 	}
 
 	return db, nil

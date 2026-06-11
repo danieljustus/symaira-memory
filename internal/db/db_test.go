@@ -361,3 +361,54 @@ func BenchmarkSearchWithLSH(b *testing.B) {
 		}
 	}
 }
+
+func TestDatabaseFilePermissions(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	dbPath := filepath.Join(tempDir, ".local", "share", "symmemory", "default.db")
+
+	// Check directory permissions
+	dirPath := filepath.Dir(dbPath)
+	dirInfo, err := os.Stat(dirPath)
+	if err != nil {
+		t.Fatalf("failed to stat directory: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0700 {
+		t.Errorf("expected directory permissions 0700, got %o", dirInfo.Mode().Perm())
+	}
+
+	// Create a memory to ensure the DB file exists
+	m := &Memory{
+		ID:        "perm-test",
+		Content:   "test content",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{1.0},
+	}
+	if err := database.SaveMemory(m); err != nil {
+		t.Fatalf("failed to save memory: %v", err)
+	}
+
+	// Check database file permissions
+	dbInfo, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("failed to stat database file: %v", err)
+	}
+	if dbInfo.Mode().Perm() != 0600 {
+		t.Errorf("expected database file permissions 0600, got %o", dbInfo.Mode().Perm())
+	}
+}
