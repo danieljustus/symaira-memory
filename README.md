@@ -45,7 +45,8 @@ In the Human-AI Symbiosis Era, the bottleneck of productivity is no longer compu
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install danieljustus/tap/symmemory
+brew tap danieljustus/tap
+brew install symmemory
 ```
 
 ### From source (go install)

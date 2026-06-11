@@ -42,13 +42,15 @@ checksum:
   name_template: 'checksums.txt'
 
 brews:
-  - repository:
+  - name: symmemory
+    repository:
       owner: danieljustus
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
     homepage: https://github.com/danieljustus/symaira-memory
     description: Persistent memory layer and semantic knowledge base for AI agents
     license: MIT
-    skip_upload: true
     test: |
       system "#{bin}/symmemory", "version"
 
