@@ -48,7 +48,7 @@ brews:
     homepage: https://github.com/danieljustus/symaira-memory
     description: Persistent memory layer and semantic knowledge base for AI agents
     license: MIT
-    skip_upload: auto
+    skip_upload: true
     test: |
       system "#{bin}/symmemory", "version"
 
