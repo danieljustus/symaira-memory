@@ -23,7 +23,7 @@ func TestDefaults(t *testing.T) {
 	if cfg.Ollama.Model != "nomic-embed-text" {
 		t.Errorf("expected default Ollama model, got %q", cfg.Ollama.Model)
 	}
-	if !cfg.Security.PIIEnabled {
+	if cfg.Security.PIIEnabled == nil || !*cfg.Security.PIIEnabled {
 		t.Error("expected PII enabled by default")
 	}
 }
@@ -64,7 +64,7 @@ pii_enabled = false
 	if cfg.Server.HTTPPort != 9090 {
 		t.Errorf("expected server.http_port override, got %d", cfg.Server.HTTPPort)
 	}
-	if cfg.Security.PIIEnabled {
+	if cfg.Security.PIIEnabled == nil || *cfg.Security.PIIEnabled {
 		t.Error("expected PII disabled after override")
 	}
 }
@@ -168,4 +168,24 @@ func TestDefaultsArePureGo(t *testing.T) {
 	_ = cfg.Database.Path
 	_ = cfg.Ollama.URL
 	_ = cfg.JWT.SecretPath
+}
+
+func TestMergeFileMissingSecuritySection(t *testing.T) {
+	dir := t.TempDir()
+	writeTempConfig(t, dir, "no-security.toml", `
+[ollama]
+model = "custom-model"
+`)
+
+	cfg := Defaults()
+	if err := mergeFile(cfg, filepath.Join(dir, "no-security.toml")); err != nil {
+		t.Fatalf("mergeFile failed: %v", err)
+	}
+
+	if cfg.Ollama.Model != "custom-model" {
+		t.Errorf("expected model override, got %q", cfg.Ollama.Model)
+	}
+	if cfg.Security.PIIEnabled == nil || !*cfg.Security.PIIEnabled {
+		t.Error("expected PII enabled when security section is absent from config")
+	}
 }

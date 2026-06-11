@@ -35,8 +35,8 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 		}
 		server := mcp.NewServer(GetDB(), jwtProvider)
 
-		if cfg != nil {
-			server.SetPIIEnabled(cfg.Security.PIIEnabled)
+		if cfg != nil && cfg.Security.PIIEnabled != nil {
+			server.SetPIIEnabled(*cfg.Security.PIIEnabled)
 		}
 		if servePort > 0 {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
