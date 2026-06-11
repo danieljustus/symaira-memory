@@ -45,7 +45,7 @@ func helperServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("failed to create JWT provider: %v", err)
 	}
-	return NewServer(database, jwtProvider)
+	return NewServer(database, jwtProvider, "test", nil)
 }
 
 // captureStdout captures writes to os.Stdout and restores it after the test.
@@ -160,8 +160,8 @@ func TestHandleRequestInitialize(t *testing.T) {
 	if serverInfo["name"] != "symaira-memory" {
 		t.Errorf("expected name 'symaira-memory', got %v", serverInfo["name"])
 	}
-	if serverInfo["version"] != "0.1.0" {
-		t.Errorf("expected version '0.1.0', got %v", serverInfo["version"])
+	if serverInfo["version"] != "test" {
+		t.Errorf("expected version 'test', got %v", serverInfo["version"])
 	}
 }
 
@@ -871,6 +871,84 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 	updated, _ := s.db.GetMemory("apply-1")
 	if updated.Content != "should overwrite" {
 		t.Errorf("expected content 'should overwrite', got %q", updated.Content)
+	}
+}
+
+func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	withEmail := &db.Memory{
+		ID:        "pii-1",
+		Content:   "Contact alice@example.com for details",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+	invalidScope := &db.Memory{
+		ID:        "scope-1",
+		Content:   "This has invalid scope",
+		Scope:     "invalid-scope-value",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.2},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+	valid := &db.Memory{
+		ID:        "valid-1",
+		Content:   "Normal content",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.3},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	payload, _ := json.Marshal(map[string][]*db.Memory{
+		"memories": {withEmail, invalidScope, valid},
+	})
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/sync/apply", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Applied             int `json:"applied"`
+		Skipped             int `json:"skipped"`
+		SkippedInvalidScope int `json:"skippedInvalidScope"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.Applied != 2 {
+		t.Errorf("expected 2 applied (pii-1 + valid-1), got %d", result.Applied)
+	}
+	if result.Skipped != 0 {
+		t.Errorf("expected 0 skipped, got %d", result.Skipped)
+	}
+	if result.SkippedInvalidScope != 1 {
+		t.Errorf("expected 1 skippedInvalidScope, got %d", result.SkippedInvalidScope)
+	}
+
+	stored, _ := s.db.GetMemory("pii-1")
+	if stored.Content == "Contact alice@example.com for details" {
+		t.Error("expected PII to be redacted in stored content")
 	}
 }
 

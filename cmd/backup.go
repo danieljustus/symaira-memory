@@ -191,7 +191,7 @@ var importCmd = &cobra.Command{
 		}
 
 		dbDir := filepath.Join(home, ".local", "share", "symmemory")
-		_ = os.MkdirAll(dbDir, 0755)
+		_ = os.MkdirAll(dbDir, 0700)
 		dbPath := filepath.Join(dbDir, "default.db")
 
 		// Write database

@@ -23,7 +23,7 @@ func TestDefaults(t *testing.T) {
 	if cfg.Ollama.Model != "nomic-embed-text" {
 		t.Errorf("expected default Ollama model, got %q", cfg.Ollama.Model)
 	}
-	if !cfg.Security.PIIEnabled {
+	if cfg.Security.PIIEnabled == nil || !*cfg.Security.PIIEnabled {
 		t.Error("expected PII enabled by default")
 	}
 }
@@ -64,7 +64,7 @@ pii_enabled = false
 	if cfg.Server.HTTPPort != 9090 {
 		t.Errorf("expected server.http_port override, got %d", cfg.Server.HTTPPort)
 	}
-	if cfg.Security.PIIEnabled {
+	if cfg.Security.PIIEnabled == nil || *cfg.Security.PIIEnabled {
 		t.Error("expected PII disabled after override")
 	}
 }
@@ -168,4 +168,81 @@ func TestDefaultsArePureGo(t *testing.T) {
 	_ = cfg.Database.Path
 	_ = cfg.Ollama.URL
 	_ = cfg.JWT.SecretPath
+}
+
+func TestEnvOverrideDBPath(t *testing.T) {
+	resetCache()
+	dir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	os.Setenv("SYMMEMORY_DB_PATH", "/tmp/test.db")
+	defer os.Unsetenv("SYMMEMORY_DB_PATH")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Database.Path != "/tmp/test.db" {
+		t.Errorf("expected Database.Path=/tmp/test.db, got %q", cfg.Database.Path)
+	}
+}
+
+func TestEnvOverrideOllamaURL(t *testing.T) {
+	resetCache()
+	dir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	os.Setenv("OLLAMA_API_URL", "http://custom:1234/api/embeddings")
+	defer os.Unsetenv("OLLAMA_API_URL")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Ollama.URL != "http://custom:1234/api/embeddings" {
+		t.Errorf("expected Ollama.URL=http://custom:1234/api/embeddings, got %q", cfg.Ollama.URL)
+	}
+}
+
+func TestEnvOverrideOllamaModel(t *testing.T) {
+	resetCache()
+	dir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	os.Setenv("OLLAMA_MODEL", "llama3")
+	defer os.Unsetenv("OLLAMA_MODEL")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.Ollama.Model != "llama3" {
+		t.Errorf("expected Ollama.Model=llama3, got %q", cfg.Ollama.Model)
+	}
+}
+
+func TestMergeFileMissingSecuritySection(t *testing.T) {
+	dir := t.TempDir()
+	writeTempConfig(t, dir, "no-security.toml", `
+[ollama]
+model = "custom-model"
+`)
+
+	cfg := Defaults()
+	if err := mergeFile(cfg, filepath.Join(dir, "no-security.toml")); err != nil {
+		t.Fatalf("mergeFile failed: %v", err)
+	}
+
+	if cfg.Ollama.Model != "custom-model" {
+		t.Errorf("expected model override, got %q", cfg.Ollama.Model)
+	}
+	if cfg.Security.PIIEnabled == nil || !*cfg.Security.PIIEnabled {
+		t.Error("expected PII enabled when security section is absent from config")
+	}
 }

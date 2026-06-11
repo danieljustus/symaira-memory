@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
@@ -55,7 +56,7 @@ func Open(cfg *config.Config) (*DB, error) {
 			return nil, fmt.Errorf("failed to get user home dir: %w", err)
 		}
 		dir := filepath.Join(home, ".local", "share", "symmemory")
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return nil, fmt.Errorf("failed to create db directory: %w", err)
 		}
 		dbPath = filepath.Join(dir, "default.db")
@@ -76,6 +77,20 @@ func Open(cfg *config.Config) (*DB, error) {
 	if err := db.runMigrations(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	// Restrict database file permissions to owner-only (after migrations create the file)
+	if _, err := os.Stat(dbPath); err == nil {
+		if err := os.Chmod(dbPath, 0600); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to set db file permissions: %w", err)
+		}
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		sibling := dbPath + suffix
+		if _, err := os.Stat(sibling); err == nil {
+			_ = os.Chmod(sibling, 0600)
+		}
 	}
 
 	return db, nil
@@ -112,7 +127,7 @@ func (db *DB) SaveMemory(m *Memory) error {
 			lsh_hash=excluded.lsh_hash,
 			updated_at=excluded.updated_at`
 
-	now := time.Now()
+	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
 		m.CreatedAt = now
 	}
@@ -315,8 +330,8 @@ type SearchResult struct {
 // SearchMemories uses LSH bucket pre-filtering to avoid full table scans,
 // then ranks the reduced candidate set by cosine similarity.
 func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]SearchResult, error) {
-	const chunkSize = 200
-	const maxCandidates = chunkSize * 10
+	const maxCandidates = 2000
+	const batchSize = 64
 	type scored struct {
 		m     *Memory
 		score float32
@@ -326,67 +341,58 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 	queryLSH := ComputeLSH(queryVec)
 	buckets := LSHNeighbors(queryLSH, 2)
 
-	for _, bucket := range buckets {
-		if len(results) >= maxCandidates {
-			break
+	for i := 0; i < len(buckets) && len(results) < maxCandidates; i += batchSize {
+		end := i + batchSize
+		if end > len(buckets) {
+			end = len(buckets)
 		}
-		offset := 0
-		for {
-			remaining := maxCandidates - len(results)
-			if remaining <= 0 {
-				break
-			}
-			pageSize := chunkSize
-			if remaining < pageSize {
-				pageSize = remaining
-			}
+		chunk := buckets[i:end]
 
-			var rows *sql.Rows
-			var err error
-			if scope != "" {
-				rows, err = db.conn.Query(
-					"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? AND lsh_hash = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-					scope, bucket, pageSize, offset,
-				)
-			} else {
-				rows, err = db.conn.Query(
-					"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE lsh_hash = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-					bucket, pageSize, offset,
-				)
-			}
-			if err != nil {
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, 0, len(chunk)+1)
+		for j, h := range chunk {
+			placeholders[j] = "?"
+			args = append(args, h)
+		}
+		inClause := strings.Join(placeholders, ", ")
+
+		var query string
+		if scope != "" {
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? AND lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
+			args = append([]interface{}{scope}, args...)
+		} else {
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
+		}
+
+		rows, err := db.conn.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var m Memory
+			var metaStr, embStr string
+			if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+				rows.Close()
 				return nil, err
 			}
-
-			rowCount := 0
-			for rows.Next() {
-				var m Memory
-				var metaStr, embStr string
-				if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
-					rows.Close()
-					return nil, err
-				}
-				if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-					rows.Close()
-					return nil, err
-				}
-				if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
-					rows.Close()
-					return nil, err
-				}
-				if len(m.Embedding) > 0 {
-					score := CosineSimilarity(queryVec, m.Embedding)
-					results = append(results, scored{m: &m, score: score})
-				}
-				rowCount++
+			if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+				rows.Close()
+				return nil, err
 			}
-			rows.Close()
-
-			if rowCount < pageSize {
+			if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			if len(m.Embedding) > 0 {
+				score := CosineSimilarity(queryVec, m.Embedding)
+				results = append(results, scored{m: &m, score: score})
+			}
+			if len(results) >= maxCandidates {
 				break
 			}
-			offset += pageSize
 		}
+		rows.Close()
 	}
 
 	sort.Slice(results, func(i, j int) bool {

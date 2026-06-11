@@ -13,12 +13,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/danieljustus/symaira-memory/internal/web"
-	"github.com/google/uuid"
 )
 
 // JSON-RPC 2.0 structures
@@ -81,17 +81,21 @@ type Server struct {
 	jwts           *security.JWTProvider
 	allowedOrigins []string
 	piiEnabled     bool
+	version        string
+	cfg            *config.Config
 }
 
 // NewServer configures a new Server instance.
-func NewServer(database *db.DB, jwtProvider *security.JWTProvider) *Server {
+func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version string, cfg *config.Config) *Server {
 	return &Server{
 		db:             database,
 		extractor:      extractor.NewPatternExtractor(),
-		embeddings:     extractor.NewEmbeddingsGenerator(nil),
+		embeddings:     extractor.NewEmbeddingsGenerator(cfg),
 		jwts:           jwtProvider,
 		allowedOrigins: []string{"chrome-extension://*", "moz-extension://*"},
 		piiEnabled:     true,
+		version:        version,
+		cfg:            cfg,
 	}
 }
 
@@ -147,7 +151,7 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 			"capabilities":    map[string]interface{}{},
 			"serverInfo": map[string]string{
 				"name":    "symaira-memory",
-				"version": "0.1.0",
+				"version": s.version,
 			},
 		}
 		s.sendResult(req.ID, res)
@@ -262,61 +266,13 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			_ = json.Unmarshal([]byte(args.Metadata), &meta)
 		}
 
-		m, err := memory.Prepare(args.Content, args.Scope, meta, s.piiEnabled)
+		m, extractedStr, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, meta, s.piiEnabled)
 		if err != nil {
 			s.sendToolResponse(reqID, err.Error(), true)
 			return
 		}
-		m.ID = uuid.New().String()
-		m.Embedding = s.embeddings.GenerateVector(m.Content)
 
-		if err := s.db.SaveMemory(m); err != nil {
-			s.sendToolError(reqID, "Failed to save memory", err)
-			return
-		}
-
-		// Also execute pattern extractor offline to see if there are any secondary facts we can automatically extract!
-		extractedFacts := s.extractor.ExtractFacts(m.Content)
-		var extractedStr []string
-		for _, f := range extractedFacts {
-			subID := uuid.New().String()
-
-			cleanFactContent := f.Content
-			if s.piiEnabled {
-				piiGuard := security.NewPIIGuard()
-				cleanFactContent = piiGuard.Redact(f.Content)
-			}
-
-			subVector := s.embeddings.GenerateVector(cleanFactContent)
-
-			subMeta := f.Metadata
-			if subMeta == nil {
-				subMeta = make(map[string]string)
-			}
-			if m.Scope == "project" {
-				subMeta["project_name"] = m.Metadata["project_name"]
-			}
-
-			subMem := &db.Memory{
-				ID:        subID,
-				Content:   cleanFactContent,
-				Scope:     m.Scope,
-				Metadata:  subMeta,
-				Embedding: subVector,
-			}
-			if err := s.db.SaveMemory(subMem); err == nil {
-				extractedStr = append(extractedStr, fmt.Sprintf("  - [Fact Extracted] %s (ID: %s)", cleanFactContent, subID))
-			}
-		}
-
-		responseMsg := fmt.Sprintf("Successfully saved memory!\nMemory ID: %s\nContent: %s\nScope: %s", m.ID, m.Content, m.Scope)
-		if m.Scope == "project" {
-			responseMsg += fmt.Sprintf("\nProject: %s", m.Metadata["project_name"])
-		}
-		if len(extractedStr) > 0 {
-			responseMsg += "\n\nAdditionally, secondary facts were successfully extracted:\n" + strings.Join(extractedStr, "\n")
-		}
-
+		responseMsg := memory.FormatStoreSuccess(m, extractedStr)
 		s.sendToolResponse(reqID, responseMsg, false)
 
 	case "memory_search":
@@ -519,7 +475,7 @@ func (s *Server) httpMux() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "healthy",
-			"version": "0.1.0",
+			"version": s.version,
 			"server":  "symaira-memory",
 		})
 	})
@@ -585,76 +541,16 @@ func (s *Server) httpMux() http.Handler {
 			return
 		}
 
-		cleanContent := args.Content
-		if s.piiEnabled {
-			piiGuard := security.NewPIIGuard()
-			cleanContent = piiGuard.Redact(args.Content)
-		}
-
-		scope := args.Scope
-		if scope == "" {
-			scope = "global"
-		}
-		if err := security.ValidateScope(scope); err != nil {
-			writeJSONError(w, http.StatusBadRequest, "Failed to save memory", err)
-			return
-		}
-
-		meta := args.Metadata
-		if meta == nil {
-			meta = make(map[string]string)
-		}
-		if scope == "project" {
-			detector := security.NewProjectScopeDetector()
-			meta["project_name"] = detector.DetectActiveProject()
-		}
-
-		vector := s.embeddings.GenerateVector(cleanContent)
-		memID := uuid.New().String()
-
-		m := &db.Memory{
-			ID:        memID,
-			Content:   cleanContent,
-			Scope:     scope,
-			Metadata:  meta,
-			Embedding: vector,
-		}
-
-		if err := s.db.SaveMemory(m); err != nil {
+		m, _, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, args.Metadata, s.piiEnabled)
+		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to save memory", err)
 			return
-		}
-
-		extracted := s.extractor.ExtractFacts(cleanContent)
-		for _, f := range extracted {
-			cleanFactContent := f.Content
-			if s.piiEnabled {
-				piiGuard := security.NewPIIGuard()
-				cleanFactContent = piiGuard.Redact(f.Content)
-			}
-			subID := uuid.New().String()
-			subVector := s.embeddings.GenerateVector(cleanFactContent)
-			subMeta := f.Metadata
-			if subMeta == nil {
-				subMeta = make(map[string]string)
-			}
-			if scope == "project" {
-				subMeta["project_name"] = meta["project_name"]
-			}
-			subMem := &db.Memory{
-				ID:        subID,
-				Content:   cleanFactContent,
-				Scope:     scope,
-				Metadata:  subMeta,
-				Embedding: subVector,
-			}
-			_ = s.db.SaveMemory(subMem)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
 			"status": "success",
-			"id":     memID,
+			"id":     m.ID,
 		})
 	})
 
@@ -743,11 +639,18 @@ func (s *Server) httpMux() http.Handler {
 			return
 		}
 
-		var applied, skipped int
+		var applied, skipped, skippedInvalidScope int
 		for _, m := range body.Memories {
 			if m.ID == "" {
 				skipped++
 				continue
+			}
+			if err := security.ValidateScope(m.Scope); err != nil {
+				skippedInvalidScope++
+				continue
+			}
+			if s.piiEnabled {
+				m.Content = security.Redact(m.Content)
 			}
 			ok, err := s.db.UpsertMemoryIfNewer(m)
 			if err != nil {
@@ -763,8 +666,9 @@ func (s *Server) httpMux() http.Handler {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{
-			"applied": applied,
-			"skipped": skipped,
+			"applied":             applied,
+			"skipped":             skipped,
+			"skippedInvalidScope": skippedInvalidScope,
 		})
 	})
 

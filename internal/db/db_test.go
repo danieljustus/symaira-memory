@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 )
@@ -173,8 +174,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 4 {
-		t.Errorf("expected 4 migrations after two opens, got %d", count)
+	if count != 5 {
+		t.Errorf("expected 5 migrations after two opens, got %d", count)
 	}
 }
 
@@ -358,6 +359,115 @@ func BenchmarkSearchWithLSH(b *testing.B) {
 		_, err := database.SearchMemories(queryVec, "global", 5)
 		if err != nil {
 			b.Fatalf("search failed: %v", err)
+		}
+	}
+}
+
+func TestDatabaseFilePermissions(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	dbPath := filepath.Join(tempDir, ".local", "share", "symmemory", "default.db")
+
+	// Check directory permissions
+	dirPath := filepath.Dir(dbPath)
+	dirInfo, err := os.Stat(dirPath)
+	if err != nil {
+		t.Fatalf("failed to stat directory: %v", err)
+	}
+	if dirInfo.Mode().Perm() != 0700 {
+		t.Errorf("expected directory permissions 0700, got %o", dirInfo.Mode().Perm())
+	}
+
+	// Create a memory to ensure the DB file exists
+	m := &Memory{
+		ID:        "perm-test",
+		Content:   "test content",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{1.0},
+	}
+	if err := database.SaveMemory(m); err != nil {
+		t.Fatalf("failed to save memory: %v", err)
+	}
+
+	// Check database file permissions
+	dbInfo, err := os.Stat(dbPath)
+	if err != nil {
+		t.Fatalf("failed to stat database file: %v", err)
+	}
+	if dbInfo.Mode().Perm() != 0600 {
+		t.Errorf("expected database file permissions 0600, got %o", dbInfo.Mode().Perm())
+	}
+}
+
+func TestGetMemoriesSinceFilter(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-since-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	oldTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	newTime := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	cutoff := time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)
+
+	for i := 0; i < 10; i++ {
+		_, err := database.conn.Exec(
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at)
+			 VALUES (?, ?, 'global', '{}', '[]', 0, 0, ?, ?)`,
+			fmt.Sprintf("since-mem-%d", i), fmt.Sprintf("content %d", i), oldTime, oldTime,
+		)
+		if err != nil {
+			t.Fatalf("failed to insert memory %d: %v", i, err)
+		}
+	}
+
+	for i := 0; i < 3; i++ {
+		_, err := database.conn.Exec(
+			"UPDATE memories SET updated_at = ? WHERE id = ?",
+			newTime, fmt.Sprintf("since-mem-%d", i),
+		)
+		if err != nil {
+			t.Fatalf("failed to update memory %d: %v", i, err)
+		}
+	}
+
+	results, err := database.GetMemoriesSince(cutoff)
+	if err != nil {
+		t.Fatalf("GetMemoriesSince failed: %v", err)
+	}
+
+	if len(results) != 3 {
+		t.Errorf("expected 3 updated memories, got %d", len(results))
+	}
+
+	for _, m := range results {
+		if !m.UpdatedAt.After(cutoff) {
+			t.Errorf("returned memory %s with updated_at %v not after cutoff %v", m.ID, m.UpdatedAt, cutoff)
 		}
 	}
 }

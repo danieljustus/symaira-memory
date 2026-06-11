@@ -38,7 +38,7 @@ type JWTConfig struct {
 }
 
 type SecurityConfig struct {
-	PIIEnabled bool `toml:"pii_enabled"`
+	PIIEnabled *bool `toml:"pii_enabled"`
 }
 
 type ServerConfig struct {
@@ -47,13 +47,14 @@ type ServerConfig struct {
 
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
+	trueVal := true
 	return &Config{
 		Ollama: OllamaConfig{
 			URL:   "http://localhost:11434/api/embeddings",
 			Model: "nomic-embed-text",
 		},
 		Security: SecurityConfig{
-			PIIEnabled: true,
+			PIIEnabled: &trueVal,
 		},
 		Server: ServerConfig{
 			HTTPPort: 0,
@@ -100,6 +101,17 @@ func loadOnce() (*Config, error) {
 		}
 	}
 
+	// Environment variables override TOML values
+	if v := os.Getenv("SYMMEMORY_DB_PATH"); v != "" {
+		cfg.Database.Path = v
+	}
+	if v := os.Getenv("OLLAMA_API_URL"); v != "" {
+		cfg.Ollama.URL = v
+	}
+	if v := os.Getenv("OLLAMA_MODEL"); v != "" {
+		cfg.Ollama.Model = v
+	}
+
 	return cfg, nil
 }
 
@@ -130,8 +142,10 @@ func mergeFile(cfg *Config, path string) error {
 	if overlay.Server.HTTPPort != 0 {
 		cfg.Server.HTTPPort = overlay.Server.HTTPPort
 	}
-	// PII can be explicitly disabled
-	cfg.Security.PIIEnabled = overlay.Security.PIIEnabled
+	// PII can be explicitly disabled only when the key is present in the TOML file
+	if overlay.Security.PIIEnabled != nil {
+		cfg.Security.PIIEnabled = overlay.Security.PIIEnabled
+	}
 
 	return nil
 }
