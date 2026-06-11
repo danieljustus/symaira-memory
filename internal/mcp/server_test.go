@@ -45,7 +45,7 @@ func helperServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("failed to create JWT provider: %v", err)
 	}
-	return NewServer(database, jwtProvider)
+	return NewServer(database, jwtProvider, "test", nil)
 }
 
 // captureStdout captures writes to os.Stdout and restores it after the test.
@@ -160,8 +160,8 @@ func TestHandleRequestInitialize(t *testing.T) {
 	if serverInfo["name"] != "symaira-memory" {
 		t.Errorf("expected name 'symaira-memory', got %v", serverInfo["name"])
 	}
-	if serverInfo["version"] != "0.1.0" {
-		t.Errorf("expected version '0.1.0', got %v", serverInfo["version"])
+	if serverInfo["version"] != "test" {
+		t.Errorf("expected version 'test', got %v", serverInfo["version"])
 	}
 }
 

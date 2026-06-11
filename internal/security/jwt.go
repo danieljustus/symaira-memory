@@ -52,10 +52,7 @@ func NewJWTProvider(cfg *config.Config, store RevocationStore) (*JWTProvider, er
 	if cfg == nil {
 		cfg = config.Defaults()
 	}
-	secret := ""
-	if secret == "" {
-		secret = os.Getenv("JWT_SECRET_KEY")
-	}
+	secret := os.Getenv("JWT_SECRET_KEY")
 	if secret == "" {
 		loaded, err := loadPersistedSecret(cfg)
 		if err == nil && loaded != "" {
@@ -63,7 +60,7 @@ func NewJWTProvider(cfg *config.Config, store RevocationStore) (*JWTProvider, er
 		}
 	}
 	if secret == "" {
-		generated, err := generateAndPersistSecret()
+		generated, err := generateAndPersistSecret(cfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate JWT secret: %w", err)
 		}
@@ -99,22 +96,26 @@ func loadPersistedSecret(cfg *config.Config) (string, error) {
 }
 
 // generateAndPersistSecret creates a random 32-byte hex secret and persists it.
-func generateAndPersistSecret() (string, error) {
+func generateAndPersistSecret(cfg *config.Config) (string, error) {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
 	secret := hex.EncodeToString(bytes)
 
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+	secretPath := cfg.JWT.SecretPath
+	if secretPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		secretPath = filepath.Join(home, ".config", "symmemory", "jwt.secret")
 	}
-	dir := filepath.Join(home, ".config", "symmemory")
+
+	dir := filepath.Dir(secretPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", err
 	}
-	secretPath := filepath.Join(dir, "jwt.secret")
 	if err := os.WriteFile(secretPath, []byte(secret+"\n"), 0600); err != nil {
 		return "", err
 	}

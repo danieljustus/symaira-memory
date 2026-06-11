@@ -101,6 +101,17 @@ func loadOnce() (*Config, error) {
 		}
 	}
 
+	// Environment variables override TOML values
+	if v := os.Getenv("SYMMEMORY_DB_PATH"); v != "" {
+		cfg.Database.Path = v
+	}
+	if v := os.Getenv("OLLAMA_API_URL"); v != "" {
+		cfg.Ollama.URL = v
+	}
+	if v := os.Getenv("OLLAMA_MODEL"); v != "" {
+		cfg.Ollama.Model = v
+	}
+
 	return cfg, nil
 }
 

@@ -3,6 +3,7 @@ package security
 import (
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -32,6 +33,13 @@ func NewPIIGuard() *PIIGuard {
 	}
 
 	return &PIIGuard{patterns: patterns}
+}
+
+var defaultGuard = sync.OnceValue(NewPIIGuard)
+
+// Redact redacts PII from text using the process-wide PIIGuard singleton.
+func Redact(text string) string {
+	return defaultGuard().Redact(text)
 }
 
 // Redact replaces PII matching strings with standard mask tags.

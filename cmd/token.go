@@ -44,16 +44,17 @@ var tokenGenCmd = &cobra.Command{
 		var token string
 		token, err = provider.GenerateToken(tokenSubject, duration)
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to generate token: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("⚡ JWT Token generated successfully for '%s'!\n", tokenSubject)
-		fmt.Printf("  Expires: In %d hours (%s)\n", tokenDuration, time.Now().Add(duration).Format("2006-01-02 15:04"))
-		fmt.Println("\n========================== AUTHENTICATION TOKEN ==========================")
+		fmt.Fprintf(os.Stderr, "⚡ JWT Token generated successfully for '%s'!\n", tokenSubject)
+		fmt.Fprintf(os.Stderr, "  Expires: In %d hours (%s)\n", tokenDuration, time.Now().Add(duration).Format("2006-01-02 15:04"))
+		fmt.Fprintln(os.Stderr, "\n========================== AUTHENTICATION TOKEN ==========================")
 		fmt.Println(token)
-		fmt.Println("==========================================================================")
-		fmt.Println("\nAdd this token to your client headers:")
-		fmt.Println("  Authorization: Bearer <token>")
+		fmt.Fprintln(os.Stderr, "==========================================================================")
+		fmt.Fprintln(os.Stderr, "\nAdd this token to your client headers:")
+		fmt.Fprintln(os.Stderr, "  Authorization: Bearer <token>")
 	},
 }
 

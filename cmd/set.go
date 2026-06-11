@@ -6,7 +6,6 @@ import (
 
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -29,18 +28,12 @@ var setCmd = &cobra.Command{
 Automatically triggers embedding generation, PII redaction, and project scope detection.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		meta := map[string]string{"source": "cli_set"}
-		m, err := memory.Prepare(setValue, setScope, meta, true)
+		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
+		patternExtractor := extractor.NewPatternExtractor()
+
+		m, _, err := memory.Store(GetDB(), embeddings, patternExtractor, setValue, setScope, meta, true)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		m.ID = uuid.New().String()
-
-		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
-		m.Embedding = embeddings.GenerateVector(m.Content)
-
-		if err := GetDB().SaveMemory(m); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing memory to SQLite: %v\n", err)
 			os.Exit(1)
 		}
 
