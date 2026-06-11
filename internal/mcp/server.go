@@ -151,7 +151,7 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 			"capabilities":    map[string]interface{}{},
 			"serverInfo": map[string]string{
 				"name":    "symaira-memory",
-			"version": s.version,
+				"version": s.version,
 			},
 		}
 		s.sendResult(req.ID, res)
