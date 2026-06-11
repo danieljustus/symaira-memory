@@ -52,6 +52,9 @@ brews:
     test: |
       system "#{bin}/symmemory", "version"
 
+release:
+  mode: append
+
 changelog:
   sort: asc
   filters:
