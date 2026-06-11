@@ -41,6 +41,17 @@ archives:
 checksum:
   name_template: 'checksums.txt'
 
+brews:
+  - repository:
+      owner: danieljustus
+      name: homebrew-tap
+    homepage: https://github.com/danieljustus/symaira-memory
+    description: Persistent memory layer and semantic knowledge base for AI agents
+    license: MIT
+    skip_upload: auto
+    test: |
+      system "#{bin}/symmemory", "version"
+
 changelog:
   sort: asc
   filters:

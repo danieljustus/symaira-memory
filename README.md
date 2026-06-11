@@ -42,10 +42,11 @@ In the Human-AI Symbiosis Era, the bottleneck of productivity is no longer compu
 
 ## Installation
 
-### Prerequisites
+### Homebrew (macOS / Linux)
 
-- Go 1.26.3 or later
-- No C compiler required (CGO-free)
+```bash
+brew install danieljustus/tap/symmemory
+```
 
 ### From source (go install)
 
@@ -61,6 +62,11 @@ cd symaira-memory
 go build -o symmemory main.go
 ./symmemory version
 ```
+
+### Prerequisites (for source builds only)
+
+- Go 1.26.3 or later
+- No C compiler required (CGO-free)
 
 ---
 
