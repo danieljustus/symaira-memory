@@ -743,11 +743,19 @@ func (s *Server) httpMux() http.Handler {
 			return
 		}
 
-		var applied, skipped int
+		var applied, skipped, skippedInvalidScope int
 		for _, m := range body.Memories {
 			if m.ID == "" {
 				skipped++
 				continue
+			}
+			if err := security.ValidateScope(m.Scope); err != nil {
+				skippedInvalidScope++
+				continue
+			}
+			if s.piiEnabled {
+				piiGuard := security.NewPIIGuard()
+				m.Content = piiGuard.Redact(m.Content)
 			}
 			ok, err := s.db.UpsertMemoryIfNewer(m)
 			if err != nil {
@@ -763,8 +771,9 @@ func (s *Server) httpMux() http.Handler {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{
-			"applied": applied,
-			"skipped": skipped,
+			"applied":             applied,
+			"skipped":             skipped,
+			"skippedInvalidScope": skippedInvalidScope,
 		})
 	})
 
