@@ -81,5 +81,15 @@ var tokenVerifyCmd = &cobra.Command{
 		fmt.Printf("  Issuer:     %s\n", payload.Issuer)
 		fmt.Printf("  Issued At:  %s\n", time.Unix(payload.IssuedAt, 0).Format("2006-01-02 15:04:05"))
 		fmt.Printf("  Expires At: %s\n", time.Unix(payload.ExpiresAt, 0).Format("2006-01-02 15:04:05"))
+
+		if database := GetDB(); database != nil && payload.Subject != "" {
+			p, err := database.GetProfileByName(payload.Subject)
+			if err == nil && p != nil {
+				fmt.Printf("  Profile:    %s\n", p.Name)
+				fmt.Printf("  Role:       %s\n", p.Role)
+			} else if err == nil {
+				fmt.Fprintf(os.Stderr, "  ⚠ No profile found for subject %q — default role applies\n", payload.Subject)
+			}
+		}
 	},
 }

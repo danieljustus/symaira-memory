@@ -84,6 +84,7 @@ type Server struct {
 	piiEnabled     bool
 	version        string
 	cfg            *config.Config
+	profile        *db.Profile
 }
 
 // NewServer configures a new Server instance.
@@ -108,6 +109,11 @@ func (s *Server) SetPIIEnabled(enabled bool) {
 // SetAllowedOrigins overrides the default allowed CORS origins.
 func (s *Server) SetAllowedOrigins(origins []string) {
 	s.allowedOrigins = origins
+}
+
+// SetProfile assigns the active agent profile for role-based access control.
+func (s *Server) SetProfile(p *db.Profile) {
+	s.profile = p
 }
 
 // Serve reads JSON-RPC 2.0 lines from stdin, processes them, and writes responses to stdout.
@@ -254,6 +260,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		s.sendToolResponse(reqID, string(bytes), false)
 
 	case "memory_set":
+		if s.profile != nil && !security.ParseRole(s.profile.Role).CanWrite() {
+			s.sendToolResponse(reqID, "Permission denied: profile role is read-only", true)
+			return
+		}
+
 		var args struct {
 			Content   string `json:"content"`
 			Scope     string `json:"scope"`
@@ -478,6 +489,33 @@ func (s *Server) httpMux() http.Handler {
 		return payload, true
 	}
 
+	// requireRole checks that the authenticated subject has at least the given role.
+	// If no profile is configured on the server, the check passes (backward compatible).
+	// If a profile is set, the JWT subject is resolved to a profile and its role is checked.
+	requireRole := func(w http.ResponseWriter, r *http.Request, minRole security.Role) (*security.JWTPayload, bool) {
+		payload, ok := requireAuth(w, r)
+		if !ok {
+			return nil, false
+		}
+		if s.profile != nil {
+			if !security.ParseRole(s.profile.Role).CanWrite() && minRole == security.RoleReadWrite {
+				writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
+				return nil, false
+			}
+			return payload, true
+		}
+		if payload != nil && payload.Subject != "" && s.db != nil {
+			p, err := s.db.GetProfileByName(payload.Subject)
+			if err == nil && p != nil {
+				if !security.ParseRole(p.Role).CanWrite() && minRole == security.RoleReadWrite {
+					writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
+					return nil, false
+				}
+			}
+		}
+		return payload, true
+	}
+
 	// GET /api/status
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		if enableCORS(w, r) {
@@ -534,7 +572,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		payload, ok := requireAuth(w, r)
+		payload, ok := requireRole(w, r, security.RoleReadWrite)
 		if !ok {
 			return
 		}
@@ -645,7 +683,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if _, ok := requireAuth(w, r); !ok {
+		if _, ok := requireRole(w, r, security.RoleReadWrite); !ok {
 			return
 		}
 		if r.Method != "POST" {
@@ -736,7 +774,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if _, ok := requireAuth(w, r); !ok {
+		if _, ok := requireRole(w, r, security.RoleReadWrite); !ok {
 			return
 		}
 		if r.Method != "DELETE" && r.Method != "POST" {
