@@ -85,6 +85,7 @@ type Server struct {
 	version        string
 	cfg            *config.Config
 	profile        *db.Profile
+	rateLimiter    *RateLimiter
 }
 
 // NewServer configures a new Server instance.
@@ -98,6 +99,7 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version strin
 		piiEnabled:     true,
 		version:        version,
 		cfg:            cfg,
+		rateLimiter:    NewRateLimiter(DefaultRateLimitConfig()),
 	}
 }
 
@@ -941,7 +943,14 @@ func (s *Server) httpMux() http.Handler {
 		fileServer.ServeHTTP(w, r)
 	})
 
-	return mux
+	classify := func(r *http.Request) string {
+		if strings.HasPrefix(r.URL.Path, "/api/token") || strings.HasPrefix(r.URL.Path, "/api/login") {
+			return "auth"
+		}
+		return "data"
+	}
+
+	return RateLimitMiddleware(s.rateLimiter, mux, classify)
 }
 
 func matchOrigin(origin, pattern string) bool {
