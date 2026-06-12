@@ -72,6 +72,14 @@ func Load() (*Config, error) {
 	return cachedCfg, cachedErr
 }
 
+// Reload reads a fresh config from disk (global + project files) and applies
+// environment variable overrides. Unlike Load, it never returns a cached value.
+// Intended for long-running servers that need to pick up config changes without
+// restarting.
+func Reload() (*Config, error) {
+	return loadOnce()
+}
+
 // resetCache clears the cached config so the next Load() call reads from disk again.
 // It is used only by tests.
 func resetCache() {

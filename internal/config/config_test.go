@@ -227,6 +227,113 @@ func TestEnvOverrideOllamaModel(t *testing.T) {
 	}
 }
 
+func TestReloadReadsFreshConfig(t *testing.T) {
+	resetCache()
+	dir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	configDir := filepath.Join(dir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	writeTempConfig(t, configDir, "config.toml", `
+[server]
+http_port = 8080
+`)
+
+	cfg1, err := Reload()
+	if err != nil {
+		t.Fatalf("first Reload failed: %v", err)
+	}
+	if cfg1.Server.HTTPPort != 8080 {
+		t.Errorf("expected port 8080, got %d", cfg1.Server.HTTPPort)
+	}
+
+	writeTempConfig(t, configDir, "config.toml", `
+[server]
+http_port = 9999
+`)
+
+	cfg2, err := Reload()
+	if err != nil {
+		t.Fatalf("second Reload failed: %v", err)
+	}
+	if cfg2.Server.HTTPPort != 9999 {
+		t.Errorf("expected port 9999 after file change, got %d", cfg2.Server.HTTPPort)
+	}
+}
+
+func TestReloadAppliesEnvVars(t *testing.T) {
+	resetCache()
+	dir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	os.Setenv("SYMMEMORY_DB_PATH", "/tmp/reload.db")
+	defer os.Unsetenv("SYMMEMORY_DB_PATH")
+
+	cfg, err := Reload()
+	if err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+	if cfg.Database.Path != "/tmp/reload.db" {
+		t.Errorf("expected Database.Path=/tmp/reload.db, got %q", cfg.Database.Path)
+	}
+}
+
+func TestReloadDoesNotAffectCachedLoad(t *testing.T) {
+	resetCache()
+	dir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	configDir := filepath.Join(dir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	writeTempConfig(t, configDir, "config.toml", `
+[server]
+http_port = 1111
+`)
+
+	cached, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cached.Server.HTTPPort != 1111 {
+		t.Errorf("expected cached port 1111, got %d", cached.Server.HTTPPort)
+	}
+
+	writeTempConfig(t, configDir, "config.toml", `
+[server]
+http_port = 2222
+`)
+
+	reloaded, err := Reload()
+	if err != nil {
+		t.Fatalf("Reload failed: %v", err)
+	}
+	if reloaded.Server.HTTPPort != 2222 {
+		t.Errorf("expected reloaded port 2222, got %d", reloaded.Server.HTTPPort)
+	}
+
+	if cached.Server.HTTPPort != 1111 {
+		t.Errorf("cached config was mutated by Reload: expected 1111, got %d", cached.Server.HTTPPort)
+	}
+
+	cachedAgain, err := Load()
+	if err != nil {
+		t.Fatalf("second Load failed: %v", err)
+	}
+	if cachedAgain.Server.HTTPPort != 1111 {
+		t.Errorf("Load() should still return cached value 1111, got %d", cachedAgain.Server.HTTPPort)
+	}
+}
+
 func TestMergeFileMissingSecuritySection(t *testing.T) {
 	dir := t.TempDir()
 	writeTempConfig(t, dir, "no-security.toml", `
