@@ -38,8 +38,9 @@ type JSONRPCResponse struct {
 }
 
 type JSONRPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+	Code    int         `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
 // Model Context Protocol specific structures
@@ -232,7 +233,11 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 	case "tools/call":
 		var params CallToolParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
-			s.sendError(req.ID, -32602, "Invalid params")
+			s.sendError(req.ID, -32602, "Invalid params: expected object with 'name' and 'arguments'", map[string]string{"detail": err.Error()})
+			return
+		}
+		if params.Name == "" {
+			s.sendError(req.ID, -32602, "Invalid params: 'name' is required")
 			return
 		}
 		s.handleToolCall(req.ID, &params)
@@ -249,7 +254,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			ID string `json:"id"`
 		}
 		if err := json.Unmarshal(params.Arguments, &args); err != nil {
-			s.sendError(reqID, -32602, "Invalid arguments")
+			s.sendError(reqID, -32602, "Invalid arguments for 'memory_get': failed to parse arguments", map[string]string{"detail": err.Error()})
+			return
+		}
+		if args.ID == "" {
+			s.sendError(reqID, -32602, "Invalid arguments for 'memory_get': 'id' is required")
 			return
 		}
 
@@ -285,7 +294,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			Entities  string `json:"entities"`
 		}
 		if err := json.Unmarshal(params.Arguments, &args); err != nil {
-			s.sendError(reqID, -32602, "Invalid arguments")
+			s.sendError(reqID, -32602, "Invalid arguments for 'memory_set': failed to parse arguments", map[string]string{"detail": err.Error()})
+			return
+		}
+		if args.Content == "" {
+			s.sendError(reqID, -32602, "Invalid arguments for 'memory_set': 'content' is required")
 			return
 		}
 
@@ -326,7 +339,11 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			Entity string `json:"entity"`
 		}
 		if err := json.Unmarshal(params.Arguments, &args); err != nil {
-			s.sendError(reqID, -32602, "Invalid arguments")
+			s.sendError(reqID, -32602, "Invalid arguments for 'memory_search': failed to parse arguments", map[string]string{"detail": err.Error()})
+			return
+		}
+		if args.Query == "" {
+			s.sendError(reqID, -32602, "Invalid arguments for 'memory_search': 'query' is required")
 			return
 		}
 
@@ -375,7 +392,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			Scope string `json:"scope"`
 		}
 		if err := json.Unmarshal(params.Arguments, &args); err != nil {
-			s.sendError(reqID, -32602, "Invalid arguments")
+			s.sendError(reqID, -32602, "Invalid arguments for 'memory_list': failed to parse arguments", map[string]string{"detail": err.Error()})
 			return
 		}
 
@@ -417,7 +434,7 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		s.sendToolResponse(reqID, string(bytes), false)
 
 	default:
-		s.sendError(reqID, -32601, "Tool not implemented")
+		s.sendError(reqID, -32601, fmt.Sprintf("Tool not implemented: '%s'", params.Name))
 	}
 }
 
@@ -430,7 +447,7 @@ func (s *Server) sendResult(id json.RawMessage, result interface{}) {
 	s.sendResponse(&res)
 }
 
-func (s *Server) sendError(id json.RawMessage, code int, message string) {
+func (s *Server) sendError(id json.RawMessage, code int, message string, data ...interface{}) {
 	res := JSONRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
@@ -438,6 +455,9 @@ func (s *Server) sendError(id json.RawMessage, code int, message string) {
 			Code:    code,
 			Message: message,
 		},
+	}
+	if len(data) > 0 {
+		res.Error.Data = data[0]
 	}
 	s.sendResponse(&res)
 }

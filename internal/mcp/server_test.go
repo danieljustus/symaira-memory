@@ -313,8 +313,17 @@ func TestToolMemoryGetMissingArgs(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
 		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
 	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
+	if res.Error == nil {
+		t.Fatal("expected error response for missing 'id' parameter")
+	}
+	if res.Error.Code != -32602 {
+		t.Errorf("expected error code -32602, got %d", res.Error.Code)
+	}
+	if !strings.Contains(res.Error.Message, "'id' is required") {
+		t.Errorf("expected message to contain \"'id' is required\", got %q", res.Error.Message)
+	}
+	if !strings.Contains(res.Error.Message, "memory_get") {
+		t.Errorf("expected message to contain tool name 'memory_get', got %q", res.Error.Message)
 	}
 }
 
@@ -1360,5 +1369,205 @@ func TestWebConsoleDoesNotShadowAPIRoutes(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&body)
 	if body["status"] != "healthy" {
 		t.Errorf("expected status 'healthy', got %q", body["status"])
+	}
+}
+
+// --------------------------------------------------------------------------
+// Error message format: parameter name and validation context
+// --------------------------------------------------------------------------
+
+func TestErrorMessageToolsCallInvalidParamsIncludesDetail(t *testing.T) {
+	s := helperServer(t)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"err-1"`),
+			Method:  "tools/call",
+			Params:  json.RawMessage(`"not-an-object"`),
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error == nil {
+		t.Fatal("expected error response")
+	}
+	if res.Error.Code != -32602 {
+		t.Errorf("expected code -32602, got %d", res.Error.Code)
+	}
+	if !strings.Contains(res.Error.Message, "'name'") {
+		t.Errorf("expected message to mention 'name' parameter, got %q", res.Error.Message)
+	}
+	if !strings.Contains(res.Error.Message, "'arguments'") {
+		t.Errorf("expected message to mention 'arguments' parameter, got %q", res.Error.Message)
+	}
+	if res.Error.Data == nil {
+		t.Error("expected error data field to contain parse detail")
+	}
+}
+
+func TestErrorMessageToolsCallMissingName(t *testing.T) {
+	s := helperServer(t)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"err-2"`),
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"arguments":{}}`),
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error == nil {
+		t.Fatal("expected error response for missing tool name")
+	}
+	if !strings.Contains(res.Error.Message, "'name' is required") {
+		t.Errorf("expected message to contain \"'name' is required\", got %q", res.Error.Message)
+	}
+}
+
+func TestErrorMessageMemoryGetIncludesToolAndParamName(t *testing.T) {
+	s := helperServer(t)
+	args, _ := json.Marshal(map[string]string{})
+	params := CallToolParams{Name: "memory_get", Arguments: args}
+	paramsJSON, _ := json.Marshal(params)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"err-3"`),
+			Method:  "tools/call",
+			Params:  paramsJSON,
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error == nil {
+		t.Fatal("expected error response")
+	}
+	if !strings.Contains(res.Error.Message, "memory_get") {
+		t.Errorf("expected message to contain tool name 'memory_get', got %q", res.Error.Message)
+	}
+	if !strings.Contains(res.Error.Message, "'id' is required") {
+		t.Errorf("expected message to contain \"'id' is required\", got %q", res.Error.Message)
+	}
+}
+
+func TestErrorMessageMemorySetMissingContent(t *testing.T) {
+	s := helperServer(t)
+	args, _ := json.Marshal(map[string]string{"scope": "global"})
+	params := CallToolParams{Name: "memory_set", Arguments: args}
+	paramsJSON, _ := json.Marshal(params)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"err-4"`),
+			Method:  "tools/call",
+			Params:  paramsJSON,
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error == nil {
+		t.Fatal("expected error response for missing content")
+	}
+	if !strings.Contains(res.Error.Message, "memory_set") {
+		t.Errorf("expected message to contain tool name 'memory_set', got %q", res.Error.Message)
+	}
+	if !strings.Contains(res.Error.Message, "'content' is required") {
+		t.Errorf("expected message to contain \"'content' is required\", got %q", res.Error.Message)
+	}
+}
+
+func TestErrorMessageMemorySearchMissingQuery(t *testing.T) {
+	s := helperServer(t)
+	args, _ := json.Marshal(map[string]string{"limit": "5"})
+	params := CallToolParams{Name: "memory_search", Arguments: args}
+	paramsJSON, _ := json.Marshal(params)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"err-5"`),
+			Method:  "tools/call",
+			Params:  paramsJSON,
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error == nil {
+		t.Fatal("expected error response for missing query")
+	}
+	if !strings.Contains(res.Error.Message, "memory_search") {
+		t.Errorf("expected message to contain tool name 'memory_search', got %q", res.Error.Message)
+	}
+	if !strings.Contains(res.Error.Message, "'query' is required") {
+		t.Errorf("expected message to contain \"'query' is required\", got %q", res.Error.Message)
+	}
+}
+
+func TestErrorMessageUnknownToolIncludesName(t *testing.T) {
+	s := helperServer(t)
+	params := CallToolParams{Name: "nonexistent_tool", Arguments: json.RawMessage(`{}`)}
+	paramsJSON, _ := json.Marshal(params)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"err-6"`),
+			Method:  "tools/call",
+			Params:  paramsJSON,
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error == nil {
+		t.Fatal("expected error response for unknown tool")
+	}
+	if !strings.Contains(res.Error.Message, "nonexistent_tool") {
+		t.Errorf("expected message to contain tool name 'nonexistent_tool', got %q", res.Error.Message)
+	}
+}
+
+func TestErrorMessageDataFieldContainsParseDetail(t *testing.T) {
+	s := helperServer(t)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"err-7"`),
+			Method:  "tools/call",
+			Params:  json.RawMessage(`{"name":"memory_get","arguments":[1,2,3]}`),
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error == nil {
+		t.Fatal("expected error response")
+	}
+	if !strings.Contains(res.Error.Message, "memory_get") {
+		t.Errorf("expected message to contain tool name, got %q", res.Error.Message)
+	}
+	if !strings.Contains(res.Error.Message, "failed to parse arguments") {
+		t.Errorf("expected message to mention parse failure, got %q", res.Error.Message)
+	}
+	if res.Error.Data == nil {
+		t.Error("expected error data field to contain structured detail")
 	}
 }
