@@ -34,7 +34,7 @@ var searchCmd = &cobra.Command{
 
   # Filter by scope and entity
   symmemory search "API design decisions" -s project --entity "BackendAPI"`,
-	Args:  cobra.ExactArgs(1),
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		query := args[0]
 		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())

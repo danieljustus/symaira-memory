@@ -12,10 +12,10 @@ import (
 
 // RateLimitConfig holds configurable rate limit parameters.
 type RateLimitConfig struct {
-	AuthRPS   float64
-	AuthBurst int
-	DataRPS   float64
-	DataBurst int
+	AuthRPS         float64
+	AuthBurst       int
+	DataRPS         float64
+	DataBurst       int
 	CleanupInterval time.Duration
 	LimiterTTL      time.Duration
 }
@@ -38,10 +38,10 @@ type ipLimiter struct {
 }
 
 type RateLimiter struct {
-	mu      sync.Mutex
+	mu       sync.Mutex
 	limiters map[string]*ipLimiter
-	config  RateLimitConfig
-	stopCh  chan struct{}
+	config   RateLimitConfig
+	stopCh   chan struct{}
 }
 
 func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {

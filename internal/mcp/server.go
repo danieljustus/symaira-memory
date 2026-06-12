@@ -209,17 +209,17 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 					Required: []string{"query"},
 				},
 			},
-		{
-			Name:        "memory_list",
-			Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
-			InputSchema: InputSchema{
-				Type: "object",
-				Properties: map[string]Property{
-					"scope": {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
-					"limit": {Type: "string", Description: "Optional maximum number of memories to return (default 100, max 1000)"},
+			{
+				Name:        "memory_list",
+				Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
+				InputSchema: InputSchema{
+					Type: "object",
+					Properties: map[string]Property{
+						"scope": {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
+						"limit": {Type: "string", Description: "Optional maximum number of memories to return (default 100, max 1000)"},
+					},
 				},
 			},
-		},
 			{
 				Name:        "entity_list",
 				Description: "List all known entities (people, projects, organizations). Use this to discover which entities exist before linking memories or filtering searches.",
