@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -13,19 +12,29 @@ var (
 	searchScope  string
 	searchLimit  int
 	searchEntity string
+	searchFormat string
 )
 
 func init() {
 	searchCmd.Flags().StringVarP(&searchScope, "scope", "s", "", "Filter search by scope level")
 	searchCmd.Flags().IntVarP(&searchLimit, "limit", "l", 5, "Maximum number of search results to return")
 	searchCmd.Flags().StringVar(&searchEntity, "entity", "", "Filter search by entity name")
+	searchCmd.Flags().StringVar(&searchFormat, "format", "text", "Output format: json or text")
 	rootCmd.AddCommand(searchCmd)
 }
 
 var searchCmd = &cobra.Command{
 	Use:   "search [query]",
 	Short: "Perform semantic query comparison over stored memories offline",
-	Args:  cobra.ExactArgs(1),
+	Example: `  # Search with default limit (5 results)
+  symmemory search "preferred theme settings"
+
+  # Return more results with --limit
+  symmemory search "authentication flow" --limit 10
+
+  # Filter by scope and entity
+  symmemory search "API design decisions" -s project --entity "BackendAPI"`,
+	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		query := args[0]
 		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
@@ -51,16 +60,10 @@ var searchCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if len(results) == 0 {
-			fmt.Println("No relevant memories found.")
-			return
-		}
-
-		bytes, err := json.MarshalIndent(results, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to encode results: %v\n", err)
+		formatter := NewOutputFormatter(searchFormat)
+		if err := formatter.Output(results, "search"); err != nil {
+			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println(string(bytes))
 	},
 }

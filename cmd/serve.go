@@ -75,9 +75,10 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
+			mcpSrv := server.MCPServer()
 			errCh := make(chan error, 1)
 			go func() {
-				errCh <- server.Serve(ctx)
+				errCh <- mcpSrv.ServeStdio(ctx)
 			}()
 
 			select {

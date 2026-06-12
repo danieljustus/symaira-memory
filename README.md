@@ -161,6 +161,38 @@ Per-project scoping is configured with a `.symmemory.toml` file in your project 
 
 ---
 
+## Secret Resolution (vault://)
+
+Symaira Memory supports resolving secrets from [Symaira Vault](https://github.com/danieljustus/symaira-vault) using `vault://` URIs in your configuration. This keeps sensitive values out of plaintext config files.
+
+### How It Works
+
+When a config value starts with `vault://`, `symmemory` resolves it by running `symvault get <path>` as a subprocess (5-second timeout). If `symvault` is unavailable, it falls back to the corresponding environment variable.
+
+**Resolution order for JWT signing secret:**
+
+1. `vault://<path>` from config → `symvault get <path>`
+2. `JWT_SECRET_KEY` environment variable
+3. File at `secret_path` (or auto-generated)
+
+### Example Configuration
+
+```toml
+[jwt]
+# Resolve JWT secret from Symaira Vault
+secret = "vault://symaira/memory/jwt"
+```
+
+**Fallback behavior:** If `symvault` is not installed or the path doesn't exist, `symmemory` falls back to the `JWT_SECRET_KEY` environment variable. If neither is available, it generates and persists a random secret.
+
+### Environment Variables
+
+| Variable | Fallback For | Purpose |
+| :--- | :--- | :--- |
+| `JWT_SECRET_KEY` | `vault://` for JWT secret | Token signing secret |
+
+---
+
 ## Security & Privacy
 
 - **PII Guard**: All memory content passes through a regex filter that redacts credit cards, email addresses, and API tokens before storage.

@@ -65,6 +65,11 @@ model = "nomic-embed-text"
 # Default: ~/.config/symmemory/jwt.secret (auto-generated on first use)
 # secret_path = ""
 
+# Vault URI for the JWT signing secret.
+# When set, resolves via "symvault get <path>" subprocess (5s timeout).
+# Falls back to JWT_SECRET_KEY env var if symvault is unavailable.
+# secret = "vault://symaira/memory/jwt"
+
 [security]
 # Enable automatic PII (email, API keys, credit cards) redaction before storage.
 pii_enabled = true

@@ -15,7 +15,12 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/secrets"
 )
+
+// DefaultRotationGracePeriod is the default duration that a rotated secret
+// remains valid as a fallback after key rotation.
+const DefaultRotationGracePeriod = 24 * time.Hour
 
 // DB interface for revocation persistence, avoiding circular imports.
 type RevocationStore interface {
@@ -25,10 +30,18 @@ type RevocationStore interface {
 
 // JWTProvider manages API token issuance, validation, revocation, and key rotation.
 type JWTProvider struct {
-	secret   []byte
-	secrets  [][]byte // fallback keys for rotation grace period
-	revoked  map[string]time.Time
-	revStore RevocationStore
+	secret         []byte
+	secrets        [][]byte // fallback keys for rotation grace period
+	secretExpiries []time.Time
+	revoked        map[string]time.Time
+	revStore       RevocationStore
+	cfg            *config.Config
+	gracePeriod    time.Duration
+}
+
+type fallbackEntry struct {
+	Secret    string    `json:"secret"`
+	ExpiresAt time.Time `json:"expires_at"`
 }
 
 type jwtHeader struct {
@@ -48,29 +61,74 @@ type JWTPayload struct {
 // persistent revocation store. When store is nil, only in-memory revocation
 // is used. The cfg argument supplies the configured secret path; pass nil
 // to fall back to the default ~/.config/symmemory/jwt.secret location.
+//
+// Secret resolution order:
+//  1. cfg.JWT.Secret — vault:// URI resolved via symvault subprocess (5s timeout)
+//  2. JWT_SECRET_KEY environment variable
+//  3. File at cfg.JWT.SecretPath (or default ~/.config/symmemory/jwt.secret)
+//  4. Auto-generate and persist a random 32-byte hex secret
 func NewJWTProvider(cfg *config.Config, store RevocationStore) (*JWTProvider, error) {
 	if cfg == nil {
 		cfg = config.Defaults()
 	}
-	secret := os.Getenv("JWT_SECRET_KEY")
+
+	// 1. Try vault:// resolution from config
+	secret, err := secrets.Resolve(cfg.JWT.Secret, "JWT_SECRET_KEY")
+	if err != nil {
+		// vault:// resolution failed — propagate error with context
+		return nil, fmt.Errorf("JWT secret vault:// resolution failed: %w", err)
+	}
+
+	// 2. Try env var if vault:// didn't produce a value
 	if secret == "" {
-		loaded, err := loadPersistedSecret(cfg)
-		if err == nil && loaded != "" {
+		secret = os.Getenv("JWT_SECRET_KEY")
+	}
+
+	// 3. Try loading from file
+	if secret == "" {
+		loaded, loadErr := loadPersistedSecret(cfg)
+		if loadErr == nil && loaded != "" {
 			secret = loaded
 		}
 	}
+
+	// 4. Auto-generate as last resort
 	if secret == "" {
-		generated, err := generateAndPersistSecret(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate JWT secret: %w", err)
+		generated, genErr := generateAndPersistSecret(cfg)
+		if genErr != nil {
+			return nil, fmt.Errorf("failed to generate JWT secret: %w", genErr)
 		}
 		secret = generated
 	}
-	return &JWTProvider{
-		secret:   []byte(secret),
-		revoked:  make(map[string]time.Time),
-		revStore: store,
-	}, nil
+
+	provider := &JWTProvider{
+		secret:      []byte(secret),
+		revoked:     make(map[string]time.Time),
+		revStore:    store,
+		cfg:         cfg,
+		gracePeriod: DefaultRotationGracePeriod,
+	}
+
+	entries, err := loadFallbackSecrets(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to load fallback JWT secrets: %v\n", err)
+	}
+	now := time.Now()
+	var validEntries []fallbackEntry
+	for _, e := range entries {
+		if e.ExpiresAt.After(now) {
+			provider.secrets = append(provider.secrets, []byte(e.Secret))
+			provider.secretExpiries = append(provider.secretExpiries, e.ExpiresAt)
+			validEntries = append(validEntries, e)
+		}
+	}
+	if len(validEntries) != len(entries) {
+		if persistErr := persistFallbackSecrets(cfg, validEntries); persistErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to purge expired fallback secrets: %v\n", persistErr)
+		}
+	}
+
+	return provider, nil
 }
 
 // loadPersistedSecret reads the signing key from the configured path
@@ -122,6 +180,56 @@ func generateAndPersistSecret(cfg *config.Config) (string, error) {
 	return secret, nil
 }
 
+func fallbackSecretsPath(cfg *config.Config) string {
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+	secretPath := cfg.JWT.SecretPath
+	if secretPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		secretPath = filepath.Join(home, ".config", "symmemory", "jwt.secret")
+	}
+	return strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+}
+
+func loadFallbackSecrets(cfg *config.Config) ([]fallbackEntry, error) {
+	path := fallbackSecretsPath(cfg)
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var entries []fallbackEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func persistFallbackSecrets(cfg *config.Config, entries []fallbackEntry) error {
+	path := fallbackSecretsPath(cfg)
+	if path == "" {
+		return fmt.Errorf("cannot determine fallback secrets path")
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0600)
+}
+
 // GenerateToken issues a valid signed JWT token for the specified subject (e.g. "extension" or "gpt").
 func (jp *JWTProvider) GenerateToken(subject string, duration time.Duration) (string, error) {
 	header := jwtHeader{Alg: "HS256", Typ: "JWT"}
@@ -170,8 +278,14 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 
 	// Try the primary secret first, then fallback secrets for rotation grace period.
 	validSig := false
+	now := time.Now()
 	secrets := append([][]byte{jp.secret}, jp.secrets...)
-	for _, s := range secrets {
+	for i, s := range secrets {
+		if i > 0 && i-1 < len(jp.secretExpiries) {
+			if exp := jp.secretExpiries[i-1]; !exp.IsZero() && exp.Before(now) {
+				continue
+			}
+		}
 		if hmac.Equal([]byte(parts[2]), []byte(jp.signWith(unsignedToken, s))) {
 			validSig = true
 			break
@@ -230,9 +344,42 @@ func (jp *JWTProvider) AddFallbackSecret(secret string) {
 
 // RotateSecret replaces the primary signing key and keeps the current key
 // as a fallback so existing tokens remain valid during the transition.
+// The old secret is persisted to disk with an expiry based on the configured
+// grace period, so tokens remain valid across process restarts.
 func (jp *JWTProvider) RotateSecret(newSecret string) {
-	jp.AddFallbackSecret(string(jp.secret))
+	now := time.Now()
+	expiresAt := now.Add(jp.gracePeriod)
+
+	jp.secrets = append(jp.secrets, []byte(jp.secret))
+	jp.secretExpiries = append(jp.secretExpiries, expiresAt)
 	jp.secret = []byte(newSecret)
+
+	var keptSecrets [][]byte
+	var keptExpiries []time.Time
+	var keptEntries []fallbackEntry
+	for i, s := range jp.secrets {
+		exp := time.Time{}
+		if i < len(jp.secretExpiries) {
+			exp = jp.secretExpiries[i]
+		}
+		if !exp.IsZero() && exp.Before(now) {
+			continue
+		}
+		keptSecrets = append(keptSecrets, s)
+		keptExpiries = append(keptExpiries, exp)
+		keptEntries = append(keptEntries, fallbackEntry{
+			Secret:    string(s),
+			ExpiresAt: exp,
+		})
+	}
+	jp.secrets = keptSecrets
+	jp.secretExpiries = keptExpiries
+
+	if jp.cfg != nil {
+		if err := persistFallbackSecrets(jp.cfg, keptEntries); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to persist fallback JWT secrets: %v\n", err)
+		}
+	}
 }
 
 func (jp *JWTProvider) sign(text string) string {

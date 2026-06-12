@@ -153,3 +153,146 @@ func TestJWTKeyRotation(t *testing.T) {
 		t.Errorf("token from unrelated key should fail verification")
 	}
 }
+
+func TestRotateSecretPersistsFallbackToDisk(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	oldSecret := string(provider.secret)
+	oldToken, err := provider.GenerateToken("agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	provider.RotateSecret("new-secret-v2")
+
+	fallbackPath := strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+	data, err := os.ReadFile(fallbackPath)
+	if err != nil {
+		t.Fatalf("fallback secrets file not created: %v", err)
+	}
+
+	if !strings.Contains(string(data), oldSecret) {
+		t.Errorf("fallback file should contain old secret %q, got: %s", oldSecret, string(data))
+	}
+
+	_, err = provider.VerifyToken(oldToken)
+	if err != nil {
+		t.Errorf("old token should still verify after rotation: %v", err)
+	}
+}
+
+func TestLoadFallbackSecretsOnStartup(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	if err := os.WriteFile(secretPath, []byte("primary-secret"), 0600); err != nil {
+		t.Fatalf("failed to write secret: %v", err)
+	}
+
+	fallbackPath := strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+	fallbackJSON := `[{"secret":"old-fallback-secret","expires_at":"2099-12-31T23:59:59Z"}]`
+	if err := os.WriteFile(fallbackPath, []byte(fallbackJSON), 0600); err != nil {
+		t.Fatalf("failed to write fallback: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	if len(provider.secrets) != 1 {
+		t.Fatalf("expected 1 fallback secret, got %d", len(provider.secrets))
+	}
+	if string(provider.secrets[0]) != "old-fallback-secret" {
+		t.Errorf("expected fallback secret 'old-fallback-secret', got %q", string(provider.secrets[0]))
+	}
+
+	oldProvider := &JWTProvider{secret: []byte("old-fallback-secret")}
+	oldToken, _ := oldProvider.GenerateToken("agent", 10*time.Minute)
+
+	_, err = provider.VerifyToken(oldToken)
+	if err != nil {
+		t.Errorf("token signed with loaded fallback should verify: %v", err)
+	}
+}
+
+func TestGracePeriodExpirationPurgesOldSecrets(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	if err := os.WriteFile(secretPath, []byte("primary-secret"), 0600); err != nil {
+		t.Fatalf("failed to write secret: %v", err)
+	}
+
+	fallbackPath := strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+	expiredJSON := `[{"secret":"expired-secret","expires_at":"2020-01-01T00:00:00Z"}]`
+	if err := os.WriteFile(fallbackPath, []byte(expiredJSON), 0600); err != nil {
+		t.Fatalf("failed to write fallback: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	if len(provider.secrets) != 0 {
+		t.Errorf("expired fallback should be purged, got %d secrets", len(provider.secrets))
+	}
+
+	data, err := os.ReadFile(fallbackPath)
+	if err != nil {
+		t.Fatalf("failed to read fallback file: %v", err)
+	}
+	if strings.Contains(string(data), "expired-secret") {
+		t.Errorf("expired secret should be purged from disk, got: %s", string(data))
+	}
+}
+
+func TestRotationPurgesExpiredFallbacks(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+	provider.gracePeriod = 1 * time.Millisecond
+
+	provider.RotateSecret("second-secret")
+
+	time.Sleep(5 * time.Millisecond)
+
+	provider.RotateSecret("third-secret")
+
+	fallbackPath := strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+	data, err := os.ReadFile(fallbackPath)
+	if err != nil {
+		t.Fatalf("failed to read fallback file: %v", err)
+	}
+
+	if strings.Contains(string(data), string([]byte("first"))) {
+		t.Logf("fallback file contents: %s", string(data))
+	}
+
+	if len(provider.secrets) > 1 {
+		t.Errorf("expected at most 1 fallback after purge, got %d", len(provider.secrets))
+	}
+}

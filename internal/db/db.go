@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/sqlitekit"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	_ "modernc.org/sqlite"
 )
@@ -60,22 +61,12 @@ func Open(cfg *config.Config) (*DB, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get user home dir: %w", err)
 		}
-		dir := filepath.Join(home, ".local", "share", "symmemory")
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return nil, fmt.Errorf("failed to create db directory: %w", err)
-		}
-		dbPath = filepath.Join(dir, "default.db")
+		dbPath = filepath.Join(home, ".local", "share", "symmemory", "default.db")
 	}
 
-	conn, err := sql.Open("sqlite", dbPath)
+	conn, err := sqlitekit.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
-	}
-
-	// Enable WAL mode for concurrent reads/writes
-	if _, err := conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to enable WAL: %w", err)
 	}
 
 	db := &DB{conn: conn}
@@ -84,7 +75,6 @@ func Open(cfg *config.Config) (*DB, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	// Restrict database file permissions to owner-only (after migrations create the file)
 	if _, err := os.Stat(dbPath); err == nil {
 		if err := os.Chmod(dbPath, 0600); err != nil {
 			conn.Close()
@@ -181,6 +171,35 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	return &m, nil
 }
 
+// scanMemory scans a full Memory row (including embedding) from *sql.Rows.
+func scanMemory(rows *sql.Rows) (*Memory, error) {
+	var m Memory
+	var metaStr, embStr string
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// scanMemoryLite scans a Memory row without embedding data from *sql.Rows.
+func scanMemoryLite(rows *sql.Rows) (*Memory, error) {
+	var m Memory
+	var metaStr string
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // ListMemories returns memories with pagination, optionally filtered by scope.
 func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var query string
@@ -202,21 +221,11 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 
 	var memories []*Memory
 	for rows.Next() {
-		var m Memory
-		var metaStr, embStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		m, err := scanMemory(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-			return nil, err
-		}
-
-		if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
-			return nil, err
-		}
-
-		memories = append(memories, &m)
+		memories = append(memories, m)
 	}
 
 	return memories, nil
@@ -243,17 +252,11 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 
 	var memories []*Memory
 	for rows.Next() {
-		var m Memory
-		var metaStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		m, err := scanMemoryLite(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-			return nil, err
-		}
-
-		memories = append(memories, &m)
+		memories = append(memories, m)
 	}
 
 	return memories, nil
@@ -299,15 +302,11 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 
 	var memories []*Memory
 	for rows.Next() {
-		var m Memory
-		var metaStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		m, err := scanMemoryLite(rows)
+		if err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-			return nil, err
-		}
-		memories = append(memories, &m)
+		memories = append(memories, m)
 	}
 	return memories, nil
 }
@@ -316,7 +315,8 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 // Embedding data is omitted (sync payloads do not need vectors).
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories ORDER BY updated_at ASC",
+		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE updated_at > ? ORDER BY updated_at ASC",
+		t,
 	)
 	if err != nil {
 		return nil, err
@@ -325,17 +325,11 @@ func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 
 	var memories []*Memory
 	for rows.Next() {
-		var m Memory
-		var metaStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		m, err := scanMemoryLite(rows)
+		if err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-			return nil, err
-		}
-		if m.UpdatedAt.After(t) {
-			memories = append(memories, &m)
-		}
+		memories = append(memories, m)
 	}
 	return memories, nil
 }
@@ -432,11 +426,16 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 
 		var query string
 		if scope != "" {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? AND lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? AND lsh_hash IN (" + inClause + ")"
 			args = append([]interface{}{scope}, args...)
 		} else {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE lsh_hash IN (" + inClause + ")"
 		}
+		if entityID != "" {
+			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
+			args = append(args, entityID)
+		}
+		query += " ORDER BY created_at DESC"
 
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
@@ -444,23 +443,14 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 		}
 
 		for rows.Next() {
-			var m Memory
-			var metaStr, embStr string
-			if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+			m, err := scanMemory(rows)
+			if err != nil {
 				rows.Close()
 				return nil, err
 			}
 			if len(m.Embedding) > 0 {
 				score := CosineSimilarity(queryVec, m.Embedding)
-				results = append(results, scored{m: &m, score: score})
+				results = append(results, scored{m: m, score: score})
 			}
 			if len(results) >= maxCandidates {
 				break
@@ -472,24 +462,6 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].score > results[j].score
 	})
-
-	if entityID != "" {
-		allowedIDs, err := db.MemoryIDsForEntity(entityID)
-		if err != nil {
-			return nil, err
-		}
-		allowed := make(map[string]bool, len(allowedIDs))
-		for _, id := range allowedIDs {
-			allowed[id] = true
-		}
-		var filtered []scored
-		for _, r := range results {
-			if allowed[r.m.ID] {
-				filtered = append(filtered, r)
-			}
-		}
-		results = filtered
-	}
 
 	if limit > len(results) {
 		limit = len(results)

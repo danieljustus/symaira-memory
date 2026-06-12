@@ -28,8 +28,8 @@ func NewPIIGuard() *PIIGuard {
 		// E-mail Addresses
 		regexp.MustCompile(`(?i)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`),
 
-		// Credit Card Numbers (Simple 13-16 digit patterns)
-		regexp.MustCompile(`\b(?:\d[ -]*?){13,16}\b`),
+		// Credit Card Numbers (prefix-validated: Visa 4, MC 51-55/22-27, Amex 34/37, Discover 6011/65)
+		regexp.MustCompile(`\b(?:4\d{3}|5[1-5]\d{2}|2[2-7]\d{2}|3[47]\d{2}|65\d{2}|6011)(?:[ -]?\d){9,12}\b`),
 	}
 
 	return &PIIGuard{patterns: patterns}

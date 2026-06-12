@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -11,17 +10,27 @@ import (
 var (
 	listScope  string
 	listEntity string
+	listFormat string
 )
 
 func init() {
-	listCmd.Flags().StringVarP(&listScope, "scope", "s", "", "Filter list by scope level")
+	listCmd.Flags().StringVarP(&listScope, "scope", "s", "", "Filter list by scopes level")
 	listCmd.Flags().StringVar(&listEntity, "entity", "", "Filter list by entity name")
+	listCmd.Flags().StringVar(&listFormat, "format", "text", "Output format: json or text")
 	rootCmd.AddCommand(listCmd)
 }
 
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all stored memory entries in the database",
+	Example: `  # List all memories
+  symmemory list
+
+  # Filter by scope
+  symmemory list --scope project
+
+  # Filter by entity and output as JSON
+  symmemory list --entity "BackendAPI" --format json`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var entityID string
 		if listEntity != "" {
@@ -43,16 +52,10 @@ var listCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if len(mems) == 0 {
-			fmt.Println("[]")
-			return
-		}
-
-		bytes, err := json.MarshalIndent(mems, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to encode memories: %v\n", err)
+		formatter := NewOutputFormatter(listFormat)
+		if err := formatter.Output(mems, "list"); err != nil {
+			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println(string(bytes))
 	},
 }

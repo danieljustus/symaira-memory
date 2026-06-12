@@ -1,12 +1,16 @@
 package mcp
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +20,6 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/security"
 )
 
-// helperDB creates a temporary SQLite database for testing.
 func helperDB(t *testing.T) *db.DB {
 	t.Helper()
 	tempDir, err := os.MkdirTemp("", "symmemory-mcp-test-*")
@@ -37,7 +40,6 @@ func helperDB(t *testing.T) *db.DB {
 	return database
 }
 
-// helperServer creates a Server backed by a real temp database.
 func helperServer(t *testing.T) *Server {
 	t.Helper()
 	database := helperDB(t)
@@ -48,115 +50,122 @@ func helperServer(t *testing.T) *Server {
 	return NewServer(database, jwtProvider, "test", nil)
 }
 
-// captureStdout captures writes to os.Stdout and restores it after the test.
-// Tests that exercise sendResponse need this to capture JSON-RPC output.
-func captureResponse(fn func()) string {
-	r, w, err := os.Pipe()
-	if err != nil {
-		panic(err)
-	}
-	old := os.Stdout
-	os.Stdout = w
-
-	fn()
-
-	w.Close()
-	os.Stdout = old
-
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	return buf.String()
+func frameRequest(data []byte) []byte {
+	return []byte(fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(data), data))
 }
 
-// --------------------------------------------------------------------------
-// JSON-RPC Request Parsing
-// --------------------------------------------------------------------------
-
-func TestJSONRPCParseValidRequest(t *testing.T) {
-	input := []byte(`{"jsonrpc":"2.0","id":"req-1","method":"initialize"}`)
-	var req JSONRPCRequest
-	if err := json.Unmarshal(input, &req); err != nil {
-		t.Fatalf("failed to parse valid request: %v", err)
+func readFramedResponse(r io.Reader) map[string]interface{} {
+	br := bufio.NewReader(r)
+	var contentLength int
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return nil
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			break
+		}
+		if rest, ok := strings.CutPrefix(line, "Content-Length:"); ok {
+			n, _ := strconv.Atoi(strings.TrimSpace(rest))
+			contentLength = n
+		}
 	}
-	if req.JSONRPC != "2.0" {
-		t.Errorf("expected jsonrpc '2.0', got %q", req.JSONRPC)
+	if contentLength <= 0 {
+		return nil
 	}
-	if string(req.ID) != `"req-1"` {
-		t.Errorf("expected id 'req-1', got %s", string(req.ID))
+	body := make([]byte, contentLength)
+	if _, err := io.ReadFull(br, body); err != nil {
+		return nil
 	}
-	if req.Method != "initialize" {
-		t.Errorf("expected method 'initialize', got %q", req.Method)
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil
 	}
+	return result
 }
 
-func TestJSONRPCParseRequestWithParams(t *testing.T) {
-	input := []byte(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"memory_get","arguments":{"id":"abc"}}}`)
-	var req JSONRPCRequest
-	if err := json.Unmarshal(input, &req); err != nil {
-		t.Fatalf("failed to parse request with params: %v", err)
+func callMCP(s *Server, method string, params interface{}) map[string]interface{} {
+	mcpSrv := s.MCPServer()
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      "test-1",
+		"method":  method,
 	}
-	if string(req.ID) != "1" {
-		t.Errorf("expected numeric id '1', got %s", string(req.ID))
+	if params != nil {
+		req["params"] = params
 	}
-	if req.Params == nil {
-		t.Fatal("expected non-nil params")
-	}
+	data, _ := json.Marshal(req)
+	var input bytes.Buffer
+	input.Write(frameRequest(data))
+	var output bytes.Buffer
+	_ = mcpSrv.ServeIO(context.Background(), &input, &output)
+	return readFramedResponse(&output)
 }
 
-func TestJSONRPCParseInvalidJSON(t *testing.T) {
-	input := []byte(`not json at all`)
-	var req JSONRPCRequest
-	err := json.Unmarshal(input, &req)
-	if err == nil {
-		t.Error("expected parse error for invalid JSON")
-	}
-}
-
-func TestJSONRPCParseNotification(t *testing.T) {
-	// Notifications have no id field
-	input := []byte(`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`)
-	var req JSONRPCRequest
-	if err := json.Unmarshal(input, &req); err != nil {
-		t.Fatalf("failed to parse notification: %v", err)
-	}
-	if req.ID != nil {
-		t.Errorf("expected nil id for notification, got %s", string(req.ID))
-	}
-}
-
-// --------------------------------------------------------------------------
-// handleRequest dispatches
-// --------------------------------------------------------------------------
-
-func TestHandleRequestInitialize(t *testing.T) {
-	s := helperServer(t)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-1"`),
-			Method:  "initialize",
-		})
+func callTool(s *Server, name string, args map[string]string) map[string]interface{} {
+	mcpSrv := s.MCPServer()
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      name,
+		"arguments": args,
 	})
-
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      "test-1",
+		"method":  "tools/call",
+		"params":  json.RawMessage(params),
 	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
-	}
+	data, _ := json.Marshal(req)
+	var input bytes.Buffer
+	input.Write(frameRequest(data))
+	var output bytes.Buffer
+	_ = mcpSrv.ServeIO(context.Background(), &input, &output)
+	return readFramedResponse(&output)
+}
 
-	result, ok := res.Result.(map[string]interface{})
+func getToolText(res map[string]interface{}) string {
+	result, ok := res["result"].(map[string]interface{})
 	if !ok {
-		t.Fatalf("expected map result, got %T", res.Result)
+		return ""
 	}
+	content, ok := result["content"].([]interface{})
+	if !ok || len(content) == 0 {
+		return ""
+	}
+	item, ok := content[0].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	text, _ := item["text"].(string)
+	return text
+}
+
+func getToolError(res map[string]interface{}) (code float64, message string) {
+	if errObj, ok := res["error"].(map[string]interface{}); ok {
+		code, _ = errObj["code"].(float64)
+		message, _ = errObj["message"].(string)
+		return
+	}
+	return 0, ""
+}
+
+// --------------------------------------------------------------------------
+// JSON-RPC 2.0 Protocol
+// --------------------------------------------------------------------------
+
+func TestJSONRPCInitialize(t *testing.T) {
+	s := helperServer(t)
+	res := callMCP(s, "initialize", nil)
+
+	code, msg := getToolError(res)
+	if code != 0 {
+		t.Fatalf("unexpected error: code=%v msg=%s", code, msg)
+	}
+	result := res["result"].(map[string]interface{})
 	if result["protocolVersion"] != "2024-11-05" {
 		t.Errorf("expected protocolVersion '2024-11-05', got %v", result["protocolVersion"])
 	}
-	serverInfo, ok := result["serverInfo"].(map[string]interface{})
-	if !ok {
-		t.Fatal("expected serverInfo map")
-	}
+	serverInfo := result["serverInfo"].(map[string]interface{})
 	if serverInfo["name"] != "symaira-memory" {
 		t.Errorf("expected name 'symaira-memory', got %v", serverInfo["name"])
 	}
@@ -165,44 +174,26 @@ func TestHandleRequestInitialize(t *testing.T) {
 	}
 }
 
-func TestHandleRequestToolsList(t *testing.T) {
+func TestJSONRPCToolsList(t *testing.T) {
 	s := helperServer(t)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-2"`),
-			Method:  "tools/list",
-		})
-	})
+	res := callMCP(s, "tools/list", nil)
 
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	code, _ := getToolError(res)
+	if code != 0 {
+		t.Fatalf("unexpected error in tools/list")
 	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
-	}
-
-	result, ok := res.Result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected map result, got %T", res.Result)
-	}
-	tools, ok := result["tools"].([]interface{})
-	if !ok {
-		t.Fatalf("expected tools array, got %T", result["tools"])
-	}
+	result := res["result"].(map[string]interface{})
+	tools := result["tools"].([]interface{})
 
 	expectedTools := map[string]bool{
 		"memory_get":    false,
 		"memory_set":    false,
 		"memory_search": false,
 		"memory_list":   false,
+		"entity_list":   false,
 	}
 	for _, toolRaw := range tools {
-		tool, ok := toolRaw.(map[string]interface{})
-		if !ok {
-			continue
-		}
+		tool := toolRaw.(map[string]interface{})
 		name, _ := tool["name"].(string)
 		if _, exists := expectedTools[name]; exists {
 			expectedTools[name] = true
@@ -215,149 +206,48 @@ func TestHandleRequestToolsList(t *testing.T) {
 	}
 }
 
-func TestHandleRequestMethodNotFound(t *testing.T) {
+func TestJSONRPCMethodNotFound(t *testing.T) {
 	s := helperServer(t)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-3"`),
-			Method:  "nonexistent/method",
-		})
-	})
+	res := callMCP(s, "nonexistent/method", nil)
 
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	code, msg := getToolError(res)
+	if code != -32601 {
+		t.Errorf("expected error code -32601, got %v", code)
 	}
-	if res.Error == nil {
-		t.Fatal("expected error response for unknown method")
-	}
-	if res.Error.Code != -32601 {
-		t.Errorf("expected error code -32601, got %d", res.Error.Code)
-	}
-	if res.Error.Message != "Method not found" {
-		t.Errorf("expected message 'Method not found', got %q", res.Error.Message)
+	if msg != "Method not found: nonexistent/method" {
+		t.Errorf("expected 'Method not found: nonexistent/method', got %q", msg)
 	}
 }
 
 // --------------------------------------------------------------------------
-// tools/call routing
-// --------------------------------------------------------------------------
-
-func TestHandleToolCallInvalidParams(t *testing.T) {
-	s := helperServer(t)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-4"`),
-			Method:  "tools/call",
-			Params:  json.RawMessage(`"not-an-object"`),
-		})
-	})
-
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
-	}
-	if res.Error == nil {
-		t.Fatal("expected error response for invalid params")
-	}
-	if res.Error.Code != -32602 {
-		t.Errorf("expected error code -32602, got %d", res.Error.Code)
-	}
-}
-
-func TestHandleToolCallUnknownTool(t *testing.T) {
-	s := helperServer(t)
-	params := CallToolParams{Name: "nonexistent_tool", Arguments: json.RawMessage(`{}`)}
-	paramsJSON, _ := json.Marshal(params)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-5"`),
-			Method:  "tools/call",
-			Params:  paramsJSON,
-		})
-	})
-
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
-	}
-	if res.Error == nil {
-		t.Fatal("expected error response for unknown tool")
-	}
-	if res.Error.Code != -32601 {
-		t.Errorf("expected error code -32601, got %d", res.Error.Code)
-	}
-}
-
-// --------------------------------------------------------------------------
-// Tool handler: memory_get
+// Tool: memory_get
 // --------------------------------------------------------------------------
 
 func TestToolMemoryGetMissingArgs(t *testing.T) {
 	s := helperServer(t)
-	params := CallToolParams{Name: "memory_get", Arguments: json.RawMessage(`{}`)}
-	paramsJSON, _ := json.Marshal(params)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-6"`),
-			Method:  "tools/call",
-			Params:  paramsJSON,
-		})
-	})
+	res := callTool(s, "memory_get", map[string]string{})
 
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	text := getToolText(res)
+	if !strings.Contains(text, "memory_get") {
+		t.Errorf("expected message to contain 'memory_get', got text=%q", text)
 	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
+	if !strings.Contains(text, "'id' is required") {
+		t.Errorf("expected message to contain \"'id' is required\", got text=%q", text)
 	}
 }
 
 func TestToolMemoryGetNotFound(t *testing.T) {
 	s := helperServer(t)
-	args, _ := json.Marshal(map[string]string{"id": "nonexistent"})
-	params := CallToolParams{Name: "memory_get", Arguments: args}
-	paramsJSON, _ := json.Marshal(params)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-7"`),
-			Method:  "tools/call",
-			Params:  paramsJSON,
-		})
-	})
+	res := callTool(s, "memory_get", map[string]string{"id": "nonexistent"})
 
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
-	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
-	}
-	// Should return a ToolResponse with "Memory not found" text.
-	result, ok := res.Result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected map result")
-	}
-	content, ok := result["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		t.Fatal("expected content array")
-	}
-	item := content[0].(map[string]interface{})
-	if text, _ := item["text"].(string); !strings.Contains(text, "Memory not found") {
-		t.Errorf("expected 'Memory not found', got %q", text)
+	text := getToolText(res)
+	if !strings.Contains(text, "Memory not found") {
+		t.Errorf("expected 'Memory not found', got text=%q full=%v", text, res)
 	}
 }
 
 func TestToolMemoryGetSuccess(t *testing.T) {
 	s := helperServer(t)
-
-	// Save a memory first
 	m := &db.Memory{
 		ID:        "test-mem-1",
 		Content:   "User prefers Go for backend",
@@ -369,38 +259,9 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 		t.Fatalf("failed to save test memory: %v", err)
 	}
 
-	args, _ := json.Marshal(map[string]string{"id": "test-mem-1"})
-	params := CallToolParams{Name: "memory_get", Arguments: args}
-	paramsJSON, _ := json.Marshal(params)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-8"`),
-			Method:  "tools/call",
-			Params:  paramsJSON,
-		})
-	})
+	res := callTool(s, "memory_get", map[string]string{"id": "test-mem-1"})
 
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
-	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
-	}
-
-	// The result is a ToolResponse with a JSON-serialized memory
-	result, ok := res.Result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected map result")
-	}
-	content, ok := result["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		t.Fatal("expected content array")
-	}
-	item := content[0].(map[string]interface{})
-	text, _ := item["text"].(string)
-
+	text := getToolText(res)
 	var mem db.Memory
 	if err := json.Unmarshal([]byte(text), &mem); err != nil {
 		t.Fatalf("failed to unmarshal memory from response: %v\ntext: %s", err, text)
@@ -414,146 +275,78 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// Tool handler: memory_set (round-trip)
+// Tool: memory_set
 // --------------------------------------------------------------------------
+
+func TestToolMemorySetMissingContent(t *testing.T) {
+	s := helperServer(t)
+	res := callTool(s, "memory_set", map[string]string{"scope": "global"})
+
+	text := getToolText(res)
+	if !strings.Contains(text, "memory_set") {
+		t.Errorf("expected message to contain 'memory_set', got text=%q", text)
+	}
+	if !strings.Contains(text, "'content' is required") {
+		t.Errorf("expected message to contain \"'content' is required\", got text=%q", text)
+	}
+}
 
 func TestToolMemorySetAndSearch(t *testing.T) {
 	s := helperServer(t)
 
-	// Set a memory
-	args, _ := json.Marshal(map[string]string{
+	setRes := callTool(s, "memory_set", map[string]string{
 		"content":  "The API server runs on port 8080",
 		"scope":    "project",
 		"metadata": `{"source":"test"}`,
 	})
-	params := CallToolParams{Name: "memory_set", Arguments: args}
-	paramsJSON, _ := json.Marshal(params)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-9"`),
-			Method:  "tools/call",
-			Params:  paramsJSON,
-		})
-	})
-
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse memory_set response: %v\noutput: %s", err, output)
-	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
-	}
-	result, ok := res.Result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected map result")
-	}
-	content, ok := result["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		t.Fatal("expected content array")
-	}
-	text, _ := content[0].(map[string]interface{})["text"].(string)
+	text := getToolText(setRes)
 	if !strings.Contains(text, "Successfully saved memory") {
 		t.Errorf("expected success message, got %q", text)
 	}
 
-	// Search for the memory
-	sargs, _ := json.Marshal(map[string]string{"query": "port 8080", "scope": "project", "limit": "5"})
-	sparams := CallToolParams{Name: "memory_search", Arguments: sargs}
-	sparamsJSON, _ := json.Marshal(sparams)
-	soutput := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-10"`),
-			Method:  "tools/call",
-			Params:  sparamsJSON,
-		})
-	})
-
-	var sres JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(soutput)), &sres); err != nil {
-		t.Fatalf("failed to parse memory_search response: %v\noutput: %s", err, soutput)
-	}
-	if sres.Error != nil {
-		t.Fatalf("unexpected error: %+v", sres.Error)
+	searchRes := callTool(s, "memory_search", map[string]string{"query": "port 8080", "scope": "project", "limit": "5"})
+	code, _ := getToolError(searchRes)
+	if code != 0 {
+		t.Fatalf("unexpected error in search: %v", searchRes)
 	}
 }
 
 // --------------------------------------------------------------------------
-// Tool handler: memory_search with empty results
+// Tool: memory_search
 // --------------------------------------------------------------------------
+
+func TestToolMemorySearchMissingQuery(t *testing.T) {
+	s := helperServer(t)
+	res := callTool(s, "memory_search", map[string]string{"limit": "5"})
+
+	text := getToolText(res)
+	if !strings.Contains(text, "memory_search") {
+		t.Errorf("expected message to contain 'memory_search', got text=%q", text)
+	}
+	if !strings.Contains(text, "'query' is required") {
+		t.Errorf("expected message to contain \"'query' is required\", got text=%q", text)
+	}
+}
 
 func TestToolMemorySearchEmpty(t *testing.T) {
 	s := helperServer(t)
+	res := callTool(s, "memory_search", map[string]string{"query": "nonexistent topic", "limit": "3"})
 
-	sargs, _ := json.Marshal(map[string]string{"query": "nonexistent topic", "limit": "3"})
-	sparams := CallToolParams{Name: "memory_search", Arguments: sargs}
-	sparamsJSON, _ := json.Marshal(sparams)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-11"`),
-			Method:  "tools/call",
-			Params:  sparamsJSON,
-		})
-	})
-
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
-	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
-	}
-	result, ok := res.Result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected map result")
-	}
-	content, ok := result["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		t.Fatal("expected content array")
-	}
-	text, _ := content[0].(map[string]interface{})["text"].(string)
+	text := getToolText(res)
 	if !strings.Contains(text, "No relevant memories found") {
 		t.Errorf("expected 'No relevant memories found', got %q", text)
 	}
 }
 
 // --------------------------------------------------------------------------
-// Tool handler: memory_list (empty and with data)
+// Tool: memory_list
 // --------------------------------------------------------------------------
 
 func TestToolMemoryListEmpty(t *testing.T) {
 	s := helperServer(t)
+	res := callTool(s, "memory_list", map[string]string{})
 
-	args, _ := json.Marshal(map[string]string{})
-	params := CallToolParams{Name: "memory_list", Arguments: args}
-	paramsJSON, _ := json.Marshal(params)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-12"`),
-			Method:  "tools/call",
-			Params:  paramsJSON,
-		})
-	})
-
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
-	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
-	}
-	result, ok := res.Result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected map result")
-	}
-	content, ok := result["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		t.Fatal("expected content array")
-	}
-	text, _ := content[0].(map[string]interface{})["text"].(string)
+	text := getToolText(res)
 	if !strings.Contains(text, "Memory store is empty") {
 		t.Errorf("expected 'Memory store is empty', got %q", text)
 	}
@@ -561,53 +354,14 @@ func TestToolMemoryListEmpty(t *testing.T) {
 
 func TestToolMemoryListWithMemories(t *testing.T) {
 	s := helperServer(t)
-
-	// Seed two memories
-	m1 := &db.Memory{
-		ID:        "list-1",
-		Content:   "Memory A",
-		Scope:     "global",
-		Embedding: []float32{1.0},
-	}
-	m2 := &db.Memory{
-		ID:        "list-2",
-		Content:   "Memory B",
-		Scope:     "project",
-		Embedding: []float32{2.0},
-	}
+	m1 := &db.Memory{ID: "list-1", Content: "Memory A", Scope: "global", Embedding: []float32{1.0}}
+	m2 := &db.Memory{ID: "list-2", Content: "Memory B", Scope: "project", Embedding: []float32{2.0}}
 	s.db.SaveMemory(m1)
 	s.db.SaveMemory(m2)
 
-	args, _ := json.Marshal(map[string]string{})
-	params := CallToolParams{Name: "memory_list", Arguments: args}
-	paramsJSON, _ := json.Marshal(params)
-	output := captureResponse(func() {
-		s.handleRequest(&JSONRPCRequest{
-			JSONRPC: "2.0",
-			ID:      json.RawMessage(`"req-13"`),
-			Method:  "tools/call",
-			Params:  paramsJSON,
-		})
-	})
+	res := callTool(s, "memory_list", map[string]string{})
 
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
-	}
-	if res.Error != nil {
-		t.Fatalf("unexpected error: %+v", res.Error)
-	}
-
-	result, ok := res.Result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected map result")
-	}
-	content, ok := result["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		t.Fatal("expected content array")
-	}
-	text, _ := content[0].(map[string]interface{})["text"].(string)
-
+	text := getToolText(res)
 	var mems []*db.Memory
 	if err := json.Unmarshal([]byte(text), &mems); err != nil {
 		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
@@ -617,58 +371,108 @@ func TestToolMemoryListWithMemories(t *testing.T) {
 	}
 }
 
-// --------------------------------------------------------------------------
-// Response helpers (edge cases)
-// --------------------------------------------------------------------------
-
-func TestSendErrorResponse(t *testing.T) {
+func TestToolMemoryListWithLimit(t *testing.T) {
 	s := helperServer(t)
-	output := captureResponse(func() {
-		s.sendError(json.RawMessage(`"err-1"`), -32000, "Server error")
-	})
+	for i := 0; i < 5; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("limit-mem-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+	}
 
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse error response: %v", err)
+	res := callTool(s, "memory_list", map[string]string{"limit": "2"})
+
+	text := getToolText(res)
+	var mems []*db.Memory
+	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
 	}
-	if res.Error == nil {
-		t.Fatal("expected error")
-	}
-	if res.Error.Code != -32000 {
-		t.Errorf("expected code -32000, got %d", res.Error.Code)
-	}
-	if res.Error.Message != "Server error" {
-		t.Errorf("expected message 'Server error', got %q", res.Error.Message)
-	}
-	if string(res.ID) != `"err-1"` {
-		t.Errorf("expected id 'err-1', got %s", string(res.ID))
+	if len(mems) != 2 {
+		t.Errorf("expected 2 memories with limit=2, got %d", len(mems))
 	}
 }
 
-func TestSendToolResponseError(t *testing.T) {
+func TestToolMemoryListLimitClampedToMax(t *testing.T) {
 	s := helperServer(t)
-	output := captureResponse(func() {
-		s.sendToolResponse(json.RawMessage(`"e-1"`), "Something failed", true)
-	})
+	for i := 0; i < 3; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("max-mem-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+	}
 
-	var res JSONRPCResponse
-	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
-		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	res := callTool(s, "memory_list", map[string]string{"limit": "5000"})
+
+	text := getToolText(res)
+	var mems []*db.Memory
+	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
 	}
-	result, ok := res.Result.(map[string]interface{})
-	if !ok {
-		t.Fatalf("expected map result")
+	if len(mems) != 3 {
+		t.Errorf("expected 3 memories (limit clamped to 1000), got %d", len(mems))
 	}
-	content, ok := result["content"].([]interface{})
-	if !ok || len(content) == 0 {
-		t.Fatal("expected content array")
+}
+
+func TestToolMemoryListInvalidLimitFallsBackToDefault(t *testing.T) {
+	s := helperServer(t)
+	for i := 0; i < 2; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("inv-mem-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
 	}
-	text, _ := content[0].(map[string]interface{})["text"].(string)
-	if !strings.HasPrefix(text, "[ERROR]") {
-		t.Errorf("expected '[ERROR]' prefix, got %q", text)
+
+	res := callTool(s, "memory_list", map[string]string{"limit": "not-a-number"})
+
+	text := getToolText(res)
+	var mems []*db.Memory
+	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
 	}
-	if !strings.Contains(text, "Something failed") {
-		t.Errorf("expected 'Something failed', got %q", text)
+	if len(mems) != 2 {
+		t.Errorf("expected 2 memories (default limit), got %d", len(mems))
+	}
+}
+
+// --------------------------------------------------------------------------
+// Unknown tool
+// --------------------------------------------------------------------------
+
+func TestToolUnknownTool(t *testing.T) {
+	s := helperServer(t)
+	mcpSrv := s.MCPServer()
+	params, _ := json.Marshal(map[string]interface{}{
+		"name":      "nonexistent_tool",
+		"arguments": map[string]string{},
+	})
+	req := map[string]interface{}{
+		"jsonrpc": "2.0",
+		"id":      "test-1",
+		"method":  "tools/call",
+		"params":  json.RawMessage(params),
+	}
+	data, _ := json.Marshal(req)
+	var input bytes.Buffer
+	input.Write(frameRequest(data))
+	var output bytes.Buffer
+	_ = mcpSrv.ServeIO(context.Background(), &input, &output)
+	res := readFramedResponse(&output)
+
+	code, msg := getToolError(res)
+	if code != -32601 {
+		t.Errorf("expected error code -32601, got %v", code)
+	}
+	if !strings.Contains(msg, "nonexistent_tool") {
+		t.Errorf("expected message to contain 'nonexistent_tool', got %q", msg)
 	}
 }
 
@@ -1276,7 +1080,7 @@ func TestApiRulesWithData(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// Web Console: embedded dashboard
+// Web Console
 // --------------------------------------------------------------------------
 
 func TestWebConsoleReturnsHTML(t *testing.T) {

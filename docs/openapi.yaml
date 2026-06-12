@@ -281,6 +281,27 @@ paths:
         '401':
           description: Unauthorized
 
+  /api/entities:
+    get:
+      summary: List all known entities
+      description: Returns a list of all known entities (people, projects, organizations) that can be linked to memories.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Entities retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entities:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Entity'
+        '401':
+          description: Unauthorized
+
   /api/sync/changes:
     get:
       summary: Pull memories changed since a timestamp
@@ -426,3 +447,17 @@ components:
         error:
           type: string
           example: not found
+    Entity:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        name:
+          type: string
+          example: Alice
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-06-02T16:20:23Z"
