@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1569,5 +1570,301 @@ func TestErrorMessageDataFieldContainsParseDetail(t *testing.T) {
 	}
 	if res.Error.Data == nil {
 		t.Error("expected error data field to contain structured detail")
+	}
+}
+
+// --------------------------------------------------------------------------
+// memory_list: limit parameter (MCP tool)
+// --------------------------------------------------------------------------
+
+func TestToolMemoryListWithLimit(t *testing.T) {
+	s := helperServer(t)
+
+	// Seed 5 memories
+	for i := 0; i < 5; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("limit-mem-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+	}
+
+	// Request with limit=2
+	args, _ := json.Marshal(map[string]string{"limit": "2"})
+	params := CallToolParams{Name: "memory_list", Arguments: args}
+	paramsJSON, _ := json.Marshal(params)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"limit-1"`),
+			Method:  "tools/call",
+			Params:  paramsJSON,
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %+v", res.Error)
+	}
+
+	result, ok := res.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result")
+	}
+	content, ok := result["content"].([]interface{})
+	if !ok || len(content) == 0 {
+		t.Fatal("expected content array")
+	}
+	text, _ := content[0].(map[string]interface{})["text"].(string)
+
+	var mems []*db.Memory
+	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
+	}
+	if len(mems) != 2 {
+		t.Errorf("expected 2 memories with limit=2, got %d", len(mems))
+	}
+}
+
+func TestToolMemoryListLimitClampedToMax(t *testing.T) {
+	s := helperServer(t)
+
+	// Seed 3 memories
+	for i := 0; i < 3; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("max-mem-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+	}
+
+	// Request with limit=5000 (should be clamped to 1000, but we only have 3)
+	args, _ := json.Marshal(map[string]string{"limit": "5000"})
+	params := CallToolParams{Name: "memory_list", Arguments: args}
+	paramsJSON, _ := json.Marshal(params)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"limit-2"`),
+			Method:  "tools/call",
+			Params:  paramsJSON,
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %+v", res.Error)
+	}
+
+	result, ok := res.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result")
+	}
+	content, ok := result["content"].([]interface{})
+	if !ok || len(content) == 0 {
+		t.Fatal("expected content array")
+	}
+	text, _ := content[0].(map[string]interface{})["text"].(string)
+
+	var mems []*db.Memory
+	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
+	}
+	// All 3 should be returned since 3 < 1000 (clamped max)
+	if len(mems) != 3 {
+		t.Errorf("expected 3 memories (limit clamped to 1000), got %d", len(mems))
+	}
+}
+
+func TestToolMemoryListInvalidLimitFallsBackToDefault(t *testing.T) {
+	s := helperServer(t)
+
+	// Seed 2 memories
+	for i := 0; i < 2; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("inv-mem-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+	}
+
+	// Request with invalid limit (non-numeric)
+	args, _ := json.Marshal(map[string]string{"limit": "not-a-number"})
+	params := CallToolParams{Name: "memory_list", Arguments: args}
+	paramsJSON, _ := json.Marshal(params)
+	output := captureResponse(func() {
+		s.handleRequest(&JSONRPCRequest{
+			JSONRPC: "2.0",
+			ID:      json.RawMessage(`"limit-3"`),
+			Method:  "tools/call",
+			Params:  paramsJSON,
+		})
+	})
+
+	var res JSONRPCResponse
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &res); err != nil {
+		t.Fatalf("failed to parse response: %v\noutput: %s", err, output)
+	}
+	if res.Error != nil {
+		t.Fatalf("unexpected error: %+v", res.Error)
+	}
+
+	result, ok := res.Result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result")
+	}
+	content, ok := result["content"].([]interface{})
+	if !ok || len(content) == 0 {
+		t.Fatal("expected content array")
+	}
+	text, _ := content[0].(map[string]interface{})["text"].(string)
+
+	var mems []*db.Memory
+	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
+	}
+	// Default limit is 100, so both memories should be returned
+	if len(mems) != 2 {
+		t.Errorf("expected 2 memories (default limit), got %d", len(mems))
+	}
+}
+
+// --------------------------------------------------------------------------
+// GET /api/list: limit query parameter
+// --------------------------------------------------------------------------
+
+func TestApiListWithLimit(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	// Seed 5 memories
+	for i := 0; i < 5; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("api-limit-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+	}
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/list?limit=2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var mems []*db.Memory
+	if err := json.NewDecoder(resp.Body).Decode(&mems); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(mems) != 2 {
+		t.Errorf("expected 2 memories with limit=2, got %d", len(mems))
+	}
+}
+
+func TestApiListLimitClampedToMax(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	// Seed 3 memories
+	for i := 0; i < 3; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("api-max-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+	}
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	// Request with limit=9999 (should be clamped to 1000)
+	req, _ := http.NewRequest("GET", ts.URL+"/api/list?limit=9999", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var mems []*db.Memory
+	if err := json.NewDecoder(resp.Body).Decode(&mems); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	// All 3 should be returned since 3 < 1000
+	if len(mems) != 3 {
+		t.Errorf("expected 3 memories (limit clamped to 1000), got %d", len(mems))
+	}
+}
+
+func TestApiListInvalidLimitFallsBackToDefault(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	// Seed 2 memories
+	for i := 0; i < 2; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("api-inv-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+	}
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	// Request with invalid limit
+	req, _ := http.NewRequest("GET", ts.URL+"/api/list?limit=abc", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var mems []*db.Memory
+	if err := json.NewDecoder(resp.Body).Decode(&mems); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	// Default limit is 100, so both should be returned
+	if len(mems) != 2 {
+		t.Errorf("expected 2 memories (default limit), got %d", len(mems))
 	}
 }

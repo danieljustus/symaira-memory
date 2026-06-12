@@ -209,16 +209,17 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 					Required: []string{"query"},
 				},
 			},
-			{
-				Name:        "memory_list",
-				Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
-				InputSchema: InputSchema{
-					Type: "object",
-					Properties: map[string]Property{
-						"scope": {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
-					},
+		{
+			Name:        "memory_list",
+			Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
+			InputSchema: InputSchema{
+				Type: "object",
+				Properties: map[string]Property{
+					"scope": {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
+					"limit": {Type: "string", Description: "Optional maximum number of memories to return (default 100, max 1000)"},
 				},
 			},
+		},
 			{
 				Name:        "entity_list",
 				Description: "List all known entities (people, projects, organizations). Use this to discover which entities exist before linking memories or filtering searches.",
@@ -390,13 +391,27 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 	case "memory_list":
 		var args struct {
 			Scope string `json:"scope"`
+			Limit string `json:"limit"`
 		}
 		if err := json.Unmarshal(params.Arguments, &args); err != nil {
 			s.sendError(reqID, -32602, "Invalid arguments for 'memory_list': failed to parse arguments", map[string]string{"detail": err.Error()})
 			return
 		}
 
-		memories, err := s.db.ListMemoriesLite(args.Scope, 0, 1000)
+		limit := 100
+		if args.Limit != "" {
+			if l, err := strconv.Atoi(args.Limit); err == nil {
+				limit = l
+			}
+		}
+		if limit < 1 {
+			limit = 1
+		}
+		if limit > 1000 {
+			limit = 1000
+		}
+
+		memories, err := s.db.ListMemoriesLite(args.Scope, 0, limit)
 		if err != nil {
 			s.sendToolError(reqID, "Failed to list memories", err)
 			return
@@ -716,7 +731,21 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	scope := r.URL.Query().Get("scope")
-	memories, err := s.db.ListMemoriesLite(scope, 0, 1000)
+
+	limit := 100
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil {
+			limit = l
+		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
+	memories, err := s.db.ListMemoriesLite(scope, 0, limit)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to list memories", err)
 		return
