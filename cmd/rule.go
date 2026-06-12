@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/user"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/security"
@@ -12,7 +13,8 @@ import (
 )
 
 var (
-	ruleScope string
+	ruleScope  string
+	ruleAuthor string
 )
 
 func init() {
@@ -21,6 +23,7 @@ func init() {
 	ruleCmd.AddCommand(ruleDeleteCmd)
 
 	ruleCmd.PersistentFlags().StringVarP(&ruleScope, "scope", "s", "global", "Scope level: global, project, agent, user")
+	ruleAddCmd.Flags().StringVar(&ruleAuthor, "author", "", "Author attribution (default: cli:$USER)")
 	rootCmd.AddCommand(ruleCmd)
 }
 
@@ -38,6 +41,15 @@ var ruleAddCmd = &cobra.Command{
 		instruction := args[0]
 		id := uuid.New().String()
 
+		author := ruleAuthor
+		if author == "" {
+			if u, err := user.Current(); err == nil && u.Username != "" {
+				author = "cli:" + u.Username
+			} else {
+				author = "cli:unknown"
+			}
+		}
+
 		meta := map[string]string{"source": "cli_rule_add"}
 		if ruleScope == "project" {
 			detector := security.NewProjectScopeDetector()
@@ -45,10 +57,12 @@ var ruleAddCmd = &cobra.Command{
 		}
 
 		r := &db.Rule{
-			ID:       id,
-			Content:  instruction,
-			Scope:    ruleScope,
-			Metadata: meta,
+			ID:        id,
+			Content:   instruction,
+			Scope:     ruleScope,
+			Metadata:  meta,
+			CreatedBy: author,
+			UpdatedBy: author,
 		}
 
 		if err := GetDB().SaveRule(r); err != nil {

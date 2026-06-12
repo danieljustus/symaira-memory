@@ -175,9 +175,10 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
-						"content":  {Type: "string", Description: "The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},
-						"scope":    {Type: "string", Description: "Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},
-						"metadata": {Type: "string", Description: "Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},
+						"content":    {Type: "string", Description: "The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},
+						"scope":      {Type: "string", Description: "Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},
+						"metadata":   {Type: "string", Description: "Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},
+						"session_id": {Type: "string", Description: "Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},
 					},
 					Required: []string{"content"},
 				},
@@ -252,9 +253,10 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 	case "memory_set":
 		var args struct {
-			Content  string `json:"content"`
-			Scope    string `json:"scope"`
-			Metadata string `json:"metadata"`
+			Content   string `json:"content"`
+			Scope     string `json:"scope"`
+			Metadata  string `json:"metadata"`
+			SessionID string `json:"session_id"`
 		}
 		if err := json.Unmarshal(params.Arguments, &args); err != nil {
 			s.sendError(reqID, -32602, "Invalid arguments")
@@ -266,7 +268,12 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			_ = json.Unmarshal([]byte(args.Metadata), &meta)
 		}
 
-		m, extractedStr, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, meta, s.piiEnabled)
+		attr := memory.Attribution{
+			Author:    "mcp",
+			SessionID: args.SessionID,
+		}
+
+		m, extractedStr, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, meta, s.piiEnabled, attr)
 		if err != nil {
 			s.sendToolResponse(reqID, err.Error(), true)
 			return
@@ -450,21 +457,23 @@ func (s *Server) httpMux() http.Handler {
 	}
 
 	// requireAuth validates the JWT Bearer token. Returns false and writes 401 on failure.
-	requireAuth := func(w http.ResponseWriter, r *http.Request) bool {
+	// When authentication succeeds, the verified JWT payload is returned for downstream use.
+	requireAuth := func(w http.ResponseWriter, r *http.Request) (*security.JWTPayload, bool) {
 		if s.jwts == nil {
-			return true
+			return nil, true
 		}
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, "Bearer ") {
 			http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
-			return false
+			return nil, false
 		}
 		token := strings.TrimPrefix(auth, "Bearer ")
-		if _, err := s.jwts.VerifyToken(token); err != nil {
+		payload, err := s.jwts.VerifyToken(token)
+		if err != nil {
 			writeJSONError(w, http.StatusUnauthorized, "invalid or expired token", err)
-			return false
+			return nil, false
 		}
-		return true
+		return payload, true
 	}
 
 	// GET /api/status
@@ -485,7 +494,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "POST" {
@@ -523,7 +532,8 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		payload, ok := requireAuth(w, r)
+		if !ok {
 			return
 		}
 		if r.Method != "POST" {
@@ -532,16 +542,26 @@ func (s *Server) httpMux() http.Handler {
 		}
 
 		var args struct {
-			Content  string            `json:"content"`
-			Scope    string            `json:"scope"`
-			Metadata map[string]string `json:"metadata"`
+			Content   string            `json:"content"`
+			Scope     string            `json:"scope"`
+			Metadata  map[string]string `json:"metadata"`
+			SessionID string            `json:"session_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 			http.Error(w, "Bad request body", http.StatusBadRequest)
 			return
 		}
 
-		m, _, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, args.Metadata, s.piiEnabled)
+		author := "api"
+		if payload != nil && payload.Subject != "" {
+			author = payload.Subject
+		}
+		attr := memory.Attribution{
+			Author:    author,
+			SessionID: args.SessionID,
+		}
+
+		m, _, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, args.Metadata, s.piiEnabled, attr)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to save memory", err)
 			return
@@ -559,7 +579,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		scope := r.URL.Query().Get("scope")
@@ -578,7 +598,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "GET" {
@@ -623,7 +643,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "POST" {
@@ -677,7 +697,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "GET" {
@@ -714,7 +734,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "DELETE" && r.Method != "POST" {
@@ -756,7 +776,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "GET" {

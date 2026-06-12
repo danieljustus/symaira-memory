@@ -17,13 +17,17 @@ import (
 
 // Memory represents a single saved fact or context snippet.
 type Memory struct {
-	ID        string            `json:"id"`
-	Content   string            `json:"content"`
-	Scope     string            `json:"scope"`     // global, project, agent, user, session
-	Metadata  map[string]string `json:"metadata"`  // key-value metadata
-	Embedding []float32         `json:"embedding"` // semantic embedding
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	ID             string            `json:"id"`
+	Content        string            `json:"content"`
+	Scope          string            `json:"scope"`     // global, project, agent, user, session
+	Metadata       map[string]string `json:"metadata"`  // key-value metadata
+	Embedding      []float32         `json:"embedding"` // semantic embedding
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+	CreatedBy      string            `json:"created_by,omitempty"`
+	UpdatedBy      string            `json:"updated_by,omitempty"`
+	CreatedSession string            `json:"created_session,omitempty"`
+	UpdatedSession string            `json:"updated_session,omitempty"`
 }
 
 // Session represents a compressed summary of a chat session.
@@ -116,8 +120,8 @@ func (db *DB) SaveMemory(m *Memory) error {
 	embeddingDim := len(m.Embedding)
 	lshHash := ComputeLSH(m.Embedding)
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
@@ -125,7 +129,9 @@ func (db *DB) SaveMemory(m *Memory) error {
 			embedding=excluded.embedding,
 			embedding_dim=excluded.embedding_dim,
 			lsh_hash=excluded.lsh_hash,
-			updated_at=excluded.updated_at`
+			updated_at=excluded.updated_at,
+			updated_by=excluded.updated_by,
+			updated_session=excluded.updated_session`
 
 	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
@@ -133,7 +139,7 @@ func (db *DB) SaveMemory(m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt)
+	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession)
 	return err
 }
 
@@ -148,9 +154,9 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	var m Memory
 	var metaStr, embStr string
 	err := db.conn.QueryRow(
-		"SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE id = ?",
+		"SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE id = ?",
 		id,
-	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt)
+	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -173,10 +179,10 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -189,7 +195,7 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var metaStr, embStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
 			return nil, err
 		}
 
@@ -214,10 +220,10 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -230,7 +236,7 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 	for rows.Next() {
 		var m Memory
 		var metaStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
 			return nil, err
 		}
 
@@ -248,7 +254,7 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 // Embedding data is omitted (sync payloads do not need vectors).
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, content, scope, metadata, created_at, updated_at FROM memories ORDER BY updated_at ASC",
+		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories ORDER BY updated_at ASC",
 	)
 	if err != nil {
 		return nil, err
@@ -259,7 +265,7 @@ func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	for rows.Next() {
 		var m Memory
 		var metaStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
@@ -297,9 +303,9 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 
 	if err == sql.ErrNoRows {
 		_, err = db.conn.Exec(
-			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt,
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession,
 		)
 		if err != nil {
 			return false, err
@@ -312,8 +318,8 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	}
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, lsh_hash=?, updated_at=? WHERE id=?`,
-		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.UpdatedAt, m.ID,
+		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=? WHERE id=?`,
+		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, m.ID,
 	)
 	if err != nil {
 		return false, err
@@ -358,10 +364,10 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 
 		var query string
 		if scope != "" {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE scope = ? AND lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? AND lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
 			args = append([]interface{}{scope}, args...)
 		} else {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at FROM memories WHERE lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
 		}
 
 		rows, err := db.conn.Query(query, args...)
@@ -372,7 +378,7 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 		for rows.Next() {
 			var m Memory
 			var metaStr, embStr string
-			if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt); err != nil {
+			if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
 				rows.Close()
 				return nil, err
 			}
@@ -509,6 +515,9 @@ type Rule struct {
 	Scope     string            `json:"scope"`
 	Metadata  map[string]string `json:"metadata"`
 	CreatedAt time.Time         `json:"created_at"`
+	UpdatedAt time.Time         `json:"updated_at"`
+	CreatedBy string            `json:"created_by,omitempty"`
+	UpdatedBy string            `json:"updated_by,omitempty"`
 }
 
 // SaveRule inserts or updates a procedural memory rule.
@@ -518,18 +527,24 @@ func (db *DB) SaveRule(r *Rule) error {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
-	query := `INSERT INTO rules (id, content, scope, metadata, created_at)
-		VALUES (?, ?, ?, ?, ?)
+	query := `INSERT INTO rules (id, content, scope, metadata, created_at, updated_at, created_by, updated_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
-			metadata=excluded.metadata`
+			metadata=excluded.metadata,
+			updated_at=excluded.updated_at,
+			updated_by=excluded.updated_by`
 
+	now := time.Now().UTC()
 	if r.CreatedAt.IsZero() {
-		r.CreatedAt = time.Now()
+		r.CreatedAt = now
+	}
+	if r.UpdatedAt.IsZero() {
+		r.UpdatedAt = now
 	}
 
-	_, err = db.conn.Exec(query, r.ID, r.Content, r.Scope, string(metadataJSON), r.CreatedAt)
+	_, err = db.conn.Exec(query, r.ID, r.Content, r.Scope, string(metadataJSON), r.CreatedAt, r.UpdatedAt, r.CreatedBy, r.UpdatedBy)
 	return err
 }
 
@@ -546,10 +561,10 @@ func (db *DB) ListRules(scope string) ([]*Rule, error) {
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, created_at FROM rules WHERE scope = ? ORDER BY created_at DESC"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by FROM rules WHERE scope = ? ORDER BY created_at DESC"
 		rows, err = db.conn.Query(query, scope)
 	} else {
-		query = "SELECT id, content, scope, metadata, created_at FROM rules ORDER BY created_at DESC"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by FROM rules ORDER BY created_at DESC"
 		rows, err = db.conn.Query(query)
 	}
 
@@ -562,7 +577,7 @@ func (db *DB) ListRules(scope string) ([]*Rule, error) {
 	for rows.Next() {
 		var r Rule
 		var metaStr string
-		if err := rows.Scan(&r.ID, &r.Content, &r.Scope, &metaStr, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.Content, &r.Scope, &metaStr, &r.CreatedAt, &r.UpdatedAt, &r.CreatedBy, &r.UpdatedBy); err != nil {
 			return nil, err
 		}
 
