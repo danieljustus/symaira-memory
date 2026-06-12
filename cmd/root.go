@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/danieljustus/symaira-memory/internal/config"
-	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-corekit/updatecheck"
+	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/spf13/cobra"
 )
 

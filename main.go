@@ -3,8 +3,8 @@ package main
 import (
 	"log/slog"
 
-	"github.com/danieljustus/symaira-memory/cmd"
 	"github.com/danieljustus/symaira-corekit/logkit"
+	"github.com/danieljustus/symaira-memory/cmd"
 )
 
 var (

@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/mcpserver"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/danieljustus/symaira-memory/internal/web"
-	"github.com/danieljustus/symaira-corekit/mcpserver"
 )
 
 type Server struct {

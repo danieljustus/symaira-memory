@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/secrets"
 )
 
 // DefaultRotationGracePeriod is the default duration that a rotated secret
@@ -60,21 +61,42 @@ type JWTPayload struct {
 // persistent revocation store. When store is nil, only in-memory revocation
 // is used. The cfg argument supplies the configured secret path; pass nil
 // to fall back to the default ~/.config/symmemory/jwt.secret location.
+//
+// Secret resolution order:
+//  1. cfg.JWT.Secret — vault:// URI resolved via symvault subprocess (5s timeout)
+//  2. JWT_SECRET_KEY environment variable
+//  3. File at cfg.JWT.SecretPath (or default ~/.config/symmemory/jwt.secret)
+//  4. Auto-generate and persist a random 32-byte hex secret
 func NewJWTProvider(cfg *config.Config, store RevocationStore) (*JWTProvider, error) {
 	if cfg == nil {
 		cfg = config.Defaults()
 	}
-	secret := os.Getenv("JWT_SECRET_KEY")
+
+	// 1. Try vault:// resolution from config
+	secret, err := secrets.Resolve(cfg.JWT.Secret, "JWT_SECRET_KEY")
+	if err != nil {
+		// vault:// resolution failed — propagate error with context
+		return nil, fmt.Errorf("JWT secret vault:// resolution failed: %w", err)
+	}
+
+	// 2. Try env var if vault:// didn't produce a value
 	if secret == "" {
-		loaded, err := loadPersistedSecret(cfg)
-		if err == nil && loaded != "" {
+		secret = os.Getenv("JWT_SECRET_KEY")
+	}
+
+	// 3. Try loading from file
+	if secret == "" {
+		loaded, loadErr := loadPersistedSecret(cfg)
+		if loadErr == nil && loaded != "" {
 			secret = loaded
 		}
 	}
+
+	// 4. Auto-generate as last resort
 	if secret == "" {
-		generated, err := generateAndPersistSecret(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate JWT secret: %w", err)
+		generated, genErr := generateAndPersistSecret(cfg)
+		if genErr != nil {
+			return nil, fmt.Errorf("failed to generate JWT secret: %w", genErr)
 		}
 		secret = generated
 	}

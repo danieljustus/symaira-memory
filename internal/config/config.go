@@ -24,6 +24,7 @@ type OllamaConfig struct {
 
 type JWTConfig struct {
 	SecretPath string `json:"secret_path"`
+	Secret     string `json:"secret"`
 }
 
 type SecurityConfig struct {

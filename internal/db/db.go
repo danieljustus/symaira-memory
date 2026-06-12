@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-corekit/sqlitekit"
+	"github.com/danieljustus/symaira-memory/internal/config"
 	_ "modernc.org/sqlite"
 )
 
