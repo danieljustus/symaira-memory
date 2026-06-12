@@ -58,3 +58,5 @@ CLAUDE.md
 .opencode/
 .claude/
 .github/review/
+.github/audit/
+.sisyphus/

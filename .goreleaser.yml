@@ -43,10 +43,10 @@ checksum:
 
 brews:
   - name: symmemory
+    skip_upload: true
     repository:
       owner: danieljustus
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Formula
     homepage: https://github.com/danieljustus/symaira-memory
     description: Persistent memory layer and semantic knowledge base for AI agents
