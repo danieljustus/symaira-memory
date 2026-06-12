@@ -1,0 +1,274 @@
+package cmd
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/danieljustus/symaira-memory/internal/db"
+)
+
+func sampleMemory() *db.Memory {
+	return &db.Memory{
+		ID:        "abc12345-def6-7890-abcd-ef1234567890",
+		Content:   "Alice prefers dark mode in all applications.",
+		Scope:     "global",
+		Metadata:  map[string]string{"source": "chat"},
+		Embedding: []float32{0.1, 0.2, 0.3},
+		CreatedAt: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC),
+		Entities:  []string{"alice"},
+		CreatedBy: "test-agent",
+	}
+}
+
+// --------------------------------------------------------------------------
+// truncateString
+// --------------------------------------------------------------------------
+
+func TestTruncateStringShort(t *testing.T) {
+	got := truncateString(10, "hello")
+	if got != "hello" {
+		t.Errorf("expected 'hello', got %q", got)
+	}
+}
+
+func TestTruncateStringLong(t *testing.T) {
+	got := truncateString(5, "hello world")
+	if got != "hello..." {
+		t.Errorf("expected 'hello...', got %q", got)
+	}
+}
+
+func TestTruncateStringExact(t *testing.T) {
+	got := truncateString(5, "hello")
+	if got != "hello" {
+		t.Errorf("expected 'hello', got %q", got)
+	}
+}
+
+// --------------------------------------------------------------------------
+// FormatJSON
+// --------------------------------------------------------------------------
+
+func TestFormatJSONSingleMemory(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "json", Writer: &buf}
+
+	err := f.FormatJSON(sampleMemory())
+	if err != nil {
+		t.Fatalf("FormatJSON error: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if parsed["id"] != "abc12345-def6-7890-abcd-ef1234567890" {
+		t.Errorf("expected id in JSON output, got %v", parsed["id"])
+	}
+}
+
+func TestFormatJSONEmptyList(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "json", Writer: &buf}
+
+	err := f.FormatJSON([]db.Memory{})
+	if err != nil {
+		t.Fatalf("FormatJSON error: %v", err)
+	}
+
+	output := strings.TrimSpace(buf.String())
+	if output != "[]" {
+		t.Errorf("expected '[]', got %q", output)
+	}
+}
+
+// --------------------------------------------------------------------------
+// FormatText - list template
+// --------------------------------------------------------------------------
+
+func TestFormatTextListEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "text", Writer: &buf}
+
+	err := f.FormatText([]db.Memory{}, defaultTextTemplates["list"])
+	if err != nil {
+		t.Fatalf("FormatText error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "No memories found") {
+		t.Errorf("expected 'No memories found', got %q", buf.String())
+	}
+}
+
+func TestFormatTextListWithEntries(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "text", Writer: &buf}
+
+	mems := []db.Memory{*sampleMemory()}
+	err := f.FormatText(mems, defaultTextTemplates["list"])
+	if err != nil {
+		t.Fatalf("FormatText error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "abc12345") {
+		t.Errorf("expected truncated ID in output, got %q", output)
+	}
+	if !strings.Contains(output, "global") {
+		t.Errorf("expected scope in output, got %q", output)
+	}
+	if !strings.Contains(output, "Alice prefers dark mode") {
+		t.Errorf("expected content in output, got %q", output)
+	}
+}
+
+// --------------------------------------------------------------------------
+// FormatText - search template
+// --------------------------------------------------------------------------
+
+func TestFormatTextSearchEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "text", Writer: &buf}
+
+	err := f.FormatText([]db.SearchResult{}, defaultTextTemplates["search"])
+	if err != nil {
+		t.Fatalf("FormatText error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "No relevant memories found") {
+		t.Errorf("expected 'No relevant memories found', got %q", buf.String())
+	}
+}
+
+func TestFormatTextSearchWithResults(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "text", Writer: &buf}
+
+	results := []db.SearchResult{
+		{Memory: sampleMemory(), Score: 0.9523},
+	}
+	err := f.FormatText(results, defaultTextTemplates["search"])
+	if err != nil {
+		t.Fatalf("FormatText error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "0.9523") {
+		t.Errorf("expected score in output, got %q", output)
+	}
+	if !strings.Contains(output, "abc12345") {
+		t.Errorf("expected truncated ID in output, got %q", output)
+	}
+}
+
+// --------------------------------------------------------------------------
+// FormatText - get template
+// --------------------------------------------------------------------------
+
+func TestFormatTextGetSingleMemory(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "text", Writer: &buf}
+
+	err := f.FormatText(sampleMemory(), defaultTextTemplates["get"])
+	if err != nil {
+		t.Fatalf("FormatText error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "abc12345-def6-7890-abcd-ef1234567890") {
+		t.Errorf("expected full ID in output, got %q", output)
+	}
+	if !strings.Contains(output, "global") {
+		t.Errorf("expected scope in output, got %q", output)
+	}
+	if !strings.Contains(output, "Alice prefers dark mode") {
+		t.Errorf("expected full content in output, got %q", output)
+	}
+	if !strings.Contains(output, "2026-01-15") {
+		t.Errorf("expected formatted date in output, got %q", output)
+	}
+	if !strings.Contains(output, "alice") {
+		t.Errorf("expected entity in output, got %q", output)
+	}
+}
+
+// --------------------------------------------------------------------------
+// Output dispatcher
+// --------------------------------------------------------------------------
+
+func TestOutputDispatchesJSON(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "json", Writer: &buf}
+
+	err := f.Output(sampleMemory(), "get")
+	if err != nil {
+		t.Fatalf("Output error: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("expected valid JSON, got: %v", err)
+	}
+}
+
+func TestOutputDispatchesText(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "text", Writer: &buf}
+
+	err := f.Output(sampleMemory(), "get")
+	if err != nil {
+		t.Fatalf("Output error: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), "ID:") {
+		t.Errorf("expected text format with 'ID:', got %q", buf.String())
+	}
+}
+
+func TestOutputUnknownTemplate(t *testing.T) {
+	var buf bytes.Buffer
+	f := &OutputFormatter{Format: "text", Writer: &buf}
+
+	err := f.Output(sampleMemory(), "nonexistent")
+	if err == nil {
+		t.Error("expected error for unknown template name")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Flag registration
+// --------------------------------------------------------------------------
+
+func TestListCommandHasFormatFlag(t *testing.T) {
+	flag := listCmd.Flags().Lookup("format")
+	if flag == nil {
+		t.Fatal("expected 'format' flag on list command")
+	}
+	if flag.DefValue != "text" {
+		t.Errorf("expected default 'text', got %q", flag.DefValue)
+	}
+}
+
+func TestSearchCommandHasFormatFlag(t *testing.T) {
+	flag := searchCmd.Flags().Lookup("format")
+	if flag == nil {
+		t.Fatal("expected 'format' flag on search command")
+	}
+	if flag.DefValue != "text" {
+		t.Errorf("expected default 'text', got %q", flag.DefValue)
+	}
+}
+
+func TestGetCommandHasFormatFlag(t *testing.T) {
+	flag := getCmd.Flags().Lookup("format")
+	if flag == nil {
+		t.Fatal("expected 'format' flag on get command")
+	}
+	if flag.DefValue != "text" {
+		t.Errorf("expected default 'text', got %q", flag.DefValue)
+	}
+}
