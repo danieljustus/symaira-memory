@@ -104,7 +104,15 @@ For a full reference of all commands and flags, run `symmemory --help`.
 
 Symaira Memory speaks the Model Context Protocol (MCP) natively. AI agents connect over stdio JSON-RPC 2.0 and gain four tools: `memory_get`, `memory_set`, `memory_search`, and `memory_list`.
 
-Run `symmemory mcp-config` to print ready-to-paste configuration blocks for Claude Desktop, Cursor, and VS Code. For detailed setup guides covering each host, browser extension installation, and optimal agent system prompts, see [docs/agent-integration.md](docs/agent-integration.md).
+### Quick Setup
+
+Copy the skill file to your agent's skill directory:
+
+```bash
+cp skills/symmemory/SKILL.md ~/.claude/skills/
+```
+
+Run `symmemory mcp-config` to print ready-to-paste configuration blocks for Claude Desktop, Cursor, and VS Code. Run `symmemory instructions` to print the full agent integration guide. For detailed setup guides covering each host, browser extension installation, and optimal agent system prompts, see [docs/agent-integration.md](docs/agent-integration.md).
 
 ---
 

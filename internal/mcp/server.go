@@ -16,6 +16,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/instructions"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/danieljustus/symaira-memory/internal/web"
@@ -83,6 +84,7 @@ type Server struct {
 	piiEnabled     bool
 	version        string
 	cfg            *config.Config
+	profile        *db.Profile
 }
 
 // NewServer configures a new Server instance.
@@ -107,6 +109,11 @@ func (s *Server) SetPIIEnabled(enabled bool) {
 // SetAllowedOrigins overrides the default allowed CORS origins.
 func (s *Server) SetAllowedOrigins(origins []string) {
 	s.allowedOrigins = origins
+}
+
+// SetProfile assigns the active agent profile for role-based access control.
+func (s *Server) SetProfile(p *db.Profile) {
+	s.profile = p
 }
 
 // Serve reads JSON-RPC 2.0 lines from stdin, processes them, and writes responses to stdout.
@@ -153,6 +160,7 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 				"name":    "symaira-memory",
 				"version": s.version,
 			},
+			"instructions": instructions.Text(s.version),
 		}
 		s.sendResult(req.ID, res)
 
@@ -175,9 +183,11 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
-						"content":  {Type: "string", Description: "The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},
-						"scope":    {Type: "string", Description: "Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},
-						"metadata": {Type: "string", Description: "Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},
+						"content":    {Type: "string", Description: "The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},
+						"scope":      {Type: "string", Description: "Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},
+						"metadata":   {Type: "string", Description: "Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},
+						"session_id": {Type: "string", Description: "Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},
+						"entities":   {Type: "string", Description: "Optional comma-separated entity names to link (e.g., 'Irene,Premium BnB'). Entities are auto-created if they don't exist."},
 					},
 					Required: []string{"content"},
 				},
@@ -188,9 +198,10 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 				InputSchema: InputSchema{
 					Type: "object",
 					Properties: map[string]Property{
-						"query": {Type: "string", Description: "The natural language query or semantic term (e.g., 'database port' or 'language preference')"},
-						"scope": {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
-						"limit": {Type: "string", Description: "Optional maximum number of search results to return (default 5)"},
+						"query":  {Type: "string", Description: "The natural language query or semantic term (e.g., 'database port' or 'language preference')"},
+						"scope":  {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
+						"limit":  {Type: "string", Description: "Optional maximum number of search results to return (default 5)"},
+						"entity": {Type: "string", Description: "Optional entity name filter — only returns memories linked to this entity"},
 					},
 					Required: []string{"query"},
 				},
@@ -203,6 +214,14 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 					Properties: map[string]Property{
 						"scope": {Type: "string", Description: "Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},
 					},
+				},
+			},
+			{
+				Name:        "entity_list",
+				Description: "List all known entities (people, projects, organizations). Use this to discover which entities exist before linking memories or filtering searches.",
+				InputSchema: InputSchema{
+					Type:       "object",
+					Properties: map[string]Property{},
 				},
 			},
 		}
@@ -251,10 +270,17 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		s.sendToolResponse(reqID, string(bytes), false)
 
 	case "memory_set":
+		if s.profile != nil && !security.ParseRole(s.profile.Role).CanWrite() {
+			s.sendToolResponse(reqID, "Permission denied: profile role is read-only", true)
+			return
+		}
+
 		var args struct {
-			Content  string `json:"content"`
-			Scope    string `json:"scope"`
-			Metadata string `json:"metadata"`
+			Content   string `json:"content"`
+			Scope     string `json:"scope"`
+			Metadata  string `json:"metadata"`
+			SessionID string `json:"session_id"`
+			Entities  string `json:"entities"`
 		}
 		if err := json.Unmarshal(params.Arguments, &args); err != nil {
 			s.sendError(reqID, -32602, "Invalid arguments")
@@ -266,7 +292,22 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			_ = json.Unmarshal([]byte(args.Metadata), &meta)
 		}
 
-		m, extractedStr, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, meta, s.piiEnabled)
+		var entityNames []string
+		if args.Entities != "" {
+			for _, e := range strings.Split(args.Entities, ",") {
+				e = strings.TrimSpace(e)
+				if e != "" {
+					entityNames = append(entityNames, e)
+				}
+			}
+		}
+
+		attr := memory.Attribution{
+			Author:    "mcp",
+			SessionID: args.SessionID,
+		}
+
+		m, extractedStr, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, meta, s.piiEnabled, attr, entityNames)
 		if err != nil {
 			s.sendToolResponse(reqID, err.Error(), true)
 			return
@@ -277,9 +318,10 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 
 	case "memory_search":
 		var args struct {
-			Query string `json:"query"`
-			Scope string `json:"scope"`
-			Limit string `json:"limit"`
+			Query  string `json:"query"`
+			Scope  string `json:"scope"`
+			Limit  string `json:"limit"`
+			Entity string `json:"entity"`
 		}
 		if err := json.Unmarshal(params.Arguments, &args); err != nil {
 			s.sendError(reqID, -32602, "Invalid arguments")
@@ -293,8 +335,22 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 			}
 		}
 
+		var entityID string
+		if args.Entity != "" {
+			entity, err := s.db.ResolveEntity(args.Entity)
+			if err != nil {
+				s.sendToolError(reqID, "Failed to resolve entity", err)
+				return
+			}
+			if entity == nil {
+				s.sendToolResponse(reqID, fmt.Sprintf("Entity not found: %s", args.Entity), true)
+				return
+			}
+			entityID = entity.ID
+		}
+
 		queryVector := s.embeddings.GenerateVector(args.Query)
-		results, err := s.db.SearchMemories(queryVector, args.Scope, limit)
+		results, err := s.db.SearchMemoriesFiltered(queryVector, args.Scope, limit, entityID)
 		if err != nil {
 			s.sendToolError(reqID, "Failed to search memories", err)
 			return
@@ -335,6 +391,25 @@ func (s *Server) handleToolCall(reqID json.RawMessage, params *CallToolParams) {
 		bytes, err := json.MarshalIndent(memories, "", "  ")
 		if err != nil {
 			s.sendToolError(reqID, "Failed to encode memory list", err)
+			return
+		}
+		s.sendToolResponse(reqID, string(bytes), false)
+
+	case "entity_list":
+		entities, err := s.db.ListEntities()
+		if err != nil {
+			s.sendToolError(reqID, "Failed to list entities", err)
+			return
+		}
+
+		if len(entities) == 0 {
+			s.sendToolResponse(reqID, "No entities found.", false)
+			return
+		}
+
+		bytes, err := json.MarshalIndent(entities, "", "  ")
+		if err != nil {
+			s.sendToolError(reqID, "Failed to encode entity list", err)
 			return
 		}
 		s.sendToolResponse(reqID, string(bytes), false)
@@ -450,21 +525,50 @@ func (s *Server) httpMux() http.Handler {
 	}
 
 	// requireAuth validates the JWT Bearer token. Returns false and writes 401 on failure.
-	requireAuth := func(w http.ResponseWriter, r *http.Request) bool {
+	// When authentication succeeds, the verified JWT payload is returned for downstream use.
+	requireAuth := func(w http.ResponseWriter, r *http.Request) (*security.JWTPayload, bool) {
 		if s.jwts == nil {
-			return true
+			return nil, true
 		}
 		auth := r.Header.Get("Authorization")
 		if !strings.HasPrefix(auth, "Bearer ") {
 			http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
-			return false
+			return nil, false
 		}
 		token := strings.TrimPrefix(auth, "Bearer ")
-		if _, err := s.jwts.VerifyToken(token); err != nil {
+		payload, err := s.jwts.VerifyToken(token)
+		if err != nil {
 			writeJSONError(w, http.StatusUnauthorized, "invalid or expired token", err)
-			return false
+			return nil, false
 		}
-		return true
+		return payload, true
+	}
+
+	// requireRole checks that the authenticated subject has at least the given role.
+	// If no profile is configured on the server, the check passes (backward compatible).
+	// If a profile is set, the JWT subject is resolved to a profile and its role is checked.
+	requireRole := func(w http.ResponseWriter, r *http.Request, minRole security.Role) (*security.JWTPayload, bool) {
+		payload, ok := requireAuth(w, r)
+		if !ok {
+			return nil, false
+		}
+		if s.profile != nil {
+			if !security.ParseRole(s.profile.Role).CanWrite() && minRole == security.RoleReadWrite {
+				writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
+				return nil, false
+			}
+			return payload, true
+		}
+		if payload != nil && payload.Subject != "" && s.db != nil {
+			p, err := s.db.GetProfileByName(payload.Subject)
+			if err == nil && p != nil {
+				if !security.ParseRole(p.Role).CanWrite() && minRole == security.RoleReadWrite {
+					writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
+					return nil, false
+				}
+			}
+		}
+		return payload, true
 	}
 
 	// GET /api/status
@@ -485,7 +589,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "POST" {
@@ -494,9 +598,10 @@ func (s *Server) httpMux() http.Handler {
 		}
 
 		var args struct {
-			Query string `json:"query"`
-			Scope string `json:"scope"`
-			Limit int    `json:"limit"`
+			Query  string `json:"query"`
+			Scope  string `json:"scope"`
+			Limit  int    `json:"limit"`
+			Entity string `json:"entity"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 			http.Error(w, "Bad request body", http.StatusBadRequest)
@@ -507,8 +612,24 @@ func (s *Server) httpMux() http.Handler {
 			args.Limit = 5
 		}
 
+		var entityID string
+		if args.Entity != "" {
+			entity, err := s.db.ResolveEntity(args.Entity)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, "Failed to resolve entity", err)
+				return
+			}
+			if entity == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("entity not found: %s", args.Entity)})
+				return
+			}
+			entityID = entity.ID
+		}
+
 		queryVector := s.embeddings.GenerateVector(args.Query)
-		results, err := s.db.SearchMemories(queryVector, args.Scope, args.Limit)
+		results, err := s.db.SearchMemoriesFiltered(queryVector, args.Scope, args.Limit, entityID)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Search failed", err)
 			return
@@ -523,7 +644,8 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		payload, ok := requireRole(w, r, security.RoleReadWrite)
+		if !ok {
 			return
 		}
 		if r.Method != "POST" {
@@ -532,16 +654,27 @@ func (s *Server) httpMux() http.Handler {
 		}
 
 		var args struct {
-			Content  string            `json:"content"`
-			Scope    string            `json:"scope"`
-			Metadata map[string]string `json:"metadata"`
+			Content   string            `json:"content"`
+			Scope     string            `json:"scope"`
+			Metadata  map[string]string `json:"metadata"`
+			SessionID string            `json:"session_id"`
+			Entities  []string          `json:"entities"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 			http.Error(w, "Bad request body", http.StatusBadRequest)
 			return
 		}
 
-		m, _, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, args.Metadata, s.piiEnabled)
+		author := "api"
+		if payload != nil && payload.Subject != "" {
+			author = payload.Subject
+		}
+		attr := memory.Attribution{
+			Author:    author,
+			SessionID: args.SessionID,
+		}
+
+		m, _, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, args.Metadata, s.piiEnabled, attr, args.Entities)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, "Failed to save memory", err)
 			return
@@ -559,7 +692,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		scope := r.URL.Query().Get("scope")
@@ -578,7 +711,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "GET" {
@@ -623,7 +756,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireRole(w, r, security.RoleReadWrite); !ok {
 			return
 		}
 		if r.Method != "POST" {
@@ -677,7 +810,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "GET" {
@@ -714,7 +847,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireRole(w, r, security.RoleReadWrite); !ok {
 			return
 		}
 		if r.Method != "DELETE" && r.Method != "POST" {
@@ -756,7 +889,7 @@ func (s *Server) httpMux() http.Handler {
 		if enableCORS(w, r) {
 			return
 		}
-		if !requireAuth(w, r) {
+		if _, ok := requireAuth(w, r); !ok {
 			return
 		}
 		if r.Method != "GET" {
@@ -773,6 +906,29 @@ func (s *Server) httpMux() http.Handler {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"rules": rules})
+	})
+
+	// GET /api/entities
+	mux.HandleFunc("/api/entities", func(w http.ResponseWriter, r *http.Request) {
+		if enableCORS(w, r) {
+			return
+		}
+		if _, ok := requireAuth(w, r); !ok {
+			return
+		}
+		if r.Method != "GET" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		entities, err := s.db.ListEntities()
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, "failed to list entities", err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"entities": entities})
 	})
 
 	fileServer := http.FileServer(http.FS(web.StaticFS()))

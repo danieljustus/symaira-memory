@@ -3,6 +3,7 @@ package memory
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
@@ -10,9 +11,16 @@ import (
 	"github.com/google/uuid"
 )
 
+// Attribution carries provenance information about who created or updated a
+// memory and in which session.
+type Attribution struct {
+	Author    string // Profile name, "cli:<user>" or JWT Subject
+	SessionID string // e.g. Hermes session ID, empty if unknown
+}
+
 // Prepare validates scope, redacts PII, detects project boundaries,
 // and returns a Memory ready for embedding generation and persistence.
-func Prepare(content, scope string, meta map[string]string, piiEnabled bool) (*db.Memory, error) {
+func Prepare(content, scope string, meta map[string]string, piiEnabled bool, attr Attribution) (*db.Memory, error) {
 	if scope == "" {
 		scope = "global"
 	}
@@ -35,16 +43,21 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool) (*d
 	}
 
 	return &db.Memory{
-		Content:  cleanContent,
-		Scope:    scope,
-		Metadata: meta,
+		Content:        cleanContent,
+		Scope:          scope,
+		Metadata:       meta,
+		CreatedBy:      attr.Author,
+		UpdatedBy:      attr.Author,
+		CreatedSession: attr.SessionID,
+		UpdatedSession: attr.SessionID,
 	}, nil
 }
 
 // Store wraps the full prepare → redact → embed → save → extract-facts pipeline.
 // Returns the saved memory and any extracted secondary fact descriptions.
-func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool) (*db.Memory, []string, error) {
-	m, err := Prepare(content, scope, meta, piiEnabled)
+// The entities parameter contains entity names to link to the saved memory.
+func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string) (*db.Memory, []string, error) {
+	m, err := Prepare(content, scope, meta, piiEnabled, attr)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -53,6 +66,32 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 
 	if err := database.SaveMemory(m); err != nil {
 		return nil, nil, fmt.Errorf("failed to save memory: %w", err)
+	}
+
+	for _, name := range entities {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		entity, err := database.ResolveEntity(name)
+		if err != nil {
+			continue
+		}
+		if entity == nil {
+			entity = &db.Entity{
+				ID:        uuid.New().String(),
+				Name:      name,
+				Type:      "other",
+				Aliases:   []string{},
+				CreatedBy: attr.Author,
+				CreatedAt: time.Now().UTC(),
+			}
+			if err := database.SaveEntity(entity); err != nil {
+				continue
+			}
+		}
+		_ = database.LinkMemoryToEntity(m.ID, entity.ID)
+		m.Entities = append(m.Entities, entity.Name)
 	}
 
 	extractedFacts := patternExtractor.ExtractFacts(m.Content)
@@ -75,11 +114,15 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 		}
 
 		subMem := &db.Memory{
-			ID:        subID,
-			Content:   cleanFactContent,
-			Scope:     m.Scope,
-			Metadata:  subMeta,
-			Embedding: subVector,
+			ID:             subID,
+			Content:        cleanFactContent,
+			Scope:          m.Scope,
+			Metadata:       subMeta,
+			Embedding:      subVector,
+			CreatedBy:      attr.Author,
+			UpdatedBy:      attr.Author,
+			CreatedSession: attr.SessionID,
+			UpdatedSession: attr.SessionID,
 		}
 		if err := database.SaveMemory(subMem); err == nil {
 			extractedStr = append(extractedStr, fmt.Sprintf("  - [Fact Extracted] %s (ID: %s)", cleanFactContent, subID))

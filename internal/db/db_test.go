@@ -174,8 +174,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 5 {
-		t.Errorf("expected 5 migrations after two opens, got %d", count)
+	if count != 8 {
+		t.Errorf("expected 8 migrations after two opens, got %d", count)
 	}
 }
 
@@ -437,8 +437,8 @@ func TestGetMemoriesSinceFilter(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		_, err := database.conn.Exec(
-			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at)
-			 VALUES (?, ?, 'global', '{}', '[]', 0, 0, ?, ?)`,
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session)
+			 VALUES (?, ?, 'global', '{}', '[]', 0, 0, ?, ?, '', '', '', '')`,
 			fmt.Sprintf("since-mem-%d", i), fmt.Sprintf("content %d", i), oldTime, oldTime,
 		)
 		if err != nil {

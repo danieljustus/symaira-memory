@@ -8,7 +8,7 @@ import (
 )
 
 func TestPrepareEmptyScopeDefaultsToGlobal(t *testing.T) {
-	mem, err := Prepare("test content", "", nil, false)
+	mem, err := Prepare("test content", "", nil, false, Attribution{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -18,7 +18,7 @@ func TestPrepareEmptyScopeDefaultsToGlobal(t *testing.T) {
 }
 
 func TestPrepareInvalidScopeReturnsError(t *testing.T) {
-	mem, err := Prepare("test content", "banana", nil, false)
+	mem, err := Prepare("test content", "banana", nil, false, Attribution{})
 	if err == nil {
 		t.Fatal("expected error for invalid scope, got nil")
 	}
@@ -29,7 +29,7 @@ func TestPrepareInvalidScopeReturnsError(t *testing.T) {
 
 func TestPreparePIIRedaction(t *testing.T) {
 	content := "contact me at john@example.com for details"
-	mem, err := Prepare(content, "global", nil, true)
+	mem, err := Prepare(content, "global", nil, true, Attribution{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestPreparePIIRedaction(t *testing.T) {
 
 func TestPreparePIIDisabled(t *testing.T) {
 	content := "contact me at john@example.com for details"
-	mem, err := Prepare(content, "global", nil, false)
+	mem, err := Prepare(content, "global", nil, false, Attribution{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestPreparePIIDisabled(t *testing.T) {
 }
 
 func TestPrepareNilMetaBecomesEmptyMap(t *testing.T) {
-	mem, err := Prepare("test content", "global", nil, false)
+	mem, err := Prepare("test content", "global", nil, false, Attribution{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -85,11 +85,31 @@ func TestPrepareProjectScopeSetsProjectName(t *testing.T) {
 	}
 	defer os.Chdir(oldCwd)
 
-	mem, err := Prepare("test content", "project", nil, false)
+	mem, err := Prepare("test content", "project", nil, false, Attribution{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if mem.Metadata["project_name"] == "" {
 		t.Error("expected project_name to be set in metadata for project scope")
+	}
+}
+
+func TestPrepareAttribution(t *testing.T) {
+	attr := Attribution{Author: "cli:daniel", SessionID: "sess-123"}
+	mem, err := Prepare("test content", "global", nil, false, attr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mem.CreatedBy != "cli:daniel" {
+		t.Errorf("expected CreatedBy 'cli:daniel', got %q", mem.CreatedBy)
+	}
+	if mem.UpdatedBy != "cli:daniel" {
+		t.Errorf("expected UpdatedBy 'cli:daniel', got %q", mem.UpdatedBy)
+	}
+	if mem.CreatedSession != "sess-123" {
+		t.Errorf("expected CreatedSession 'sess-123', got %q", mem.CreatedSession)
+	}
+	if mem.UpdatedSession != "sess-123" {
+		t.Errorf("expected UpdatedSession 'sess-123', got %q", mem.UpdatedSession)
 	}
 }

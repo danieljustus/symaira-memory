@@ -10,13 +10,15 @@ import (
 )
 
 var (
-	searchScope string
-	searchLimit int
+	searchScope  string
+	searchLimit  int
+	searchEntity string
 )
 
 func init() {
 	searchCmd.Flags().StringVarP(&searchScope, "scope", "s", "", "Filter search by scope level")
 	searchCmd.Flags().IntVarP(&searchLimit, "limit", "l", 5, "Maximum number of search results to return")
+	searchCmd.Flags().StringVar(&searchEntity, "entity", "", "Filter search by entity name")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -29,7 +31,21 @@ var searchCmd = &cobra.Command{
 		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
 		queryVector := embeddings.GenerateVector(query)
 
-		results, err := GetDB().SearchMemories(queryVector, searchScope, searchLimit)
+		var entityID string
+		if searchEntity != "" {
+			entity, err := GetDB().ResolveEntity(searchEntity)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Entity lookup error: %v\n", err)
+				os.Exit(1)
+			}
+			if entity == nil {
+				fmt.Fprintf(os.Stderr, "Entity not found: %s\n", searchEntity)
+				os.Exit(1)
+			}
+			entityID = entity.ID
+		}
+
+		results, err := GetDB().SearchMemoriesFiltered(queryVector, searchScope, searchLimit, entityID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Semantic search failure: %v\n", err)
 			os.Exit(1)
