@@ -181,6 +181,35 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	return &m, nil
 }
 
+// scanMemory scans a full Memory row (including embedding) from *sql.Rows.
+func scanMemory(rows *sql.Rows) (*Memory, error) {
+	var m Memory
+	var metaStr, embStr string
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// scanMemoryLite scans a Memory row without embedding data from *sql.Rows.
+func scanMemoryLite(rows *sql.Rows) (*Memory, error) {
+	var m Memory
+	var metaStr string
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
 // ListMemories returns memories with pagination, optionally filtered by scope.
 func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var query string
@@ -202,21 +231,11 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 
 	var memories []*Memory
 	for rows.Next() {
-		var m Memory
-		var metaStr, embStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		m, err := scanMemory(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-			return nil, err
-		}
-
-		if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
-			return nil, err
-		}
-
-		memories = append(memories, &m)
+		memories = append(memories, m)
 	}
 
 	return memories, nil
@@ -243,17 +262,11 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 
 	var memories []*Memory
 	for rows.Next() {
-		var m Memory
-		var metaStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		m, err := scanMemoryLite(rows)
+		if err != nil {
 			return nil, err
 		}
-
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-			return nil, err
-		}
-
-		memories = append(memories, &m)
+		memories = append(memories, m)
 	}
 
 	return memories, nil
@@ -299,15 +312,11 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 
 	var memories []*Memory
 	for rows.Next() {
-		var m Memory
-		var metaStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+		m, err := scanMemoryLite(rows)
+		if err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-			return nil, err
-		}
-		memories = append(memories, &m)
+		memories = append(memories, m)
 	}
 	return memories, nil
 }
@@ -325,16 +334,12 @@ func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 
 	var memories []*Memory
 	for rows.Next() {
-		var m Memory
-		var metaStr string
-		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		m, err := scanMemoryLite(rows)
+		if err != nil {
 			return nil, err
 		}
 		if m.UpdatedAt.After(t) {
-			memories = append(memories, &m)
+			memories = append(memories, m)
 		}
 	}
 	return memories, nil
@@ -444,23 +449,14 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 		}
 
 		for rows.Next() {
-			var m Memory
-			var metaStr, embStr string
-			if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
+			m, err := scanMemory(rows)
+			if err != nil {
 				rows.Close()
 				return nil, err
 			}
 			if len(m.Embedding) > 0 {
 				score := CosineSimilarity(queryVec, m.Embedding)
-				results = append(results, scored{m: &m, score: score})
+				results = append(results, scored{m: m, score: score})
 			}
 			if len(results) >= maxCandidates {
 				break
