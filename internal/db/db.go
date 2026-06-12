@@ -325,7 +325,8 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 // Embedding data is omitted (sync payloads do not need vectors).
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories ORDER BY updated_at ASC",
+		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE updated_at > ? ORDER BY updated_at ASC",
+		t,
 	)
 	if err != nil {
 		return nil, err
@@ -338,9 +339,7 @@ func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 		if err != nil {
 			return nil, err
 		}
-		if m.UpdatedAt.After(t) {
-			memories = append(memories, m)
-		}
+		memories = append(memories, m)
 	}
 	return memories, nil
 }
