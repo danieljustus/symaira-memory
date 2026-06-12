@@ -26,6 +26,14 @@ func init() {
 var searchCmd = &cobra.Command{
 	Use:   "search [query]",
 	Short: "Perform semantic query comparison over stored memories offline",
+	Example: `  # Search with default limit (5 results)
+  symmemory search "preferred theme settings"
+
+  # Return more results with --limit
+  symmemory search "authentication flow" --limit 10
+
+  # Filter by scope and entity
+  symmemory search "API design decisions" -s project --entity "BackendAPI"`,
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		query := args[0]

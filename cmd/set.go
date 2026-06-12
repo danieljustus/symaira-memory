@@ -34,6 +34,14 @@ var setCmd = &cobra.Command{
 	Short: "Save a new fact or context snippet into persistent memory",
 	Long: `Save a new fact or context snippet to local SQLite storage. 
 Automatically triggers embedding generation, PII redaction, and project scope detection.`,
+	Example: `  # Save a global memory
+  symmemory set --value "Alice prefers dark mode in all applications."
+
+  # Save a project-scoped memory linked to entities
+  symmemory set -v "The API uses JWT auth with 15-minute expiry" -s project --entities "BackendAPI,AuthModule"
+
+  # Save a user-scoped memory with custom author
+  symmemory set -v "Prefers concise commit messages" -s user --author "team-lead"`,
 	Run: func(cmd *cobra.Command, args []string) {
 		author := setAuthor
 		if author == "" {

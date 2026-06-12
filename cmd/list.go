@@ -23,6 +23,14 @@ func init() {
 var listCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all stored memory entries in the database",
+	Example: `  # List all memories
+  symmemory list
+
+  # Filter by scope
+  symmemory list --scope project
+
+  # Filter by entity and output as JSON
+  symmemory list --entity "BackendAPI" --format json`,
 	Run: func(cmd *cobra.Command, args []string) {
 		var entityID string
 		if listEntity != "" {

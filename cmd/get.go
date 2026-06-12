@@ -17,6 +17,11 @@ func init() {
 var getCmd = &cobra.Command{
 	Use:   "get [id]",
 	Short: "Retrieve detailed representation of a stored memory by ID",
+	Example: `  # Retrieve a memory by ID
+  symmemory get mem_abc123def456
+
+  # Output as JSON for scripting
+  symmemory get mem_abc123def456 --format json`,
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		id := args[0]
