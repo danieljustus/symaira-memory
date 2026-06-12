@@ -436,11 +436,16 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 
 		var query string
 		if scope != "" {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? AND lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? AND lsh_hash IN (" + inClause + ")"
 			args = append([]interface{}{scope}, args...)
 		} else {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE lsh_hash IN (" + inClause + ") ORDER BY created_at DESC"
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE lsh_hash IN (" + inClause + ")"
 		}
+		if entityID != "" {
+			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
+			args = append(args, entityID)
+		}
+		query += " ORDER BY created_at DESC"
 
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
@@ -467,24 +472,6 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].score > results[j].score
 	})
-
-	if entityID != "" {
-		allowedIDs, err := db.MemoryIDsForEntity(entityID)
-		if err != nil {
-			return nil, err
-		}
-		allowed := make(map[string]bool, len(allowedIDs))
-		for _, id := range allowedIDs {
-			allowed[id] = true
-		}
-		var filtered []scored
-		for _, r := range results {
-			if allowed[r.m.ID] {
-				filtered = append(filtered, r)
-			}
-		}
-		results = filtered
-	}
 
 	if limit > len(results) {
 		limit = len(results)
