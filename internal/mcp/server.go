@@ -515,453 +515,476 @@ func (s *Server) StartHTTPServer(port int) error {
 	return http.ListenAndServe(addr, s.httpMux())
 }
 
-func (s *Server) httpMux() http.Handler {
-	mux := http.NewServeMux()
-
-	// CORS Helper for extension origin requests
-	enableCORS := func(w http.ResponseWriter, r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		allowed := false
-		for _, o := range s.allowedOrigins {
-			if matchOrigin(origin, o) {
-				allowed = true
-				break
-			}
+// enableCORS handles CORS headers for extension origin requests.
+// Returns true if the request was fully handled (OPTIONS preflight or forbidden origin).
+func (s *Server) enableCORS(w http.ResponseWriter, r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	allowed := false
+	for _, o := range s.allowedOrigins {
+		if matchOrigin(origin, o) {
+			allowed = true
+			break
 		}
-		if !allowed {
-			// When origin is missing (same-origin) or not allowed, omit the header
-			if origin != "" {
-				http.Error(w, `{"error":"origin not allowed"}`, http.StatusForbidden)
-				return true
-			}
-		} else {
-			w.Header().Set("Access-Control-Allow-Origin", origin)
-		}
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
+	}
+	if !allowed {
+		// When origin is missing (same-origin) or not allowed, omit the header
+		if origin != "" {
+			http.Error(w, `{"error":"origin not allowed"}`, http.StatusForbidden)
 			return true
 		}
-		return false
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
 	}
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return true
+	}
+	return false
+}
 
-	// requireAuth validates the JWT Bearer token. Returns false and writes 401 on failure.
-	// When authentication succeeds, the verified JWT payload is returned for downstream use.
-	requireAuth := func(w http.ResponseWriter, r *http.Request) (*security.JWTPayload, bool) {
-		if s.jwts == nil {
-			return nil, true
-		}
-		auth := r.Header.Get("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
-			http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
-			return nil, false
-		}
-		token := strings.TrimPrefix(auth, "Bearer ")
-		payload, err := s.jwts.VerifyToken(token)
-		if err != nil {
-			writeJSONError(w, http.StatusUnauthorized, "invalid or expired token", err)
+// requireAuth validates the JWT Bearer token. Returns false and writes 401 on failure.
+// When authentication succeeds, the verified JWT payload is returned for downstream use.
+func (s *Server) requireAuth(w http.ResponseWriter, r *http.Request) (*security.JWTPayload, bool) {
+	if s.jwts == nil {
+		return nil, true
+	}
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
+		return nil, false
+	}
+	token := strings.TrimPrefix(auth, "Bearer ")
+	payload, err := s.jwts.VerifyToken(token)
+	if err != nil {
+		writeJSONError(w, http.StatusUnauthorized, "invalid or expired token", err)
+		return nil, false
+	}
+	return payload, true
+}
+
+// requireRole checks that the authenticated subject has at least the given role.
+// If no profile is configured on the server, the check passes (backward compatible).
+// If a profile is set, the JWT subject is resolved to a profile and its role is checked.
+func (s *Server) requireRole(w http.ResponseWriter, r *http.Request, minRole security.Role) (*security.JWTPayload, bool) {
+	payload, ok := s.requireAuth(w, r)
+	if !ok {
+		return nil, false
+	}
+	if s.profile != nil {
+		if !security.ParseRole(s.profile.Role).CanWrite() && minRole == security.RoleReadWrite {
+			writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
 			return nil, false
 		}
 		return payload, true
 	}
-
-	// requireRole checks that the authenticated subject has at least the given role.
-	// If no profile is configured on the server, the check passes (backward compatible).
-	// If a profile is set, the JWT subject is resolved to a profile and its role is checked.
-	requireRole := func(w http.ResponseWriter, r *http.Request, minRole security.Role) (*security.JWTPayload, bool) {
-		payload, ok := requireAuth(w, r)
-		if !ok {
-			return nil, false
-		}
-		if s.profile != nil {
-			if !security.ParseRole(s.profile.Role).CanWrite() && minRole == security.RoleReadWrite {
+	if payload != nil && payload.Subject != "" && s.db != nil {
+		p, err := s.db.GetProfileByName(payload.Subject)
+		if err == nil && p != nil {
+			if !security.ParseRole(p.Role).CanWrite() && minRole == security.RoleReadWrite {
 				writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
 				return nil, false
 			}
-			return payload, true
 		}
-		if payload != nil && payload.Subject != "" && s.db != nil {
-			p, err := s.db.GetProfileByName(payload.Subject)
-			if err == nil && p != nil {
-				if !security.ParseRole(p.Role).CanWrite() && minRole == security.RoleReadWrite {
-					writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
-					return nil, false
-				}
-			}
-		}
-		return payload, true
+	}
+	return payload, true
+}
+
+// handleStatus serves GET /api/status.
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "healthy",
+		"version": s.version,
+		"server":  "symaira-memory",
+	})
+}
+
+// handleSearch serves POST /api/search.
+func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	if _, ok := s.requireAuth(w, r); !ok {
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	// GET /api/status
-	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":  "healthy",
-			"version": s.version,
-			"server":  "symaira-memory",
-		})
-	})
+	var args struct {
+		Query  string `json:"query"`
+		Scope  string `json:"scope"`
+		Limit  int    `json:"limit"`
+		Entity string `json:"entity"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+		http.Error(w, "Bad request body", http.StatusBadRequest)
+		return
+	}
 
-	// POST /api/search
-	mux.HandleFunc("/api/search", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		if _, ok := requireAuth(w, r); !ok {
-			return
-		}
-		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	if args.Limit <= 0 {
+		args.Limit = 5
+	}
 
-		var args struct {
-			Query  string `json:"query"`
-			Scope  string `json:"scope"`
-			Limit  int    `json:"limit"`
-			Entity string `json:"entity"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-			http.Error(w, "Bad request body", http.StatusBadRequest)
-			return
-		}
-
-		if args.Limit <= 0 {
-			args.Limit = 5
-		}
-
-		var entityID string
-		if args.Entity != "" {
-			entity, err := s.db.ResolveEntity(args.Entity)
-			if err != nil {
-				writeJSONError(w, http.StatusInternalServerError, "Failed to resolve entity", err)
-				return
-			}
-			if entity == nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("entity not found: %s", args.Entity)})
-				return
-			}
-			entityID = entity.ID
-		}
-
-		queryVector := s.embeddings.GenerateVector(args.Query)
-		results, err := s.db.SearchMemoriesFiltered(queryVector, args.Scope, args.Limit, entityID)
+	var entityID string
+	if args.Entity != "" {
+		entity, err := s.db.ResolveEntity(args.Entity)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "Search failed", err)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to resolve entity", err)
 			return
 		}
+		if entity == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("entity not found: %s", args.Entity)})
+			return
+		}
+		entityID = entity.ID
+	}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(results)
+	queryVector := s.embeddings.GenerateVector(args.Query)
+	results, err := s.db.SearchMemoriesFiltered(queryVector, args.Scope, args.Limit, entityID)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Search failed", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+// handleSet serves POST /api/set.
+func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	payload, ok := s.requireRole(w, r, security.RoleReadWrite)
+	if !ok {
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var args struct {
+		Content   string            `json:"content"`
+		Scope     string            `json:"scope"`
+		Metadata  map[string]string `json:"metadata"`
+		SessionID string            `json:"session_id"`
+		Entities  []string          `json:"entities"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+		http.Error(w, "Bad request body", http.StatusBadRequest)
+		return
+	}
+
+	author := "api"
+	if payload != nil && payload.Subject != "" {
+		author = payload.Subject
+	}
+	attr := memory.Attribution{
+		Author:    author,
+		SessionID: args.SessionID,
+	}
+
+	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, args.Metadata, s.piiEnabled, attr, args.Entities)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Failed to save memory", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "success",
+		"id":     m.ID,
 	})
+}
 
-	// POST /api/set
-	mux.HandleFunc("/api/set", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		payload, ok := requireRole(w, r, security.RoleReadWrite)
-		if !ok {
-			return
-		}
-		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+// handleList serves GET /api/list.
+func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	if _, ok := s.requireAuth(w, r); !ok {
+		return
+	}
+	scope := r.URL.Query().Get("scope")
+	memories, err := s.db.ListMemoriesLite(scope, 0, 1000)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Failed to list memories", err)
+		return
+	}
 
-		var args struct {
-			Content   string            `json:"content"`
-			Scope     string            `json:"scope"`
-			Metadata  map[string]string `json:"metadata"`
-			SessionID string            `json:"session_id"`
-			Entities  []string          `json:"entities"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
-			http.Error(w, "Bad request body", http.StatusBadRequest)
-			return
-		}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(memories)
+}
 
-		author := "api"
-		if payload != nil && payload.Subject != "" {
-			author = payload.Subject
-		}
-		attr := memory.Attribution{
-			Author:    author,
-			SessionID: args.SessionID,
-		}
+// handleSyncChanges serves GET /api/sync/changes.
+func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	if _, ok := s.requireAuth(w, r); !ok {
+		return
+	}
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-		m, _, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, args.Metadata, s.piiEnabled, attr, args.Entities)
+	var since time.Time
+	sinceStr := r.URL.Query().Get("since")
+	if sinceStr != "" {
+		parsed, err := time.Parse(time.RFC3339, sinceStr)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to save memory", err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid since parameter; expected RFC3339"})
 			return
 		}
+		since = parsed
+	}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"status": "success",
-			"id":     m.ID,
-		})
+	var memories []*db.Memory
+	var err error
+	if since.IsZero() {
+		memories, err = s.db.ListMemoriesLite("", 0, 100000)
+	} else {
+		memories, err = s.db.GetMemoriesSince(since)
+	}
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch changes", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"memories":    memories,
+		"server_time": time.Now().UTC().Format(time.RFC3339),
 	})
+}
 
-	// GET /api/list
-	mux.HandleFunc("/api/list", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
+// handleSyncApply serves POST /api/sync/apply.
+func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	if _, ok := s.requireRole(w, r, security.RoleReadWrite); !ok {
+		return
+	}
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		Memories []*db.Memory `json:"memories"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "Bad request body", http.StatusBadRequest)
+		return
+	}
+
+	var applied, skipped, skippedInvalidScope int
+	for _, m := range body.Memories {
+		if m.ID == "" {
+			skipped++
+			continue
 		}
-		if _, ok := requireAuth(w, r); !ok {
-			return
+		if err := security.ValidateScope(m.Scope); err != nil {
+			skippedInvalidScope++
+			continue
 		}
-		scope := r.URL.Query().Get("scope")
-		memories, err := s.db.ListMemoriesLite(scope, 0, 1000)
+		if s.piiEnabled {
+			m.Content = security.Redact(m.Content)
+		}
+		ok, err := s.db.UpsertMemoryIfNewer(m)
 		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to list memories", err)
+			writeJSONError(w, http.StatusInternalServerError, "Failed to apply memory", err)
 			return
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(memories)
-	})
-
-	// GET /api/sync/changes
-	mux.HandleFunc("/api/sync/changes", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		if _, ok := requireAuth(w, r); !ok {
-			return
-		}
-		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var since time.Time
-		sinceStr := r.URL.Query().Get("since")
-		if sinceStr != "" {
-			parsed, err := time.Parse(time.RFC3339, sinceStr)
-			if err != nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusBadRequest)
-				json.NewEncoder(w).Encode(map[string]string{"error": "invalid since parameter; expected RFC3339"})
-				return
-			}
-			since = parsed
-		}
-
-		var memories []*db.Memory
-		var err error
-		if since.IsZero() {
-			memories, err = s.db.ListMemoriesLite("", 0, 100000)
+		if ok {
+			applied++
 		} else {
-			memories, err = s.db.GetMemoriesSince(since)
+			skipped++
 		}
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "Failed to fetch changes", err)
-			return
-		}
+	}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"memories":    memories,
-			"server_time": time.Now().UTC().Format(time.RFC3339),
-		})
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{
+		"applied":             applied,
+		"skipped":             skipped,
+		"skippedInvalidScope": skippedInvalidScope,
 	})
+}
 
-	// POST /api/sync/apply
-	mux.HandleFunc("/api/sync/apply", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		if _, ok := requireRole(w, r, security.RoleReadWrite); !ok {
-			return
-		}
-		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+// handleGet serves GET /api/get?id=<memory-id>.
+func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	if _, ok := s.requireAuth(w, r); !ok {
+		return
+	}
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-		var body struct {
-			Memories []*db.Memory `json:"memories"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "Bad request body", http.StatusBadRequest)
-			return
-		}
-
-		var applied, skipped, skippedInvalidScope int
-		for _, m := range body.Memories {
-			if m.ID == "" {
-				skipped++
-				continue
-			}
-			if err := security.ValidateScope(m.Scope); err != nil {
-				skippedInvalidScope++
-				continue
-			}
-			if s.piiEnabled {
-				m.Content = security.Redact(m.Content)
-			}
-			ok, err := s.db.UpsertMemoryIfNewer(m)
-			if err != nil {
-				writeJSONError(w, http.StatusInternalServerError, "Failed to apply memory", err)
-				return
-			}
-			if ok {
-				applied++
-			} else {
-				skipped++
-			}
-		}
-
+	id := r.URL.Query().Get("id")
+	if id == "" {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]int{
-			"applied":             applied,
-			"skipped":             skipped,
-			"skippedInvalidScope": skippedInvalidScope,
-		})
-	})
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing required parameter: id"})
+		return
+	}
 
-	// GET /api/get?id=<memory-id>
-	mux.HandleFunc("/api/get", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		if _, ok := requireAuth(w, r); !ok {
-			return
-		}
-		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		id := r.URL.Query().Get("id")
-		if id == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing required parameter: id"})
-			return
-		}
-
-		m, err := s.db.GetMemory(id)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to fetch memory", err)
-			return
-		}
-		if m == nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
-			return
-		}
-
+	m, err := s.db.GetMemory(id)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to fetch memory", err)
+		return
+	}
+	if m == nil {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(m)
-	})
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		return
+	}
 
-	// DELETE|POST /api/delete?id=<memory-id>
-	mux.HandleFunc("/api/delete", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		if _, ok := requireRole(w, r, security.RoleReadWrite); !ok {
-			return
-		}
-		if r.Method != "DELETE" && r.Method != "POST" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(m)
+}
 
-		id := r.URL.Query().Get("id")
-		if id == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing required parameter: id"})
-			return
-		}
+// handleDelete serves DELETE|POST /api/delete?id=<memory-id>.
+func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	if _, ok := s.requireRole(w, r, security.RoleReadWrite); !ok {
+		return
+	}
+	if r.Method != "DELETE" && r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-		m, err := s.db.GetMemory(id)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to fetch memory", err)
-			return
-		}
-		if m == nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
-			return
-		}
-
-		if err := s.db.DeleteMemory(id); err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to delete memory", err)
-			return
-		}
-
+	id := r.URL.Query().Get("id")
+	if id == "" {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
-	})
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "missing required parameter: id"})
+		return
+	}
 
-	// GET /api/rules
-	mux.HandleFunc("/api/rules", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		if _, ok := requireAuth(w, r); !ok {
-			return
-		}
-		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		scope := r.URL.Query().Get("scope")
-		rules, err := s.db.ListRules(scope)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to list rules", err)
-			return
-		}
-
+	m, err := s.db.GetMemory(id)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to fetch memory", err)
+		return
+	}
+	if m == nil {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"rules": rules})
-	})
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
+		return
+	}
 
-	// GET /api/entities
-	mux.HandleFunc("/api/entities", func(w http.ResponseWriter, r *http.Request) {
-		if enableCORS(w, r) {
-			return
-		}
-		if _, ok := requireAuth(w, r); !ok {
-			return
-		}
-		if r.Method != "GET" {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	if err := s.db.DeleteMemory(id); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to delete memory", err)
+		return
+	}
 
-		entities, err := s.db.ListEntities()
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, "failed to list entities", err)
-			return
-		}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]bool{"deleted": true})
+}
 
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{"entities": entities})
-	})
+// handleRules serves GET /api/rules.
+func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	if _, ok := s.requireAuth(w, r); !ok {
+		return
+	}
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
+	scope := r.URL.Query().Get("scope")
+	rules, err := s.db.ListRules(scope)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to list rules", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"rules": rules})
+}
+
+// handleEntities serves GET /api/entities.
+func (s *Server) handleEntities(w http.ResponseWriter, r *http.Request) {
+	if s.enableCORS(w, r) {
+		return
+	}
+	if _, ok := s.requireAuth(w, r); !ok {
+		return
+	}
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	entities, err := s.db.ListEntities()
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, "failed to list entities", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{"entities": entities})
+}
+
+// handleStatic serves the web console and embedded static assets.
+func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/" {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(web.IndexHTML())
+		return
+	}
 	fileServer := http.FileServer(http.FS(web.StaticFS()))
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			w.Write(web.IndexHTML())
-			return
-		}
-		fileServer.ServeHTTP(w, r)
-	})
+	fileServer.ServeHTTP(w, r)
+}
+
+// httpMux builds the HTTP request multiplexer with table-driven route registration.
+func (s *Server) httpMux() http.Handler {
+	mux := http.NewServeMux()
+
+	routes := []struct {
+		pattern string
+		handler http.HandlerFunc
+	}{
+		{"/api/status", s.handleStatus},
+		{"/api/search", s.handleSearch},
+		{"/api/set", s.handleSet},
+		{"/api/list", s.handleList},
+		{"/api/sync/changes", s.handleSyncChanges},
+		{"/api/sync/apply", s.handleSyncApply},
+		{"/api/get", s.handleGet},
+		{"/api/delete", s.handleDelete},
+		{"/api/rules", s.handleRules},
+		{"/api/entities", s.handleEntities},
+		{"/", s.handleStatic},
+	}
+	for _, rt := range routes {
+		mux.HandleFunc(rt.pattern, rt.handler)
+	}
 
 	classify := func(r *http.Request) string {
 		if strings.HasPrefix(r.URL.Path, "/api/token") || strings.HasPrefix(r.URL.Path, "/api/login") {
