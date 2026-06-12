@@ -16,6 +16,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/instructions"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/danieljustus/symaira-memory/internal/web"
@@ -153,6 +154,7 @@ func (s *Server) handleRequest(req *JSONRPCRequest) {
 				"name":    "symaira-memory",
 				"version": s.version,
 			},
+			"instructions": instructions.Text(s.version),
 		}
 		s.sendResult(req.ID, res)
 
