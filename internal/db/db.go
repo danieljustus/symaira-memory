@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-corekit/sqlitekit"
 	_ "modernc.org/sqlite"
 )
 
@@ -60,22 +61,12 @@ func Open(cfg *config.Config) (*DB, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get user home dir: %w", err)
 		}
-		dir := filepath.Join(home, ".local", "share", "symmemory")
-		if err := os.MkdirAll(dir, 0700); err != nil {
-			return nil, fmt.Errorf("failed to create db directory: %w", err)
-		}
-		dbPath = filepath.Join(dir, "default.db")
+		dbPath = filepath.Join(home, ".local", "share", "symmemory", "default.db")
 	}
 
-	conn, err := sql.Open("sqlite", dbPath)
+	conn, err := sqlitekit.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
-	}
-
-	// Enable WAL mode for concurrent reads/writes
-	if _, err := conn.Exec("PRAGMA journal_mode=WAL;"); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to enable WAL: %w", err)
 	}
 
 	db := &DB{conn: conn}
@@ -84,7 +75,6 @@ func Open(cfg *config.Config) (*DB, error) {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
-	// Restrict database file permissions to owner-only (after migrations create the file)
 	if _, err := os.Stat(dbPath); err == nil {
 		if err := os.Chmod(dbPath, 0600); err != nil {
 			conn.Close()

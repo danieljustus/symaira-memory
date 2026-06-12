@@ -1,7 +1,11 @@
-// Symaira Memory is a local-first persistent memory context manager with MCP and TUI support.
 package main
 
-import "github.com/danieljustus/symaira-memory/cmd"
+import (
+	"log/slog"
+
+	"github.com/danieljustus/symaira-memory/cmd"
+	"github.com/danieljustus/symaira-corekit/logkit"
+)
 
 var (
 	version = "0.1.0"
@@ -10,6 +14,7 @@ var (
 )
 
 func main() {
+	slog.SetDefault(logkit.NewFromEnv("symmemory"))
 	cmd.SetVersionInfo(version, commit, date)
 	cmd.Execute()
 }

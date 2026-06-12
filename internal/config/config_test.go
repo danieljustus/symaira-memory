@@ -29,8 +29,17 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestMergeFileOverrides(t *testing.T) {
+	resetCache()
 	dir := t.TempDir()
-	writeTempConfig(t, dir, "test.toml", `
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	configDir := filepath.Join(dir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	writeTempConfig(t, configDir, "config.toml", `
 [database]
 path = "/custom/db/path.db"
 [ollama]
@@ -44,9 +53,9 @@ http_port = 9090
 pii_enabled = false
 `)
 
-	cfg := Defaults()
-	if err := mergeFile(cfg, filepath.Join(dir, "test.toml")); err != nil {
-		t.Fatalf("mergeFile failed: %v", err)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
 	}
 
 	if cfg.Database.Path != "/custom/db/path.db" {
@@ -70,23 +79,40 @@ pii_enabled = false
 }
 
 func TestMergeFileMissing(t *testing.T) {
-	cfg := Defaults()
-	err := mergeFile(cfg, "/nonexistent/path/config.toml")
+	resetCache()
+	dir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	cfg, err := Load()
 	if err != nil {
-		t.Errorf("expected nil error for missing file, got: %v", err)
+		t.Fatalf("Load failed for empty home: %v", err)
+	}
+	if cfg.Ollama.URL != "http://localhost:11434/api/embeddings" {
+		t.Errorf("expected default URL preserved, got %q", cfg.Ollama.URL)
 	}
 }
 
 func TestMergeFilePartial(t *testing.T) {
+	resetCache()
 	dir := t.TempDir()
-	writeTempConfig(t, dir, "partial.toml", `
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	configDir := filepath.Join(dir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	writeTempConfig(t, configDir, "config.toml", `
 [ollama]
 model = "custom-model"
 `)
 
-	cfg := Defaults()
-	if err := mergeFile(cfg, filepath.Join(dir, "partial.toml")); err != nil {
-		t.Fatalf("mergeFile failed: %v", err)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
 	}
 
 	if cfg.Ollama.Model != "custom-model" {
@@ -177,8 +203,8 @@ func TestEnvOverrideDBPath(t *testing.T) {
 	os.Setenv("HOME", dir)
 	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("SYMMEMORY_DB_PATH", "/tmp/test.db")
-	defer os.Unsetenv("SYMMEMORY_DB_PATH")
+	os.Setenv("SYMMEMORY_DATABASE_PATH", "/tmp/test.db")
+	defer os.Unsetenv("SYMMEMORY_DATABASE_PATH")
 
 	cfg, err := Load()
 	if err != nil {
@@ -196,8 +222,8 @@ func TestEnvOverrideOllamaURL(t *testing.T) {
 	os.Setenv("HOME", dir)
 	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("OLLAMA_API_URL", "http://custom:1234/api/embeddings")
-	defer os.Unsetenv("OLLAMA_API_URL")
+	os.Setenv("SYMMEMORY_OLLAMA_URL", "http://custom:1234/api/embeddings")
+	defer os.Unsetenv("SYMMEMORY_OLLAMA_URL")
 
 	cfg, err := Load()
 	if err != nil {
@@ -215,8 +241,8 @@ func TestEnvOverrideOllamaModel(t *testing.T) {
 	os.Setenv("HOME", dir)
 	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("OLLAMA_MODEL", "llama3")
-	defer os.Unsetenv("OLLAMA_MODEL")
+	os.Setenv("SYMMEMORY_OLLAMA_MODEL", "llama3")
+	defer os.Unsetenv("SYMMEMORY_OLLAMA_MODEL")
 
 	cfg, err := Load()
 	if err != nil {
@@ -272,8 +298,8 @@ func TestReloadAppliesEnvVars(t *testing.T) {
 	os.Setenv("HOME", dir)
 	defer os.Setenv("HOME", oldHome)
 
-	os.Setenv("SYMMEMORY_DB_PATH", "/tmp/reload.db")
-	defer os.Unsetenv("SYMMEMORY_DB_PATH")
+	os.Setenv("SYMMEMORY_DATABASE_PATH", "/tmp/reload.db")
+	defer os.Unsetenv("SYMMEMORY_DATABASE_PATH")
 
 	cfg, err := Reload()
 	if err != nil {
@@ -335,15 +361,24 @@ http_port = 2222
 }
 
 func TestMergeFileMissingSecuritySection(t *testing.T) {
+	resetCache()
 	dir := t.TempDir()
-	writeTempConfig(t, dir, "no-security.toml", `
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	configDir := filepath.Join(dir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	writeTempConfig(t, configDir, "config.toml", `
 [ollama]
 model = "custom-model"
 `)
 
-	cfg := Defaults()
-	if err := mergeFile(cfg, filepath.Join(dir, "no-security.toml")); err != nil {
-		t.Fatalf("mergeFile failed: %v", err)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
 	}
 
 	if cfg.Ollama.Model != "custom-model" {

@@ -72,13 +72,14 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 			}()
 			_ = server.StartHTTPServer(servePort)
 		} else {
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
 
-			errCh := make(chan error, 1)
-			go func() {
-				errCh <- server.Serve(ctx)
-			}()
+		mcpSrv := server.MCPServer()
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- mcpSrv.ServeStdio(ctx)
+		}()
 
 			select {
 			case err := <-errCh:

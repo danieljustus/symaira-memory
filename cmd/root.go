@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-corekit/exitcodes"
+	"github.com/danieljustus/symaira-corekit/updatecheck"
 	"github.com/spf13/cobra"
 )
 
@@ -20,22 +23,18 @@ var (
 	rootCfg *config.Config
 )
 
-// GetDB returns the current database instance. Returns nil if not yet opened.
 func GetDB() *db.DB {
 	return rootDB
 }
 
-// SetDB sets the database instance for use by commands.
 func SetDB(database *db.DB) {
 	rootDB = database
 }
 
-// GetConfig returns the loaded configuration. Returns nil if not yet loaded.
 func GetConfig() *config.Config {
 	return rootCfg
 }
 
-// SetConfig sets the configuration for use by commands.
 func SetConfig(cfg *config.Config) {
 	rootCfg = cfg
 }
@@ -52,12 +51,12 @@ SQLite, and exposes them to agents through the Model Context Protocol (MCP).`,
 		}
 		cfg, err := config.Load()
 		if err != nil {
-			return fmt.Errorf("failed to load configuration: %w", err)
+			return exitcodes.Wrapf(err, exitcodes.ExitConfig, exitcodes.KindConfig, "failed to load configuration")
 		}
 		SetConfig(cfg)
 		database, err := db.Open(cfg)
 		if err != nil {
-			return fmt.Errorf("failed to open SQLite database: %w", err)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to open SQLite database")
 		}
 		SetDB(database)
 		return nil
@@ -77,13 +76,12 @@ func SetVersionInfo(v, c, d string) {
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintln(os.Stderr, exitcodes.FormatCLIError(err))
+		os.Exit(int(exitcodes.ExitCodeFromError(err)))
 	}
 }
 
 func init() {
-	// Add subcommands
 	rootCmd.AddCommand(versionCmd)
 }
 
@@ -91,6 +89,26 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the current CLI version details",
 	Run: func(cmd *cobra.Command, args []string) {
+		check, _ := cmd.Flags().GetBool("check")
+		if check {
+			checker := updatecheck.NewChecker("danieljustus", "symaira-memory")
+			release, err := checker.Check(context.Background(), Version)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Update check failed: %v\n", err)
+				os.Exit(1)
+			}
+			if release != nil {
+				fmt.Printf("Update available: %s → %s\n", Version, release.TagName)
+				fmt.Printf("Download: %s\n", release.HTMLURL)
+			} else {
+				fmt.Printf("symmemory %s is up to date.\n", Version)
+			}
+			return
+		}
 		fmt.Printf("symmemory version %s (%s, date: %s)\n", Version, Commit, Date)
 	},
+}
+
+func init() {
+	versionCmd.Flags().Bool("check", false, "Check for updates via GitHub releases")
 }
