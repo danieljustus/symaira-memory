@@ -28,6 +28,7 @@ type Memory struct {
 	UpdatedBy      string            `json:"updated_by,omitempty"`
 	CreatedSession string            `json:"created_session,omitempty"`
 	UpdatedSession string            `json:"updated_session,omitempty"`
+	Entities       []string          `json:"entities,omitempty"` // linked entity names
 }
 
 // Session represents a compressed summary of a chat session.
@@ -169,6 +170,14 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
 		return nil, err
 	}
+
+	entities, err := db.EntitiesForMemory(m.ID)
+	if err == nil && len(entities) > 0 {
+		for _, e := range entities {
+			m.Entities = append(m.Entities, e.Name)
+		}
+	}
+
 	return &m, nil
 }
 
@@ -247,6 +256,59 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 		memories = append(memories, &m)
 	}
 
+	return memories, nil
+}
+
+// ListMemoriesFiltered returns memories without embedding data, filtered by scope and optionally by entity.
+func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([]*Memory, error) {
+	if entityID == "" {
+		return db.ListMemoriesLite(scope, offset, limit)
+	}
+
+	memoryIDs, err := db.MemoryIDsForEntity(entityID)
+	if err != nil {
+		return nil, err
+	}
+	if len(memoryIDs) == 0 {
+		return nil, nil
+	}
+
+	placeholders := make([]string, len(memoryIDs))
+	args := make([]interface{}, 0, len(memoryIDs)+2)
+	for i, id := range memoryIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	inClause := strings.Join(placeholders, ", ")
+
+	var query string
+	if scope != "" {
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? AND id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		args = append([]interface{}{scope}, args...)
+		args = append(args, limit, offset)
+	} else {
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		args = append(args, limit, offset)
+	}
+
+	rows, err := db.conn.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		var m Memory
+		var metaStr string
+		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+			return nil, err
+		}
+		memories = append(memories, &m)
+	}
 	return memories, nil
 }
 
@@ -336,6 +398,12 @@ type SearchResult struct {
 // SearchMemories uses LSH bucket pre-filtering to avoid full table scans,
 // then ranks the reduced candidate set by cosine similarity.
 func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]SearchResult, error) {
+	return db.SearchMemoriesFiltered(queryVec, scope, limit, "")
+}
+
+// SearchMemoriesFiltered extends SearchMemories with an optional entity filter.
+// When entityID is non-empty, only memories linked to that entity are returned.
+func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int, entityID string) ([]SearchResult, error) {
 	const maxCandidates = 2000
 	const batchSize = 64
 	type scored struct {
@@ -404,6 +472,24 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].score > results[j].score
 	})
+
+	if entityID != "" {
+		allowedIDs, err := db.MemoryIDsForEntity(entityID)
+		if err != nil {
+			return nil, err
+		}
+		allowed := make(map[string]bool, len(allowedIDs))
+		for _, id := range allowedIDs {
+			allowed[id] = true
+		}
+		var filtered []scored
+		for _, r := range results {
+			if allowed[r.m.ID] {
+				filtered = append(filtered, r)
+			}
+		}
+		results = filtered
+	}
 
 	if limit > len(results) {
 		limit = len(results)
