@@ -18,19 +18,22 @@ import (
 
 // Memory represents a single saved fact or context snippet.
 type Memory struct {
-	ID             string            `json:"id"`
-	Content        string            `json:"content"`
-	Scope          string            `json:"scope"`     // global, project, agent, user, session
-	Metadata       map[string]string `json:"metadata"`  // key-value metadata
-	Embedding      []float32         `json:"embedding"` // semantic embedding
-	CreatedAt      time.Time         `json:"created_at"`
-	UpdatedAt      time.Time         `json:"updated_at"`
-	CreatedBy      string            `json:"created_by,omitempty"`
-	UpdatedBy      string            `json:"updated_by,omitempty"`
-	CreatedSession string            `json:"created_session,omitempty"`
-	UpdatedSession string            `json:"updated_session,omitempty"`
-	Entities       []string          `json:"entities,omitempty"` // linked entity names
+	ID                  string            `json:"id"`
+	Content             string            `json:"content"`
+	Scope               string            `json:"scope"`     // global, project, agent, user, session
+	Metadata            map[string]string `json:"metadata"`  // key-value metadata
+	Embedding           []float32         `json:"embedding"` // semantic embedding
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
+	CreatedBy           string            `json:"created_by,omitempty"`
+	UpdatedBy           string            `json:"updated_by,omitempty"`
+	CreatedSession      string            `json:"created_session,omitempty"`
+	UpdatedSession      string            `json:"updated_session,omitempty"`
+	Entities            []string          `json:"entities,omitempty"` // linked entity names
+	ConsolidationStatus string            `json:"consolidation_status"`
+	ConsolidatedIntoID  string            `json:"consolidated_into_id,omitempty"`
 }
+
 
 // Session represents a compressed summary of a chat session.
 type Session struct {
@@ -111,8 +114,18 @@ func (db *DB) SaveMemory(m *Memory) error {
 	embeddingDim := len(m.Embedding)
 	lshHash := ComputeLSH(m.Embedding)
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	status := m.ConsolidationStatus
+	if status == "" {
+		status = "raw"
+	}
+	var consolidatedInto sql.NullString
+	if m.ConsolidatedIntoID != "" {
+		consolidatedInto.String = m.ConsolidatedIntoID
+		consolidatedInto.Valid = true
+	}
+
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
@@ -122,7 +135,9 @@ func (db *DB) SaveMemory(m *Memory) error {
 			lsh_hash=excluded.lsh_hash,
 			updated_at=excluded.updated_at,
 			updated_by=excluded.updated_by,
-			updated_session=excluded.updated_session`
+			updated_session=excluded.updated_session,
+			consolidation_status=excluded.consolidation_status,
+			consolidated_into_id=excluded.consolidated_into_id`
 
 	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
@@ -130,9 +145,10 @@ func (db *DB) SaveMemory(m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession)
+	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
 	return err
 }
+
 
 // DeleteMemory removes a memory by ID.
 func (db *DB) DeleteMemory(id string) error {
@@ -144,10 +160,11 @@ func (db *DB) DeleteMemory(id string) error {
 func (db *DB) GetMemory(id string) (*Memory, error) {
 	var m Memory
 	var metaStr, embStr string
+	var consolidatedInto sql.NullString
 	err := db.conn.QueryRow(
-		"SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE id = ?",
+		"SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE id = ?",
 		id,
-	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession)
+	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -160,6 +177,7 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
 		return nil, err
 	}
+	m.ConsolidatedIntoID = consolidatedInto.String
 
 	entities, err := db.EntitiesForMemory(m.ID)
 	if err == nil && len(entities) > 0 {
@@ -175,7 +193,8 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 func scanMemory(rows *sql.Rows) (*Memory, error) {
 	var m Memory
 	var metaStr, embStr string
-	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+	var consolidatedInto sql.NullString
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
@@ -184,6 +203,7 @@ func scanMemory(rows *sql.Rows) (*Memory, error) {
 	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
 		return nil, err
 	}
+	m.ConsolidatedIntoID = consolidatedInto.String
 	return &m, nil
 }
 
@@ -191,14 +211,17 @@ func scanMemory(rows *sql.Rows) (*Memory, error) {
 func scanMemoryLite(rows *sql.Rows) (*Memory, error) {
 	var m Memory
 	var metaStr string
-	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession); err != nil {
+	var consolidatedInto sql.NullString
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
 		return nil, err
 	}
+	m.ConsolidatedIntoID = consolidatedInto.String
 	return &m, nil
 }
+
 
 // ListMemories returns memories with pagination, optionally filtered by scope.
 func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
@@ -207,10 +230,10 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE scope = ? AND consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -238,10 +261,10 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE scope = ? AND consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -286,11 +309,11 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 
 	var query string
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? AND id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		args = append([]interface{}{scope}, args...)
 		args = append(args, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE consolidation_status != 'archived' AND id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		args = append(args, limit, offset)
 	}
 
@@ -315,7 +338,7 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 // Embedding data is omitted (sync payloads do not need vectors).
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE updated_at > ? ORDER BY updated_at ASC",
+		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE updated_at > ? ORDER BY updated_at ASC",
 		t,
 	)
 	if err != nil {
@@ -334,6 +357,7 @@ func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	return memories, nil
 }
 
+
 // UpsertMemoryIfNewer inserts or updates a memory only if the incoming
 // updated_at is strictly newer than the stored row. Returns true when the
 // row was inserted or overwritten, false when it was skipped.
@@ -351,6 +375,16 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	embeddingDim := len(m.Embedding)
 	lshHash := ComputeLSH(m.Embedding)
 
+	status := m.ConsolidationStatus
+	if status == "" {
+		status = "raw"
+	}
+	var consolidatedInto sql.NullString
+	if m.ConsolidatedIntoID != "" {
+		consolidatedInto.String = m.ConsolidatedIntoID
+		consolidatedInto.Valid = true
+	}
+
 	var existingUpdated time.Time
 	err = db.conn.QueryRow("SELECT updated_at FROM memories WHERE id = ?", m.ID).Scan(&existingUpdated)
 	if err != nil && err != sql.ErrNoRows {
@@ -359,9 +393,9 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 
 	if err == sql.ErrNoRows {
 		_, err = db.conn.Exec(
-			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession,
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto,
 		)
 		if err != nil {
 			return false, err
@@ -374,14 +408,15 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	}
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=? WHERE id=?`,
-		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, m.ID,
+		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=? WHERE id=?`,
+		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.ID,
 	)
 	if err != nil {
 		return false, err
 	}
 	return true, nil
 }
+
 
 // SearchResult wraps a Memory with its similarity score without mutating the original.
 type SearchResult struct {
@@ -426,10 +461,10 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 
 		var query string
 		if scope != "" {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE scope = ? AND lsh_hash IN (" + inClause + ")"
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
 			args = append([]interface{}{scope}, args...)
 		} else {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session FROM memories WHERE lsh_hash IN (" + inClause + ")"
+			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
 		}
 		if entityID != "" {
 			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
