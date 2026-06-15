@@ -99,6 +99,12 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// BeginTransaction starts a new database transaction.
+func (db *DB) BeginTransaction() (*sql.Tx, error) {
+	return db.conn.Begin()
+}
+
+
 // SaveMemory inserts or updates a memory.
 func (db *DB) SaveMemory(m *Memory) error {
 	metadataJSON, err := json.Marshal(m.Metadata)
@@ -148,6 +154,69 @@ func (db *DB) SaveMemory(m *Memory) error {
 	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
 	return err
 }
+
+// SaveMemoryTx inserts or updates a memory within a transaction.
+func (db *DB) SaveMemoryTx(tx *sql.Tx, m *Memory) error {
+	metadataJSON, err := json.Marshal(m.Metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	embeddingJSON, err := json.Marshal(m.Embedding)
+	if err != nil {
+		return fmt.Errorf("failed to marshal embedding: %w", err)
+	}
+
+	embeddingDim := len(m.Embedding)
+	lshHash := ComputeLSH(m.Embedding)
+
+	status := m.ConsolidationStatus
+	if status == "" {
+		status = "raw"
+	}
+	var consolidatedInto sql.NullString
+	if m.ConsolidatedIntoID != "" {
+		consolidatedInto.String = m.ConsolidatedIntoID
+		consolidatedInto.Valid = true
+	}
+
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			content=excluded.content,
+			scope=excluded.scope,
+			metadata=excluded.metadata,
+			embedding=excluded.embedding,
+			embedding_dim=excluded.embedding_dim,
+			lsh_hash=excluded.lsh_hash,
+			updated_at=excluded.updated_at,
+			updated_by=excluded.updated_by,
+			updated_session=excluded.updated_session,
+			consolidation_status=excluded.consolidation_status,
+			consolidated_into_id=excluded.consolidated_into_id`
+
+	now := time.Now().UTC()
+	if m.CreatedAt.IsZero() {
+		m.CreatedAt = now
+	}
+	m.UpdatedAt = now
+
+	_, err = tx.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
+	return err
+}
+
+// UpdateMemoryStatusTx updates the consolidation status and parent ID of a memory within a transaction.
+func (db *DB) UpdateMemoryStatusTx(tx *sql.Tx, id string, status string, parentID string) error {
+	var consolidatedInto sql.NullString
+	if parentID != "" {
+		consolidatedInto.String = parentID
+		consolidatedInto.Valid = true
+	}
+	query := `UPDATE memories SET consolidation_status = ?, consolidated_into_id = ?, updated_at = ? WHERE id = ?`
+	_, err := tx.Exec(query, status, consolidatedInto, time.Now().UTC(), id)
+	return err
+}
+
 
 
 // DeleteMemory removes a memory by ID.
@@ -357,6 +426,25 @@ func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	return memories, nil
 }
 
+// GetRawMemories returns all memories with consolidation_status = 'raw'.
+func (db *DB) GetRawMemories() ([]*Memory, error) {
+	query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
+	rows, err := db.conn.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		m, err := scanMemory(rows)
+		if err != nil {
+			return nil, err
+		}
+		memories = append(memories, m)
+	}
+	return memories, nil
+}
 
 // UpsertMemoryIfNewer inserts or updates a memory only if the incoming
 // updated_at is strictly newer than the stored row. Returns true when the
