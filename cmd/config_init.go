@@ -66,7 +66,7 @@ model = "nomic-embed-text"
 # secret_path = ""
 
 # Vault URI for the JWT signing secret.
-# When set, resolves via "symvault get <path>" subprocess (5s timeout).
+# When set, resolves via "symvault get <path> --print" subprocess (5s timeout).
 # Falls back to JWT_SECRET_KEY env var if symvault is unavailable.
 # secret = "vault://symaira/memory/jwt"
 

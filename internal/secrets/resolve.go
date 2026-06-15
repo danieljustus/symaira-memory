@@ -25,7 +25,7 @@ func IsVaultURI(value string) bool {
 //
 // Resolution order:
 //  1. Plain value (no vault:// prefix) → returned as-is
-//  2. vault://<path> → subprocess "symvault get <path>" with 5s timeout
+//  2. vault://<path> → subprocess "symvault get <path> --print" with 5s timeout
 //  3. Fallback to env var named by envFallback (e.g. "JWT_SECRET_KEY")
 //
 // On success, the resolved plaintext is returned. On failure, a descriptive
@@ -56,7 +56,7 @@ func Resolve(value, envFallback string) (string, error) {
 	)
 }
 
-// execVaultGet runs "symvault get <path>" as a subprocess with a timeout.
+// execVaultGet runs "symvault get <path> --print" as a subprocess with a timeout.
 // Only the trimmed stdout is returned; stderr and exit codes are wrapped
 // into the error. The secret value is never logged.
 func execVaultGet(path string) (string, error) {
@@ -67,7 +67,7 @@ func execVaultGet(path string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), vaultTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "symvault", "get", path)
+	cmd := exec.CommandContext(ctx, "symvault", "get", path, "--print")
 	out, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {

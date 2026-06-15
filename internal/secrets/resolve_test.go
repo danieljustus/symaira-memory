@@ -156,6 +156,40 @@ esac
 	}
 }
 
+func TestResolveVaultCallsSymvaultWithPrintFlag(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args.txt")
+	script := filepath.Join(dir, "symvault")
+	content := `#!/bin/sh
+printf '%s\n' "$@" > "` + argsPath + `"
+echo "resolved-with-print"
+`
+	if err := os.WriteFile(script, []byte(content), 0755); err != nil {
+		t.Fatalf("failed to write fake symvault: %v", err)
+	}
+
+	oldPath := os.Getenv("PATH")
+	os.Setenv("PATH", dir)
+	defer os.Setenv("PATH", oldPath)
+
+	got, err := Resolve("vault://symaira/memory/jwt", "UNUSED")
+	if err != nil {
+		t.Fatalf("expected resolve to succeed, got error: %v", err)
+	}
+	if got != "resolved-with-print" {
+		t.Errorf("expected resolved secret, got %q", got)
+	}
+
+	rawArgs, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("failed to read fake symvault args: %v", err)
+	}
+	want := "get\nsymaira/memory/jwt\n--print\n"
+	if string(rawArgs) != want {
+		t.Fatalf("symvault args = %q, want %q", string(rawArgs), want)
+	}
+}
+
 func TestResolveVaultFakeSymvaultUnknownPath(t *testing.T) {
 	// Fake symvault that rejects unknown paths
 	dir := t.TempDir()

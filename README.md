@@ -167,11 +167,11 @@ Symaira Memory supports resolving secrets from [Symaira Vault](https://github.co
 
 ### How It Works
 
-When a config value starts with `vault://`, `symmemory` resolves it by running `symvault get <path>` as a subprocess (5-second timeout). If `symvault` is unavailable, it falls back to the corresponding environment variable.
+When a config value starts with `vault://`, `symmemory` resolves it by running `symvault get <path> --print` as a subprocess (5-second timeout). If `symvault` is unavailable, it falls back to the corresponding environment variable.
 
 **Resolution order for JWT signing secret:**
 
-1. `vault://<path>` from config → `symvault get <path>`
+1. `vault://<path>` from config → `symvault get <path> --print`
 2. `JWT_SECRET_KEY` environment variable
 3. File at `secret_path` (or auto-generated)
 
