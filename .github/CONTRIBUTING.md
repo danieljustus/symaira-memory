@@ -62,6 +62,16 @@ Use the GitHub issue templates for bug reports and feature requests. Include:
 - Expected vs actual behavior
 - Go version and OS
 
+## Version Strings
+
+When making a release, ensure the following version strings are in sync:
+
+- `extension/manifest.json` — `"version"` field
+- `docs/openapi.yaml` — `info.version` field
+- Go binary — set automatically by goreleaser via ldflags
+
+These files are not automatically updated by the release workflow. Manual updates are required before tagging a release.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.

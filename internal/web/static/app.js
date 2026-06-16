@@ -181,6 +181,82 @@
     });
   }
 
+  async function loadEntities() {
+    const res = await apiFetch("/api/entities");
+    if (res.status === 401) {
+      setAuthStatus("Unauthorized", true);
+      state.authenticated = false;
+      return;
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+    const entities = data.entities || [];
+    const tbody = $("#entities-body");
+    tbody.innerHTML = "";
+    const emptyMsg = $("#entities-empty");
+
+    if (entities.length === 0) {
+      emptyMsg.classList.add("visible");
+      return;
+    }
+    emptyMsg.classList.remove("visible");
+
+    entities.forEach(function(e) {
+      const tr = document.createElement("tr");
+      const created = e.created_at ? new Date(e.created_at).toLocaleString() : "";
+      tr.innerHTML =
+        '<td class="content-cell">' + escapeHtml(e.name) + "</td>" +
+        "<td>" + escapeHtml(e.type) + "</td>" +
+        '<td class="content-cell" title="' + escapeHtml(e.description || "") + '">' + escapeHtml(e.description || "-") + "</td>" +
+        "<td>" + escapeHtml(created) + "</td>";
+      tbody.appendChild(tr);
+    });
+  }
+
+  async function addMemory() {
+    const content = $("#memory-content").value.trim();
+    if (!content) {
+      $("#add-memory-status").textContent = "Content is required";
+      $("#add-memory-status").className = "error";
+      return;
+    }
+
+    const scope = $("#memory-scope").value;
+    const body = { content: content, scope: scope };
+
+    const metaKey = $("#memory-meta-key").value.trim();
+    const metaValue = $("#memory-meta-value").value.trim();
+    if (metaKey) {
+      body.metadata = {};
+      body.metadata[metaKey] = metaValue;
+    }
+
+    const res = await apiFetch("/api/set", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+
+    if (res.status === 401) {
+      setAuthStatus("Unauthorized", true);
+      state.authenticated = false;
+      return;
+    }
+
+    if (res.ok) {
+      $("#add-memory-status").textContent = "Memory added successfully";
+      $("#add-memory-status").className = "success";
+      $("#memory-content").value = "";
+      $("#memory-meta-key").value = "";
+      $("#memory-meta-value").value = "";
+      loadMemories();
+    } else {
+      const data = await res.json();
+      $("#add-memory-status").textContent = data.error || "Failed to add memory";
+      $("#add-memory-status").className = "error";
+    }
+  }
+
   async function deleteMemory(id) {
     if (!confirm("Delete memory " + id + "?")) return;
     const res = await apiFetch("/api/delete?id=" + encodeURIComponent(id), {
@@ -210,6 +286,7 @@
 
     if (tabName === "memories") loadMemories();
     if (tabName === "rules") loadRules();
+    if (tabName === "entities") loadEntities();
   }
 
   function init() {
@@ -260,6 +337,10 @@
       if (e.target.classList.contains("delete-btn")) {
         deleteMemory(e.target.getAttribute("data-id"));
       }
+    });
+
+    $("#add-memory-btn").addEventListener("click", function() {
+      addMemory();
     });
   }
 
