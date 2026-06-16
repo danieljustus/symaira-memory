@@ -98,6 +98,11 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// Conn returns the underlying SQL connection.
+func (db *DB) Conn() *sql.DB {
+	return db.conn
+}
+
 // BeginTransaction starts a new database transaction.
 func (db *DB) BeginTransaction() (*sql.Tx, error) {
 	return db.conn.Begin()
@@ -649,6 +654,19 @@ func (db *DB) GetSyncCursor(remote string) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return t, nil
+}
+
+// FactExists checks if a fact with the given content hash exists.
+func (db *DB) FactExists(contentHash string) (bool, error) {
+	var count int
+	err := db.conn.QueryRow(
+		"SELECT COUNT(*) FROM memories WHERE metadata LIKE ?",
+		"%\"content_hash\":\""+contentHash+"\"%",
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // SetSyncCursor upserts the last sync timestamp for a given remote URL.
