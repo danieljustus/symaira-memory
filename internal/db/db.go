@@ -656,12 +656,21 @@ func (db *DB) GetSyncCursor(remote string) (time.Time, error) {
 	return t, nil
 }
 
+// escapeLIKE escapes special LIKE pattern characters (% and _) in a string
+// so they are treated as literal characters rather than wildcards.
+func escapeLIKE(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
+
 // FactExists checks if a fact with the given content hash exists.
 func (db *DB) FactExists(contentHash string) (bool, error) {
 	var count int
 	err := db.conn.QueryRow(
-		"SELECT COUNT(*) FROM memories WHERE metadata LIKE ?",
-		"%\"content_hash\":\""+contentHash+"\"%",
+		"SELECT COUNT(*) FROM memories WHERE metadata LIKE ? ESCAPE '\\'",
+		"%\"content_hash\":\""+escapeLIKE(contentHash)+"\"%",
 	).Scan(&count)
 	if err != nil {
 		return false, err
