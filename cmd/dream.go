@@ -35,14 +35,17 @@ Examples:
 		cfg := GetConfig()
 		db := GetDB()
 
-		llmURL := cfg.Ollama.URL
-		llmModel := cfg.Ollama.Model
+		llmURL := cfg.Consolidation.URL
+		llmModel := cfg.Consolidation.Model
 		llmProvider := cfg.Consolidation.Provider
 		if llmProvider == "" {
 			llmProvider = "ollama"
 		}
-		if cfg.Consolidation.Model != "" {
-			llmModel = cfg.Consolidation.Model
+		if llmURL == "" {
+			llmURL = cfg.Ollama.URL
+		}
+		if llmModel == "" {
+			llmModel = cfg.Ollama.Model
 		}
 
 		piiEnabled := false

@@ -36,3 +36,19 @@ Configure these settings inside your shell configuration (`.zshrc` or `.bashrc`)
 - `OLLAMA_MODEL` — Overrides the default embedding model (default: `nomic-embed-text`).
 - `OPENAI_API_KEY` — If provided, enables cloud-fallback LLM fact cleaning and consolidation.
 - `JWT_SECRET_KEY` — Overrides the token signing secret for HTTP daemon verification.
+
+### Consolidation Settings
+
+Configure the memory consolidation engine (dreaming) in `~/.config/symmemory/config.toml`:
+
+```toml
+[consolidation]
+enabled = true
+schedule = "0 2 * * *"          # Cron schedule for automatic consolidation
+idle_timeout = "30m"             # How long to wait before consolidating idle memories
+provider = "ollama"              # LLM provider: "ollama" or "openai"
+model = "llama3"                 # Model name (e.g., "llama3", "gpt-4o-mini")
+url = "http://localhost:11434/api/generate"  # LLM API endpoint URL
+```
+
+If `consolidation.url` is not set, it falls back to the Ollama URL from `[ollama]` config. If `consolidation.model` is not set, it falls back to the Ollama model. This allows consolidation to use a different LLM endpoint than the embeddings pipeline.

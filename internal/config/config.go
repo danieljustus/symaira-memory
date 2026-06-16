@@ -42,6 +42,7 @@ type ConsolidationConfig struct {
 	IdleTimeout string `json:"idle_timeout"`
 	Provider    string `json:"provider"`
 	Model       string `json:"model"`
+	URL         string `json:"url"`
 }
 
 // Defaults returns a Config with sensible default values.
