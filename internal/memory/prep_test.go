@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/extractor"
 )
 
 func TestPrepareEmptyScopeDefaultsToGlobal(t *testing.T) {
@@ -111,5 +115,186 @@ func TestPrepareAttribution(t *testing.T) {
 	}
 	if mem.UpdatedSession != "sess-123" {
 		t.Errorf("expected UpdatedSession 'sess-123', got %q", mem.UpdatedSession)
+	}
+}
+
+func helperMemDB(t *testing.T) *db.DB {
+	t.Helper()
+	tempDir, err := os.MkdirTemp("", "symmemory-memory-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tempDir) })
+
+	cfg := config.Defaults()
+	cfg.Database.Path = filepath.Join(tempDir, "test.db")
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	return database
+}
+
+func TestStoreWithEntityLinking(t *testing.T) {
+	database := helperMemDB(t)
+	cfg := config.Defaults()
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	patternExtractor := extractor.NewPatternExtractor()
+
+	attr := Attribution{Author: "test-user", SessionID: "sess-1"}
+	entities := []string{"Alice", "Bob"}
+
+	m, extractedStr, err := Store(database, embeddings, patternExtractor, "Alice and Bob discussed the project", "global", nil, false, attr, entities)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	if m.ID == "" {
+		t.Error("expected non-empty memory ID")
+	}
+	if m.Content != "Alice and Bob discussed the project" {
+		t.Errorf("expected original content, got '%s'", m.Content)
+	}
+
+	got, err := database.GetMemory(m.ID)
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected memory to be saved")
+	}
+	if got.CreatedBy != "test-user" {
+		t.Errorf("expected CreatedBy 'test-user', got '%s'", got.CreatedBy)
+	}
+
+	alice, err := database.ResolveEntity("Alice")
+	if err != nil {
+		t.Fatalf("ResolveEntity failed: %v", err)
+	}
+	if alice == nil {
+		t.Fatal("expected entity 'Alice' to be created")
+	}
+
+	bob, err := database.ResolveEntity("Bob")
+	if err != nil {
+		t.Fatalf("ResolveEntity failed: %v", err)
+	}
+	if bob == nil {
+		t.Fatal("expected entity 'Bob' to be created")
+	}
+
+	_ = extractedStr
+}
+
+func TestStoreCreatesEntityIfNew(t *testing.T) {
+	database := helperMemDB(t)
+	cfg := config.Defaults()
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	patternExtractor := extractor.NewPatternExtractor()
+
+	attr := Attribution{Author: "test"}
+	entities := []string{"NewEntity"}
+
+	m, _, err := Store(database, embeddings, patternExtractor, "Test with new entity", "global", nil, false, attr, entities)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	entity, err := database.ResolveEntity("NewEntity")
+	if err != nil {
+		t.Fatalf("ResolveEntity failed: %v", err)
+	}
+	if entity == nil {
+		t.Fatal("expected entity 'NewEntity' to be auto-created")
+	}
+	if entity.CreatedBy != "test" {
+		t.Errorf("expected entity CreatedBy 'test', got '%s'", entity.CreatedBy)
+	}
+
+	got, _ := database.GetMemory(m.ID)
+	if got == nil {
+		t.Fatal("expected memory to be saved")
+	}
+	if len(got.Entities) != 1 || got.Entities[0] != "NewEntity" {
+		t.Errorf("expected memory to have entity 'NewEntity', got %v", got.Entities)
+	}
+}
+
+func TestStoreSkipsEmptyEntityNames(t *testing.T) {
+	database := helperMemDB(t)
+	cfg := config.Defaults()
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	patternExtractor := extractor.NewPatternExtractor()
+
+	attr := Attribution{Author: "test"}
+	entities := []string{"", "  ", "ValidEntity"}
+
+	_, _, err := Store(database, embeddings, patternExtractor, "Test entity skipping", "global", nil, false, attr, entities)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	entity, err := database.ResolveEntity("ValidEntity")
+	if err != nil {
+		t.Fatalf("ResolveEntity failed: %v", err)
+	}
+	if entity == nil {
+		t.Fatal("expected 'ValidEntity' to exist")
+	}
+}
+
+func TestStoreWithPIIRedaction(t *testing.T) {
+	database := helperMemDB(t)
+	cfg := config.Defaults()
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	patternExtractor := extractor.NewPatternExtractor()
+
+	attr := Attribution{Author: "test"}
+
+	m, _, err := Store(database, embeddings, patternExtractor, "Contact alice@example.com for info", "global", nil, true, attr, nil)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	got, _ := database.GetMemory(m.ID)
+	if got == nil {
+		t.Fatal("expected memory to be saved")
+	}
+	if strings.Contains(got.Content, "alice@example.com") {
+		t.Errorf("expected PII to be redacted in stored content, got '%s'", got.Content)
+	}
+}
+
+func TestFormatStoreSuccess(t *testing.T) {
+	m := &db.Memory{
+		ID:      "test-id",
+		Content: "Test content",
+		Scope:   "global",
+		Metadata: map[string]string{},
+	}
+	msg := FormatStoreSuccess(m, nil)
+	if !strings.Contains(msg, "test-id") {
+		t.Errorf("expected message to contain ID, got '%s'", msg)
+	}
+	if !strings.Contains(msg, "Test content") {
+		t.Errorf("expected message to contain content, got '%s'", msg)
+	}
+
+	m.Scope = "project"
+	m.Metadata["project_name"] = "my-project"
+	msg = FormatStoreSuccess(m, nil)
+	if !strings.Contains(msg, "my-project") {
+		t.Errorf("expected message to contain project name for project scope, got '%s'", msg)
+	}
+
+	extracted := []string{"  - [Fact Extracted] fact1 (ID: id1)"}
+	msg = FormatStoreSuccess(m, extracted)
+	if !strings.Contains(msg, "secondary facts") {
+		t.Errorf("expected message to mention secondary facts, got '%s'", msg)
+	}
+	if !strings.Contains(msg, "fact1") {
+		t.Errorf("expected message to contain extracted fact, got '%s'", msg)
 	}
 }
