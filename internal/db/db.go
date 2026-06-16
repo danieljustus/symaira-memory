@@ -34,7 +34,6 @@ type Memory struct {
 	ConsolidatedIntoID  string            `json:"consolidated_into_id,omitempty"`
 }
 
-
 // Session represents a compressed summary of a chat session.
 type Session struct {
 	ID        string    `json:"id"`
@@ -103,7 +102,6 @@ func (db *DB) Close() error {
 func (db *DB) BeginTransaction() (*sql.Tx, error) {
 	return db.conn.Begin()
 }
-
 
 // SaveMemory inserts or updates a memory.
 func (db *DB) SaveMemory(m *Memory) error {
@@ -217,8 +215,6 @@ func (db *DB) UpdateMemoryStatusTx(tx *sql.Tx, id string, status string, parentI
 	return err
 }
 
-
-
 // DeleteMemory removes a memory by ID.
 func (db *DB) DeleteMemory(id string) error {
 	_, err := db.conn.Exec("DELETE FROM memories WHERE id = ?", id)
@@ -290,7 +286,6 @@ func scanMemoryLite(rows *sql.Rows) (*Memory, error) {
 	m.ConsolidatedIntoID = consolidatedInto.String
 	return &m, nil
 }
-
 
 // ListMemories returns memories with pagination, optionally filtered by scope.
 func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
@@ -504,7 +499,6 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	}
 	return true, nil
 }
-
 
 // SearchResult wraps a Memory with its similarity score without mutating the original.
 type SearchResult struct {

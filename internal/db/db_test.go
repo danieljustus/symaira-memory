@@ -580,4 +580,3 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 		t.Errorf("GetMemoriesSince did not return archived memory")
 	}
 }
-
