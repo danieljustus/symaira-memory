@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Symaira Memory Context Injector",
-  "version": "0.1.0",
+  "version": "0.5.2",
   "description": "Seamlessly synchronizes and injects your persistent local AI memory context into ChatGPT, Claude, and Perplexity.",
   "permissions": [
     "tabs",
