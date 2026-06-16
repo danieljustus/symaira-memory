@@ -49,12 +49,12 @@ func (r *Registry) List() []string {
 
 // ImportResult tracks the outcome of an import run.
 type ImportResult struct {
-	Tool       string
-	Sessions   int
-	Facts      int
-	Skipped    int
-	Errors     int
-	DryRun     bool
+	Tool     string
+	Sessions int
+	Facts    int
+	Skipped  int
+	Errors   int
+	DryRun   bool
 }
 
 // RunImport runs import for specified tools (or all if empty).

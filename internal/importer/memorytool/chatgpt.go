@@ -14,9 +14,9 @@ type ChatGPTImporter struct{}
 
 // ChatGPTExport represents the ChatGPT conversations.json format.
 type ChatGPTExport struct {
-	Title      string                      `json:"title"`
-	CreateTime float64                     `json:"create_time"`
-	Mapping    map[string]ChatGPTMessage   `json:"mapping"`
+	Title      string                    `json:"title"`
+	CreateTime float64                   `json:"create_time"`
+	Mapping    map[string]ChatGPTMessage `json:"mapping"`
 }
 
 type ChatGPTMessage struct {
@@ -24,8 +24,8 @@ type ChatGPTMessage struct {
 }
 
 type ChatGPTMessageContent struct {
-	Author  ChatGPTAuthor   `json:"author"`
-	Content ChatGPTContent  `json:"content"`
+	Author  ChatGPTAuthor  `json:"author"`
+	Content ChatGPTContent `json:"content"`
 }
 
 type ChatGPTAuthor struct {
