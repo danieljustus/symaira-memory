@@ -484,6 +484,8 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 
 // SearchMemoriesFiltered extends SearchMemories with an optional entity filter.
 // When entityID is non-empty, only memories linked to that entity are returned.
+// Uses a two-pass approach: first collects candidate IDs without loading embeddings,
+// then loads full memories only for scoring.
 func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int, entityID string) ([]SearchResult, error) {
 	const maxCandidates = 2000
 	const batchSize = 64
@@ -496,7 +498,9 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 	queryLSH := ComputeLSH(queryVec)
 	buckets := LSHNeighbors(queryLSH, 2)
 
-	for i := 0; i < len(buckets) && len(results) < maxCandidates; i += batchSize {
+	var candidateIDs []string
+
+	for i := 0; i < len(buckets) && len(candidateIDs) < maxCandidates; i += batchSize {
 		end := i + batchSize
 		if end > len(buckets) {
 			end = len(buckets)
@@ -513,16 +517,56 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 
 		var query string
 		if scope != "" {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
+			query = "SELECT id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
 			args = append([]interface{}{scope}, args...)
 		} else {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
+			query = "SELECT id FROM memories WHERE consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
 		}
 		if entityID != "" {
 			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
 			args = append(args, entityID)
 		}
 		query += " ORDER BY created_at DESC"
+
+		rows, err := db.conn.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			candidateIDs = append(candidateIDs, id)
+			if len(candidateIDs) >= maxCandidates {
+				break
+			}
+		}
+		rows.Close()
+	}
+
+	if len(candidateIDs) == 0 {
+		return nil, nil
+	}
+
+	for i := 0; i < len(candidateIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(candidateIDs) {
+			end = len(candidateIDs)
+		}
+		chunk := candidateIDs[i:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, 0, len(chunk)+1)
+		for j, id := range chunk {
+			placeholders[j] = "?"
+			args = append(args, id)
+		}
+		inClause := strings.Join(placeholders, ", ")
+
+		query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE id IN (" + inClause + ")"
 
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
@@ -538,9 +582,6 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 			if len(m.Embedding) > 0 {
 				score := CosineSimilarity(queryVec, m.Embedding)
 				results = append(results, scored{m: m, score: score})
-			}
-			if len(results) >= maxCandidates {
-				break
 			}
 		}
 		rows.Close()
