@@ -174,8 +174,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 8 {
-		t.Errorf("expected 8 migrations after two opens, got %d", count)
+	if count != 9 {
+		t.Errorf("expected 9 migrations after two opens, got %d", count)
 	}
 }
 
@@ -469,5 +469,114 @@ func TestGetMemoriesSinceFilter(t *testing.T) {
 		if !m.UpdatedAt.After(cutoff) {
 			t.Errorf("returned memory %s with updated_at %v not after cutoff %v", m.ID, m.UpdatedAt, cutoff)
 		}
+	}
+}
+
+func TestConsolidationStatusFiltering(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-status-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Defaults()
+	cfg.Database.Path = filepath.Join(tempDir, "test.db")
+
+	database, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	m1 := &Memory{
+		ID:                  "mem-raw",
+		Content:             "This is raw memory",
+		Scope:               "global",
+		ConsolidationStatus: "raw",
+		Metadata:            map[string]string{},
+		Embedding:           []float32{1.0, 0.0, 0.0},
+	}
+	m2 := &Memory{
+		ID:                  "mem-consolidated",
+		Content:             "This is consolidated memory",
+		Scope:               "global",
+		ConsolidationStatus: "consolidated",
+		Metadata:            map[string]string{},
+		Embedding:           []float32{0.0, 1.0, 0.0},
+	}
+	m3 := &Memory{
+		ID:                  "mem-archived",
+		Content:             "This is archived memory",
+		Scope:               "global",
+		ConsolidationStatus: "archived",
+		ConsolidatedIntoID:  "mem-consolidated",
+		Metadata:            map[string]string{},
+		Embedding:           []float32{0.0, 0.0, 1.0},
+	}
+
+	if err := database.SaveMemory(m1); err != nil {
+		t.Fatalf("failed to save raw memory: %v", err)
+	}
+	if err := database.SaveMemory(m2); err != nil {
+		t.Fatalf("failed to save consolidated memory: %v", err)
+	}
+	if err := database.SaveMemory(m3); err != nil {
+		t.Fatalf("failed to save archived memory: %v", err)
+	}
+
+	// 1. ListMemories should exclude 'archived'
+	list, err := database.ListMemories("global", 0, 10)
+	if err != nil {
+		t.Fatalf("ListMemories failed: %v", err)
+	}
+	if len(list) != 2 {
+		t.Errorf("expected 2 active memories in list, got %d", len(list))
+	}
+	for _, m := range list {
+		if m.ConsolidationStatus == "archived" {
+			t.Errorf("archived memory was returned in ListMemories")
+		}
+	}
+
+	// 2. SearchMemories should exclude 'archived'
+	searchVal := []float32{0.0, 0.0, 1.0} // perfect alignment with mem-archived
+	searchResults, err := database.SearchMemories(searchVal, "global", 3)
+	if err != nil {
+		t.Fatalf("SearchMemories failed: %v", err)
+	}
+	for _, res := range searchResults {
+		if res.Memory.ID == "mem-archived" {
+			t.Errorf("archived memory was returned in SearchMemories")
+		}
+	}
+
+	// 3. GetMemory directly should retrieve any status
+	archived, err := database.GetMemory("mem-archived")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if archived == nil {
+		t.Fatalf("expected to retrieve archived memory directly, got nil")
+	}
+	if archived.ConsolidationStatus != "archived" {
+		t.Errorf("expected status 'archived', got '%s'", archived.ConsolidationStatus)
+	}
+	if archived.ConsolidatedIntoID != "mem-consolidated" {
+		t.Errorf("expected consolidated_into_id 'mem-consolidated', got '%s'", archived.ConsolidatedIntoID)
+	}
+
+	// 4. GetMemoriesSince should include 'archived'
+	sinceResults, err := database.GetMemoriesSince(time.Now().UTC().Add(-1 * time.Hour))
+	if err != nil {
+		t.Fatalf("GetMemoriesSince failed: %v", err)
+	}
+	foundArchived := false
+	for _, m := range sinceResults {
+		if m.ID == "mem-archived" {
+			foundArchived = true
+		}
+	}
+	if !foundArchived {
+		t.Errorf("GetMemoriesSince did not return archived memory")
 	}
 }
