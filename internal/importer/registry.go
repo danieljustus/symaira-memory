@@ -47,6 +47,42 @@ func (r *Registry) List() []string {
 	return names
 }
 
+// ListByCategory returns importer names filtered by category.
+// Only importers implementing Categorizable are matched.
+func (r *Registry) ListByCategory(category string) []string {
+	var names []string
+	for _, imp := range r.importers {
+		if cat, ok := imp.(Categorizable); ok && cat.Category() == category {
+			names = append(names, imp.Name())
+		}
+	}
+	return names
+}
+
+// ListByPrivacyLevel returns importer names whose privacy level is at or below
+// the specified threshold. Only importers implementing PrivacyAware are matched.
+func (r *Registry) ListByPrivacyLevel(maxLevel PrivacyLevel) []string {
+	levels := map[PrivacyLevel]int{
+		PrivacyPublic:       0,
+		PrivacyInternal:     1,
+		PrivacyConfidential: 2,
+		PrivacySecret:       3,
+	}
+	max := levels[maxLevel]
+
+	var names []string
+	for _, imp := range r.importers {
+		if pa, ok := imp.(PrivacyAware); ok {
+			if levels[pa.PrivacyLevel()] <= max {
+				names = append(names, imp.Name())
+			}
+		} else {
+			names = append(names, imp.Name())
+		}
+	}
+	return names
+}
+
 // ImportResult tracks the outcome of an import run.
 type ImportResult struct {
 	Tool     string
