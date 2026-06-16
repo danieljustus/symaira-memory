@@ -6,11 +6,12 @@ import (
 
 // Config holds all runtime configuration loaded from TOML files.
 type Config struct {
-	Database DatabaseConfig `json:"database"`
-	Ollama   OllamaConfig   `json:"ollama"`
-	JWT      JWTConfig      `json:"jwt"`
-	Security SecurityConfig `json:"security"`
-	Server   ServerConfig   `json:"server"`
+	Database      DatabaseConfig      `json:"database"`
+	Ollama        OllamaConfig        `json:"ollama"`
+	JWT           JWTConfig           `json:"jwt"`
+	Security      SecurityConfig      `json:"security"`
+	Server        ServerConfig        `json:"server"`
+	Consolidation ConsolidationConfig `json:"consolidation"`
 }
 
 type DatabaseConfig struct {
@@ -35,6 +36,14 @@ type ServerConfig struct {
 	HTTPPort int `json:"http_port"`
 }
 
+type ConsolidationConfig struct {
+	Enabled     bool   `json:"enabled"`
+	Schedule    string `json:"schedule"`
+	IdleTimeout string `json:"idle_timeout"`
+	Provider    string `json:"provider"`
+	Model       string `json:"model"`
+}
+
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	trueVal := true
@@ -48,6 +57,13 @@ func Defaults() *Config {
 		},
 		Server: ServerConfig{
 			HTTPPort: 0,
+		},
+		Consolidation: ConsolidationConfig{
+			Enabled:     true,
+			Schedule:    "0 2 * * *",
+			IdleTimeout: "30m",
+			Provider:    "",
+			Model:       "",
 		},
 	}
 }
