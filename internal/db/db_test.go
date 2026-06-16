@@ -472,6 +472,97 @@ func TestGetMemoriesSinceFilter(t *testing.T) {
 	}
 }
 
+func TestEscapeLIKE(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"simple", "simple"},
+		{"with%percent", "with\\%percent"},
+		{"with_underscore", "with\\_underscore"},
+		{"with\\backslash", "with\\\\backslash"},
+		{"%_\\all", "\\%\\_\\\\all"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := escapeLIKE(tt.input)
+			if result != tt.expected {
+				t.Errorf("escapeLIKE(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestFactExistsWithSpecialCharacters(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-fact-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	m := &Memory{
+		ID:       "fact-test-1",
+		Content:  "Test memory with special chars",
+		Scope:    "global",
+		Metadata: map[string]string{"content_hash": "abc123"},
+	}
+	if err := database.SaveMemory(m); err != nil {
+		t.Fatalf("failed to save memory: %v", err)
+	}
+
+	exists, err := database.FactExists("abc123")
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if !exists {
+		t.Error("expected FactExists to return true for existing hash")
+	}
+
+	exists, err = database.FactExists("nonexistent")
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if exists {
+		t.Error("expected FactExists to return false for nonexistent hash")
+	}
+
+	exists, err = database.FactExists("abc%123")
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if exists {
+		t.Error("expected FactExists to return false for hash with % character")
+	}
+
+	exists, err = database.FactExists("abc_123")
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if exists {
+		t.Error("expected FactExists to return false for hash with _ character")
+	}
+
+	exists, err = database.FactExists("")
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if exists {
+		t.Error("expected FactExists to return false for empty hash")
+	}
+}
+
 func TestConsolidationStatusFiltering(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "symmemory-status-test-*")
 	if err != nil {

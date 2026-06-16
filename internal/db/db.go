@@ -108,8 +108,13 @@ func (db *DB) BeginTransaction() (*sql.Tx, error) {
 	return db.conn.Begin()
 }
 
-// SaveMemory inserts or updates a memory.
-func (db *DB) SaveMemory(m *Memory) error {
+// SQLExecer is an interface for executing SQL statements, satisfied by both *sql.DB and *sql.Tx.
+type SQLExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+// saveMemoryExec is the shared implementation for SaveMemory and SaveMemoryTx.
+func saveMemoryExec(execer SQLExecer, m *Memory) error {
 	metadataJSON, err := json.Marshal(m.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
@@ -154,58 +159,18 @@ func (db *DB) SaveMemory(m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
 	return err
+}
+
+// SaveMemory inserts or updates a memory.
+func (db *DB) SaveMemory(m *Memory) error {
+	return saveMemoryExec(db.conn, m)
 }
 
 // SaveMemoryTx inserts or updates a memory within a transaction.
 func (db *DB) SaveMemoryTx(tx *sql.Tx, m *Memory) error {
-	metadataJSON, err := json.Marshal(m.Metadata)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
-	}
-
-	embeddingJSON, err := json.Marshal(m.Embedding)
-	if err != nil {
-		return fmt.Errorf("failed to marshal embedding: %w", err)
-	}
-
-	embeddingDim := len(m.Embedding)
-	lshHash := ComputeLSH(m.Embedding)
-
-	status := m.ConsolidationStatus
-	if status == "" {
-		status = "raw"
-	}
-	var consolidatedInto sql.NullString
-	if m.ConsolidatedIntoID != "" {
-		consolidatedInto.String = m.ConsolidatedIntoID
-		consolidatedInto.Valid = true
-	}
-
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			content=excluded.content,
-			scope=excluded.scope,
-			metadata=excluded.metadata,
-			embedding=excluded.embedding,
-			embedding_dim=excluded.embedding_dim,
-			lsh_hash=excluded.lsh_hash,
-			updated_at=excluded.updated_at,
-			updated_by=excluded.updated_by,
-			updated_session=excluded.updated_session,
-			consolidation_status=excluded.consolidation_status,
-			consolidated_into_id=excluded.consolidated_into_id`
-
-	now := time.Now().UTC()
-	if m.CreatedAt.IsZero() {
-		m.CreatedAt = now
-	}
-	m.UpdatedAt = now
-
-	_, err = tx.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
-	return err
+	return saveMemoryExec(tx, m)
 }
 
 // UpdateMemoryStatusTx updates the consolidation status and parent ID of a memory within a transaction.
@@ -519,6 +484,8 @@ func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]Sea
 
 // SearchMemoriesFiltered extends SearchMemories with an optional entity filter.
 // When entityID is non-empty, only memories linked to that entity are returned.
+// Uses a two-pass approach: first collects candidate IDs without loading embeddings,
+// then loads full memories only for scoring.
 func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int, entityID string) ([]SearchResult, error) {
 	const maxCandidates = 2000
 	const batchSize = 64
@@ -531,7 +498,9 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 	queryLSH := ComputeLSH(queryVec)
 	buckets := LSHNeighbors(queryLSH, 2)
 
-	for i := 0; i < len(buckets) && len(results) < maxCandidates; i += batchSize {
+	var candidateIDs []string
+
+	for i := 0; i < len(buckets) && len(candidateIDs) < maxCandidates; i += batchSize {
 		end := i + batchSize
 		if end > len(buckets) {
 			end = len(buckets)
@@ -548,16 +517,56 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 
 		var query string
 		if scope != "" {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
+			query = "SELECT id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
 			args = append([]interface{}{scope}, args...)
 		} else {
-			query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
+			query = "SELECT id FROM memories WHERE consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
 		}
 		if entityID != "" {
 			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
 			args = append(args, entityID)
 		}
 		query += " ORDER BY created_at DESC"
+
+		rows, err := db.conn.Query(query, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			candidateIDs = append(candidateIDs, id)
+			if len(candidateIDs) >= maxCandidates {
+				break
+			}
+		}
+		rows.Close()
+	}
+
+	if len(candidateIDs) == 0 {
+		return nil, nil
+	}
+
+	for i := 0; i < len(candidateIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(candidateIDs) {
+			end = len(candidateIDs)
+		}
+		chunk := candidateIDs[i:end]
+
+		placeholders := make([]string, len(chunk))
+		args := make([]interface{}, 0, len(chunk)+1)
+		for j, id := range chunk {
+			placeholders[j] = "?"
+			args = append(args, id)
+		}
+		inClause := strings.Join(placeholders, ", ")
+
+		query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id FROM memories WHERE id IN (" + inClause + ")"
 
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
@@ -573,9 +582,6 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 			if len(m.Embedding) > 0 {
 				score := CosineSimilarity(queryVec, m.Embedding)
 				results = append(results, scored{m: m, score: score})
-			}
-			if len(results) >= maxCandidates {
-				break
 			}
 		}
 		rows.Close()
@@ -656,12 +662,21 @@ func (db *DB) GetSyncCursor(remote string) (time.Time, error) {
 	return t, nil
 }
 
+// escapeLIKE escapes special LIKE pattern characters (% and _) in a string
+// so they are treated as literal characters rather than wildcards.
+func escapeLIKE(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
+
 // FactExists checks if a fact with the given content hash exists.
 func (db *DB) FactExists(contentHash string) (bool, error) {
 	var count int
 	err := db.conn.QueryRow(
-		"SELECT COUNT(*) FROM memories WHERE metadata LIKE ?",
-		"%\"content_hash\":\""+contentHash+"\"%",
+		"SELECT COUNT(*) FROM memories WHERE metadata LIKE ? ESCAPE '\\'",
+		"%\"content_hash\":\""+escapeLIKE(contentHash)+"\"%",
 	).Scan(&count)
 	if err != nil {
 		return false, err
