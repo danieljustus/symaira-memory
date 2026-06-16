@@ -5,6 +5,17 @@ import (
 	"os"
 
 	"github.com/danieljustus/symaira-memory/internal/importer"
+	"github.com/danieljustus/symaira-memory/internal/importer/aider"
+	"github.com/danieljustus/symaira-memory/internal/importer/calendar"
+	"github.com/danieljustus/symaira-memory/internal/importer/claudecode"
+	"github.com/danieljustus/symaira-memory/internal/importer/codex"
+	"github.com/danieljustus/symaira-memory/internal/importer/email"
+	"github.com/danieljustus/symaira-memory/internal/importer/git"
+	"github.com/danieljustus/symaira-memory/internal/importer/github"
+	"github.com/danieljustus/symaira-memory/internal/importer/hermes"
+	"github.com/danieljustus/symaira-memory/internal/importer/obsidian"
+	"github.com/danieljustus/symaira-memory/internal/importer/paperless"
+	"github.com/danieljustus/symaira-memory/internal/importer/shellhistory"
 	"github.com/spf13/cobra"
 )
 
@@ -25,7 +36,10 @@ var importSessionsCmd = &cobra.Command{
 	Use:   "import",
 	Short: "Import sessions from external AI coding tools",
 	Long: `Import session data from external AI coding tools and convert them into
-Symaira Memory facts. Currently supported tools: claude-code, codex, hermes, aider.
+Symaira Memory facts.
+
+Supported tools: claude-code, codex, hermes, aider, git, github, shell-history,
+calendar, email, obsidian, paperless.
 
 Examples:
   symmemory import --tool claude-code
@@ -39,8 +53,20 @@ Examples:
 
 		registry := importer.NewRegistry(GetDB())
 
-		// TODO: Register actual importers here as they are implemented
-		// For now, this is the framework for future importers
+		// Session importers
+		registry.Register(claudecode.NewClaudeCodeImporter(""))
+		registry.Register(codex.NewCodexImporter(""))
+		registry.Register(hermes.NewHermesImporter(""))
+		registry.Register(aider.NewAiderImporter(nil))
+
+		// Data source importers
+		registry.Register(git.NewGitImporter("", ""))
+		registry.Register(github.NewGitHubImporter("", "", ""))
+		registry.Register(shellhistory.NewShellHistoryImporter("", false, nil))
+		registry.Register(calendar.NewCalendarImporter("", "", false, 7))
+		registry.Register(email.NewEmailImporter("", "", 0))
+		registry.Register(obsidian.NewObsidianImporter("", "", nil, nil, nil))
+		registry.Register(paperless.NewPaperlessImporter("", "", "", "", 0))
 
 		tools := []string{}
 		if importAll {
