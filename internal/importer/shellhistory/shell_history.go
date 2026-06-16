@@ -24,19 +24,19 @@ var excludeCommands = map[string]bool{
 }
 
 var tagPrefixes = map[string]string{
-	"brew":  "package-manager",
-	"npm":   "package-manager",
-	"yarn":  "package-manager",
-	"pnpm":  "package-manager",
-	"pip":   "package-manager",
-	"uv":    "package-manager",
-	"go":    "vcs",
-	"git":   "vcs",
-	"gh":    "github",
+	"brew":   "package-manager",
+	"npm":    "package-manager",
+	"yarn":   "package-manager",
+	"pnpm":   "package-manager",
+	"pip":    "package-manager",
+	"uv":     "package-manager",
+	"go":     "vcs",
+	"git":    "vcs",
+	"gh":     "github",
 	"docker": "container",
-	"make":  "build",
-	"cargo": "build",
-	"cmake": "build",
+	"make":   "build",
+	"cargo":  "build",
+	"cmake":  "build",
 }
 
 type ShellHistoryImporter struct {
@@ -81,7 +81,9 @@ func (s *ShellHistoryImporter) Name() string { return "shell-history" }
 
 func (s *ShellHistoryImporter) Category() string { return "code" }
 
-func (s *ShellHistoryImporter) PrivacyLevel() importer.PrivacyLevel { return importer.PrivacyConfidential }
+func (s *ShellHistoryImporter) PrivacyLevel() importer.PrivacyLevel {
+	return importer.PrivacyConfidential
+}
 
 func (s *ShellHistoryImporter) RequiresPIIGuard() bool { return true }
 

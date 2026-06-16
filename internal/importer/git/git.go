@@ -16,15 +16,15 @@ type GitImporter struct {
 }
 
 type gitCommit struct {
-	Hash      string   `json:"hash"`
-	Author    string   `json:"author"`
-	Email     string   `json:"email"`
-	Date      string   `json:"date"`
-	Message   string   `json:"message"`
-	Parents   []string `json:"parents"`
-	Files     []string `json:"files"`
-	Insertions int     `json:"insertions"`
-	Deletions  int     `json:"deletions"`
+	Hash       string   `json:"hash"`
+	Author     string   `json:"author"`
+	Email      string   `json:"email"`
+	Date       string   `json:"date"`
+	Message    string   `json:"message"`
+	Parents    []string `json:"parents"`
+	Files      []string `json:"files"`
+	Insertions int      `json:"insertions"`
+	Deletions  int      `json:"deletions"`
 }
 
 func NewGitImporter(repoPath, author string) *GitImporter {

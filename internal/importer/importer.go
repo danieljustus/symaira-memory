@@ -44,10 +44,10 @@ type Categorizable interface {
 type PrivacyLevel string
 
 const (
-	PrivacyPublic     PrivacyLevel = "public"     // Non-sensitive (e.g., git commits)
-	PrivacyInternal   PrivacyLevel = "internal"   // Internal tooling data
+	PrivacyPublic       PrivacyLevel = "public"       // Non-sensitive (e.g., git commits)
+	PrivacyInternal     PrivacyLevel = "internal"     // Internal tooling data
 	PrivacyConfidential PrivacyLevel = "confidential" // PII, business data
-	PrivacySecret     PrivacyLevel = "secret"     // Credentials, keys
+	PrivacySecret       PrivacyLevel = "secret"       // Credentials, keys
 )
 
 // PrivacyAware is an optional interface for importers that handle sensitive data.

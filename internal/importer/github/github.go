@@ -18,27 +18,27 @@ type GitHubImporter struct {
 }
 
 type ghPR struct {
-	Number    int       `json:"number"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	State     string    `json:"state"`
-	Author    string    `json:"author"`
-	CreatedAt string    `json:"createdAt"`
-	MergedAt  string    `json:"mergedAt"`
-	URL       string    `json:"url"`
-	Labels    []string  `json:"labels"`
+	Number    int      `json:"number"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	State     string   `json:"state"`
+	Author    string   `json:"author"`
+	CreatedAt string   `json:"createdAt"`
+	MergedAt  string   `json:"mergedAt"`
+	URL       string   `json:"url"`
+	Labels    []string `json:"labels"`
 }
 
 type ghIssue struct {
-	Number    int       `json:"number"`
-	Title     string    `json:"title"`
-	Body      string    `json:"body"`
-	State     string    `json:"state"`
-	Author    string    `json:"author"`
-	CreatedAt string    `json:"createdAt"`
-	ClosedAt  string    `json:"closedAt"`
-	URL       string    `json:"url"`
-	Labels    []string  `json:"labels"`
+	Number    int      `json:"number"`
+	Title     string   `json:"title"`
+	Body      string   `json:"body"`
+	State     string   `json:"state"`
+	Author    string   `json:"author"`
+	CreatedAt string   `json:"createdAt"`
+	ClosedAt  string   `json:"closedAt"`
+	URL       string   `json:"url"`
+	Labels    []string `json:"labels"`
 }
 
 func NewGitHubImporter(owner, repo, token string) *GitHubImporter {
@@ -103,9 +103,9 @@ func (g *GitHubImporter) discoverPRs(since time.Time) ([]importer.SessionRef, er
 			Path:       pr.URL,
 			ModifiedAt: created,
 			Metadata: map[string]string{
-				"type":  "pr",
-				"state": pr.State,
-				"title": pr.Title,
+				"type":   "pr",
+				"state":  pr.State,
+				"title":  pr.Title,
 				"author": pr.Author,
 			},
 		})
@@ -144,9 +144,9 @@ func (g *GitHubImporter) discoverIssues(since time.Time) ([]importer.SessionRef,
 			Path:       issue.URL,
 			ModifiedAt: created,
 			Metadata: map[string]string{
-				"type":  "issue",
-				"state": issue.State,
-				"title": issue.Title,
+				"type":   "issue",
+				"state":  issue.State,
+				"title":  issue.Title,
 				"author": issue.Author,
 			},
 		})
