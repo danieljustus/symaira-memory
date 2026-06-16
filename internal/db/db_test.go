@@ -563,6 +563,301 @@ func TestFactExistsWithSpecialCharacters(t *testing.T) {
 	}
 }
 
+func TestDeleteMemoryEdgeCases(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-delete-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	// Test deleting non-existent ID returns no error
+	err = database.DeleteMemory("nonexistent-id")
+	if err != nil {
+		t.Fatalf("DeleteMemory on non-existent ID should not error: %v", err)
+	}
+
+	// Test successful delete and verify gone
+	m := &Memory{
+		ID:        "delete-me",
+		Content:   "to be deleted",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{1.0, 0.0},
+	}
+	if err := database.SaveMemory(m); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
+
+	got, err := database.GetMemory("delete-me")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected memory to exist before delete")
+	}
+
+	if err := database.DeleteMemory("delete-me"); err != nil {
+		t.Fatalf("DeleteMemory failed: %v", err)
+	}
+
+	got, err = database.GetMemory("delete-me")
+	if err != nil {
+		t.Fatalf("GetMemory after delete failed: %v", err)
+	}
+	if got != nil {
+		t.Error("expected memory to be nil after deletion")
+	}
+
+	// Verify ListMemories returns empty
+	mems, err := database.ListMemories("", 0, 100)
+	if err != nil {
+		t.Fatalf("ListMemories failed: %v", err)
+	}
+	if len(mems) != 0 {
+		t.Errorf("expected 0 memories after deletion, got %d", len(mems))
+	}
+}
+
+func TestUpsertMemoryIfNewer(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-upsert-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// Test 1: Insert new memory (no existing row)
+	m1 := &Memory{
+		ID:        "upsert-1",
+		Content:   "original content",
+		Scope:     "global",
+		Metadata:  map[string]string{"version": "1"},
+		Embedding: []float32{1.0, 0.0},
+		UpdatedAt: baseTime,
+	}
+	inserted, err := database.UpsertMemoryIfNewer(m1)
+	if err != nil {
+		t.Fatalf("UpsertMemoryIfNewer failed: %v", err)
+	}
+	if !inserted {
+		t.Error("expected inserted=true for new memory")
+	}
+
+	// Verify it was saved
+	got, err := database.GetMemory("upsert-1")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if got == nil || got.Content != "original content" {
+		t.Errorf("expected content 'original content', got %v", got)
+	}
+
+	// Test 2: Update with newer timestamp (should succeed)
+	m2 := &Memory{
+		ID:        "upsert-1",
+		Content:   "updated content",
+		Scope:     "global",
+		Metadata:  map[string]string{"version": "2"},
+		Embedding: []float32{1.0, 0.0},
+		UpdatedAt: baseTime.Add(time.Hour), // 1 hour newer
+	}
+	updated, err := database.UpsertMemoryIfNewer(m2)
+	if err != nil {
+		t.Fatalf("UpsertMemoryIfNewer failed: %v", err)
+	}
+	if !updated {
+		t.Error("expected updated=true for newer timestamp")
+	}
+
+	got, err = database.GetMemory("upsert-1")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if got.Content != "updated content" {
+		t.Errorf("expected content 'updated content', got '%s'", got.Content)
+	}
+
+	// Test 3: Update with same timestamp (should skip)
+	m3 := &Memory{
+		ID:        "upsert-1",
+		Content:   "same time content",
+		Scope:     "global",
+		Metadata:  map[string]string{"version": "3"},
+		Embedding: []float32{1.0, 0.0},
+		UpdatedAt: baseTime.Add(time.Hour), // same as m2
+	}
+	skipped, err := database.UpsertMemoryIfNewer(m3)
+	if err != nil {
+		t.Fatalf("UpsertMemoryIfNewer failed: %v", err)
+	}
+	if skipped {
+		t.Error("expected skipped=false for same timestamp")
+	}
+
+	got, err = database.GetMemory("upsert-1")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if got.Content != "updated content" {
+		t.Errorf("expected content to remain 'updated content', got '%s'", got.Content)
+	}
+
+	// Test 4: Update with older timestamp (should skip)
+	m4 := &Memory{
+		ID:        "upsert-1",
+		Content:   "older content",
+		Scope:     "global",
+		Metadata:  map[string]string{"version": "4"},
+		Embedding: []float32{1.0, 0.0},
+		UpdatedAt: baseTime, // older than current
+	}
+	skipped, err = database.UpsertMemoryIfNewer(m4)
+	if err != nil {
+		t.Fatalf("UpsertMemoryIfNewer failed: %v", err)
+	}
+	if skipped {
+		t.Error("expected skipped=false for older timestamp")
+	}
+
+	got, err = database.GetMemory("upsert-1")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if got.Content != "updated content" {
+		t.Errorf("expected content to remain 'updated content', got '%s'", got.Content)
+	}
+}
+
+func TestListMemoriesLiteScopeAndPagination(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-lite-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	// Seed memories across scopes
+	scopes := []string{"global", "global", "project", "project", "project", "agent"}
+	for i, scope := range scopes {
+		m := &Memory{
+			ID:        fmt.Sprintf("lite-%d", i),
+			Content:   fmt.Sprintf("content %d", i),
+			Scope:     scope,
+			Metadata:  map[string]string{},
+			Embedding: []float32{1.0, 0.0},
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("failed to save memory %d: %v", i, err)
+		}
+	}
+
+	// Test 1: List all without scope filter
+	all, err := database.ListMemoriesLite("", 0, 100)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	if len(all) != 6 {
+		t.Errorf("expected 6 memories total, got %d", len(all))
+	}
+
+	// Test 2: Filter by scope
+	globalMems, err := database.ListMemoriesLite("global", 0, 100)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	if len(globalMems) != 2 {
+		t.Errorf("expected 2 global memories, got %d", len(globalMems))
+	}
+	for _, m := range globalMems {
+		if m.Scope != "global" {
+			t.Errorf("expected scope 'global', got '%s'", m.Scope)
+		}
+	}
+
+	projectMems, err := database.ListMemoriesLite("project", 0, 100)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	if len(projectMems) != 3 {
+		t.Errorf("expected 3 project memories, got %d", len(projectMems))
+	}
+
+	// Test 3: Pagination - first page
+	page1, err := database.ListMemoriesLite("", 0, 2)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	if len(page1) != 2 {
+		t.Errorf("expected 2 memories on first page, got %d", len(page1))
+	}
+
+	// Test 4: Pagination - second page
+	page2, err := database.ListMemoriesLite("", 2, 2)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	if len(page2) != 2 {
+		t.Errorf("expected 2 memories on second page, got %d", len(page2))
+	}
+
+	// Ensure no overlap between pages
+	ids1 := make(map[string]bool)
+	for _, m := range page1 {
+		ids1[m.ID] = true
+	}
+	for _, m := range page2 {
+		if ids1[m.ID] {
+			t.Errorf("memory %s appears on both pages", m.ID)
+		}
+	}
+
+	// Test 5: Pagination - beyond available data
+	pageEnd, err := database.ListMemoriesLite("", 100, 10)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	if len(pageEnd) != 0 {
+		t.Errorf("expected 0 memories beyond available data, got %d", len(pageEnd))
+	}
+
+	// Test 6: Verify no embedding data in lite results
+	for _, m := range all {
+		if len(m.Embedding) != 0 {
+			t.Errorf("ListMemoriesLite should not return embedding data for %s", m.ID)
+		}
+	}
+}
+
 func TestConsolidationStatusFiltering(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "symmemory-status-test-*")
 	if err != nil {
