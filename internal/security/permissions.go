@@ -19,12 +19,14 @@ func (r Role) CanAdmin() bool {
 	return r == RoleAdmin
 }
 
-// ParseRole converts a string to a Role, defaulting to RoleReadWrite for unknown values.
+// ParseRole converts a string to a Role, defaulting to RoleRead for unknown values.
+// This follows the principle of least privilege — unrecognized role strings are treated
+// as read-only rather than silently granting write access.
 func ParseRole(s string) Role {
 	switch Role(s) {
 	case RoleRead, RoleReadWrite, RoleAdmin:
 		return Role(s)
 	default:
-		return RoleReadWrite
+		return RoleRead
 	}
 }
