@@ -656,6 +656,19 @@ func (db *DB) GetSyncCursor(remote string) (time.Time, error) {
 	return t, nil
 }
 
+// FactExists checks if a fact with the given content hash exists.
+func (db *DB) FactExists(contentHash string) (bool, error) {
+	var count int
+	err := db.conn.QueryRow(
+		"SELECT COUNT(*) FROM memories WHERE metadata LIKE ?",
+		"%\"content_hash\":\""+contentHash+"\"%",
+	).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // SetSyncCursor upserts the last sync timestamp for a given remote URL.
 func (db *DB) SetSyncCursor(remote string, t time.Time) error {
 	_, err := db.conn.Exec(
