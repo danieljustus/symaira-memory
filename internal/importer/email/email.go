@@ -12,9 +12,9 @@ import (
 
 // EmailImporter imports emails via the himalaya CLI.
 type EmailImporter struct {
-	folder        string
-	importance    string // "high", "low", "" (all)
-	maxBody       int    // max chars to import
+	folder         string
+	importance     string // "high", "low", "" (all)
+	maxBody        int    // max chars to import
 	excludeSenders []string
 	includeSenders []string
 }

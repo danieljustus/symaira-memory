@@ -23,12 +23,12 @@ type PaperlessImporter struct {
 
 // paperlessDocument represents a document from Paperless API.
 type paperlessDocument struct {
-	ID           int    `json:"id"`
-	Title        string `json:"title"`
-	Content      string `json:"content"`
-	CreatedDate  string `json:"created_date"`
-	Added        string `json:"added"`
-	Modified     string `json:"modified"`
+	ID            int    `json:"id"`
+	Title         string `json:"title"`
+	Content       string `json:"content"`
+	CreatedDate   string `json:"created_date"`
+	Added         string `json:"added"`
+	Modified      string `json:"modified"`
 	Correspondent struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
@@ -37,15 +37,15 @@ type paperlessDocument struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	} `json:"tags"`
-	FileType string `json:"file_type"`
-	PageCount int   `json:"page_count"`
+	FileType  string `json:"file_type"`
+	PageCount int    `json:"page_count"`
 }
 
 // paperlessListResponse represents the Paperless API list response.
 type paperlessListResponse struct {
-	Count    int                 `json:"count"`
-	Results  []paperlessDocument `json:"results"`
-	Next     string             `json:"next"`
+	Count   int                 `json:"count"`
+	Results []paperlessDocument `json:"results"`
+	Next    string              `json:"next"`
 }
 
 // NewPaperlessImporter creates a new Paperless importer.

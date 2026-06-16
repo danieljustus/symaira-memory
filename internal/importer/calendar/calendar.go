@@ -59,8 +59,8 @@ type eventOrganizer struct {
 
 // calendarListResponse represents the Google Calendar API response.
 type calendarListResponse struct {
-	Items          []calendarEvent `json:"items"`
-	NextPageToken  string          `json:"nextPageToken"`
+	Items         []calendarEvent `json:"items"`
+	NextPageToken string          `json:"nextPageToken"`
 }
 
 // NewCalendarImporter creates a new calendar importer.
@@ -186,10 +186,10 @@ func (c *CalendarImporter) ImportSession(ref importer.SessionRef) ([]importer.Im
 	}
 
 	metadata := map[string]string{
-		"event_id":  event.ID,
-		"title":     event.Summary,
-		"source":    "calendar",
-		"calendar":  c.calendarID,
+		"event_id": event.ID,
+		"title":    event.Summary,
+		"source":   "calendar",
+		"calendar": c.calendarID,
 	}
 
 	if !startTime.IsZero() {

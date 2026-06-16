@@ -20,7 +20,7 @@ type ObsidianImporter struct {
 	tags           []string // optional: only import notes with these tags
 	excludeFolders []string
 	excludeTags    []string
-	maxNoteLength  int      // max chars per note
+	maxNoteLength  int // max chars per note
 }
 
 var (
@@ -34,14 +34,14 @@ var (
 
 // ObsidianNote represents a parsed Obsidian note.
 type ObsidianNote struct {
-	Path       string
-	Title      string
-	Content    string
-	Tags       []string
+	Path        string
+	Title       string
+	Content     string
+	Tags        []string
 	Frontmatter map[string]interface{}
-	Wikilinks  []string
-	ModifiedAt time.Time
-	WordCount  int
+	Wikilinks   []string
+	ModifiedAt  time.Time
+	WordCount   int
 }
 
 // NewObsidianImporter creates a new Obsidian importer.
@@ -160,12 +160,12 @@ func (o *ObsidianImporter) ImportSession(ref importer.SessionRef) ([]importer.Im
 	factContent := fmt.Sprintf("Note: %s\n\n%s", note.Title, content)
 
 	metadata := map[string]string{
-		"source":      "obsidian",
-		"vault":       filepath.Base(o.vaultPath),
-		"note_path":   ref.SessionID,
-		"title":       note.Title,
-		"word_count":  fmt.Sprintf("%d", note.WordCount),
-		"modified":    note.ModifiedAt.Format(time.RFC3339),
+		"source":     "obsidian",
+		"vault":      filepath.Base(o.vaultPath),
+		"note_path":  ref.SessionID,
+		"title":      note.Title,
+		"word_count": fmt.Sprintf("%d", note.WordCount),
+		"modified":   note.ModifiedAt.Format(time.RFC3339),
 	}
 
 	if len(note.Tags) > 0 {
