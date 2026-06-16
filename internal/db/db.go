@@ -108,8 +108,13 @@ func (db *DB) BeginTransaction() (*sql.Tx, error) {
 	return db.conn.Begin()
 }
 
-// SaveMemory inserts or updates a memory.
-func (db *DB) SaveMemory(m *Memory) error {
+// SQLExecer is an interface for executing SQL statements, satisfied by both *sql.DB and *sql.Tx.
+type SQLExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+// saveMemoryExec is the shared implementation for SaveMemory and SaveMemoryTx.
+func saveMemoryExec(execer SQLExecer, m *Memory) error {
 	metadataJSON, err := json.Marshal(m.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
@@ -154,58 +159,18 @@ func (db *DB) SaveMemory(m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = db.conn.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
 	return err
+}
+
+// SaveMemory inserts or updates a memory.
+func (db *DB) SaveMemory(m *Memory) error {
+	return saveMemoryExec(db.conn, m)
 }
 
 // SaveMemoryTx inserts or updates a memory within a transaction.
 func (db *DB) SaveMemoryTx(tx *sql.Tx, m *Memory) error {
-	metadataJSON, err := json.Marshal(m.Metadata)
-	if err != nil {
-		return fmt.Errorf("failed to marshal metadata: %w", err)
-	}
-
-	embeddingJSON, err := json.Marshal(m.Embedding)
-	if err != nil {
-		return fmt.Errorf("failed to marshal embedding: %w", err)
-	}
-
-	embeddingDim := len(m.Embedding)
-	lshHash := ComputeLSH(m.Embedding)
-
-	status := m.ConsolidationStatus
-	if status == "" {
-		status = "raw"
-	}
-	var consolidatedInto sql.NullString
-	if m.ConsolidatedIntoID != "" {
-		consolidatedInto.String = m.ConsolidatedIntoID
-		consolidatedInto.Valid = true
-	}
-
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			content=excluded.content,
-			scope=excluded.scope,
-			metadata=excluded.metadata,
-			embedding=excluded.embedding,
-			embedding_dim=excluded.embedding_dim,
-			lsh_hash=excluded.lsh_hash,
-			updated_at=excluded.updated_at,
-			updated_by=excluded.updated_by,
-			updated_session=excluded.updated_session,
-			consolidation_status=excluded.consolidation_status,
-			consolidated_into_id=excluded.consolidated_into_id`
-
-	now := time.Now().UTC()
-	if m.CreatedAt.IsZero() {
-		m.CreatedAt = now
-	}
-	m.UpdatedAt = now
-
-	_, err = tx.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto)
-	return err
+	return saveMemoryExec(tx, m)
 }
 
 // UpdateMemoryStatusTx updates the consolidation status and parent ID of a memory within a transaction.
