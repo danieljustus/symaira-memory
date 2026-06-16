@@ -98,6 +98,11 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
+// Conn returns the underlying SQL connection.
+func (db *DB) Conn() *sql.DB {
+	return db.conn
+}
+
 // BeginTransaction starts a new database transaction.
 func (db *DB) BeginTransaction() (*sql.Tx, error) {
 	return db.conn.Begin()
