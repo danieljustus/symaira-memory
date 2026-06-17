@@ -1141,6 +1141,153 @@ func TestWebConsoleStaticAssets(t *testing.T) {
 	}
 }
 
+func TestCORSPreflightAllowedOrigin(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("OPTIONS", ts.URL+"/api/status", nil)
+	req.Header.Set("Origin", "chrome-extension://abcdef")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for allowed origin preflight, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Access-Control-Allow-Origin") != "chrome-extension://abcdef" {
+		t.Errorf("expected Access-Control-Allow-Origin header, got %q", resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestCORSForbiddenOrigin(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader(`{"content":"test"}`))
+	req.Header.Set("Origin", "https://evil.example.com")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for disallowed origin, got %d", resp.StatusCode)
+	}
+}
+
+func TestCORSNoOriginHeader(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/list", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 when no Origin header, got %d", resp.StatusCode)
+	}
+}
+
+func TestSearchMalformedBody(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/search", strings.NewReader("not json at all"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for malformed body, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetMalformedBody(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader("{invalid"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for malformed body, got %d", resp.StatusCode)
+	}
+}
+
+func TestSearchMethodNotAllowed(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/search", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for GET on search, got %d", resp.StatusCode)
+	}
+}
+
+func TestRequireRoleReadOnlyProfile(t *testing.T) {
+	s := helperServer(t)
+	s.profile = &db.Profile{Role: "read-only"}
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader(`{"content":"test"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for read-only profile on write endpoint, got %d", resp.StatusCode)
+	}
+}
+
 func TestWebConsoleDoesNotShadowAPIRoutes(t *testing.T) {
 	s := helperServer(t)
 	token := helperAuthToken(t, s)

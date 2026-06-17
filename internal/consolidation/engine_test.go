@@ -14,6 +14,140 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 )
 
+func TestParseJSONResponse(t *testing.T) {
+	tests := []struct {
+		name        string
+		input       string
+		wantErr     bool
+		wantConsol  int
+		wantDiscard int
+	}{
+		{
+			name: "valid JSON",
+			input: `{
+				"consolidated": [{"content": "fact", "replaces_ids": ["a"], "metadata": {}}],
+				"discarded_ids": ["b"]
+			}`,
+			wantErr:     false,
+			wantConsol:  1,
+			wantDiscard: 1,
+		},
+		{
+			name:    "malformed JSON - missing closing brace",
+			input:   `{"consolidated": [{"content": "fact"`,
+			wantErr: true,
+		},
+		{
+			name:    "malformed JSON - invalid syntax",
+			input:   `not json at all`,
+			wantErr: true,
+		},
+		{
+			name:    "empty string",
+			input:   "",
+			wantErr: true,
+		},
+		{
+			name:    "empty object",
+			input:   `{}`,
+			wantErr: false,
+		},
+		{
+			name:    "markdown wrapped JSON",
+			input:   "```json\n" + `{"consolidated": [], "discarded_ids": []}` + "\n```",
+			wantErr: false,
+		},
+		{
+			name:    "JSON with extra text before",
+			input:   "Here is the result: {\"consolidated\": [], \"discarded_ids\": []}",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseJSONResponse(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseJSONResponse() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && result != nil {
+				if len(result.Consolidated) != tt.wantConsol {
+					t.Errorf("expected %d consolidated items, got %d", tt.wantConsol, len(result.Consolidated))
+				}
+				if len(result.DiscardedIDs) != tt.wantDiscard {
+					t.Errorf("expected %d discarded IDs, got %d", tt.wantDiscard, len(result.DiscardedIDs))
+				}
+			}
+		})
+	}
+}
+
+func TestQueryOllamaConnectionFailure(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-ollama-fail-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Defaults()
+	cfg.Database.Path = filepath.Join(tempDir, "test.db")
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	engine := NewEngine(database, embeddings, "http://localhost:1", "test-model", "ollama", false)
+
+	_, err = engine.queryOllama(context.Background(), "test prompt")
+	if err == nil {
+		t.Error("expected error for connection failure, got nil")
+	}
+}
+
+func TestNewEngineDefaults(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-engine-defaults-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Defaults()
+	cfg.Database.Path = filepath.Join(tempDir, "test.db")
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+
+	// Test Ollama defaults
+	eng := NewEngine(database, embeddings, "", "", "", false)
+	if eng.llmURL != "http://localhost:11434/api/generate" {
+		t.Errorf("expected Ollama default URL, got %s", eng.llmURL)
+	}
+	if eng.llmModel != "llama3" {
+		t.Errorf("expected Ollama default model 'llama3', got %s", eng.llmModel)
+	}
+	if eng.llmProvider != "ollama" {
+		t.Errorf("expected provider 'ollama', got %s", eng.llmProvider)
+	}
+
+	// Test OpenAI defaults
+	eng2 := NewEngine(database, embeddings, "", "", "openai", false)
+	if eng2.llmURL != "https://api.openai.com/v1/chat/completions" {
+		t.Errorf("expected OpenAI default URL, got %s", eng2.llmURL)
+	}
+	if eng2.llmModel != "gpt-4o-mini" {
+		t.Errorf("expected OpenAI default model 'gpt-4o-mini', got %s", eng2.llmModel)
+	}
+}
+
 func TestEngineConsolidation(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "symmemory-engine-test-*")
 	if err != nil {
