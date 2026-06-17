@@ -53,8 +53,8 @@ func TestParseJSONResponse(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "markdown wrapped JSON",
-			input: "```json\n" + `{"consolidated": [], "discarded_ids": []}` + "\n```",
+			name:    "markdown wrapped JSON",
+			input:   "```json\n" + `{"consolidated": [], "discarded_ids": []}` + "\n```",
 			wantErr: false,
 		},
 		{

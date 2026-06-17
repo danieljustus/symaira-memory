@@ -269,9 +269,9 @@ func TestStoreWithPIIRedaction(t *testing.T) {
 
 func TestFormatStoreSuccess(t *testing.T) {
 	m := &db.Memory{
-		ID:      "test-id",
-		Content: "Test content",
-		Scope:   "global",
+		ID:       "test-id",
+		Content:  "Test content",
+		Scope:    "global",
 		Metadata: map[string]string{},
 	}
 	msg := FormatStoreSuccess(m, nil)
