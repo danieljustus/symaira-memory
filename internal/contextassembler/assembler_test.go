@@ -53,7 +53,7 @@ func TestFormatRetrievalResults(t *testing.T) {
 
 func TestAssembler_Construction(t *testing.T) {
 	cfg := config.Defaults()
-	database, err := db.Open(&cfg)
+	database, err := db.Open(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestAssembler_Construction(t *testing.T) {
 
 func TestAssembler_Assemble_EmptySession(t *testing.T) {
 	cfg := config.Defaults()
-	database, err := db.Open(&cfg)
+	database, err := db.Open(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestAssembler_Assemble_EmptySession(t *testing.T) {
 
 func TestAssembler_Assemble_WithSessionText(t *testing.T) {
 	cfg := config.Defaults()
-	database, err := db.Open(&cfg)
+	database, err := db.Open(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestAssembler_Assemble_WithSessionText(t *testing.T) {
 func TestAssembler_TokenBudgetRespected(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.Context.TokenBudget = 20
-	database, err := db.Open(&cfg)
+	database, err := db.Open(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
