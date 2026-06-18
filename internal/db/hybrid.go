@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -60,8 +61,9 @@ type bm25Doc struct {
 }
 
 type bm25Index struct {
+	mu        sync.RWMutex
 	docs      map[string]*bm25Doc
-	docFreqs  map[string]int // term → number of docs containing it
+	docFreqs  map[string]int
 	totalDocs int
 	avgDocLen float64
 }
@@ -74,6 +76,9 @@ func newBM25Index() *bm25Index {
 }
 
 func (idx *bm25Index) addDoc(id, content string) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
 	terms := tokenize(content)
 	termCounts := make(map[string]int)
 	for _, t := range terms {
@@ -95,8 +100,10 @@ func (idx *bm25Index) addDoc(id, content string) {
 	idx.avgDocLen = float64(totalLen) / float64(idx.totalDocs)
 }
 
-// BM25 scoring with k1=1.5, b=0.75
 func (idx *bm25Index) score(queryTerms []string) map[string]float64 {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
 	const k1 = 1.5
 	const b = 0.75
 	scores := make(map[string]float64)
