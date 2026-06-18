@@ -77,6 +77,46 @@ pii_enabled = true
 [server]
 # HTTP port for the REST API daemon (0 = disabled, stdio-only).
 http_port = 0
+
+[ranking]
+# Weights for composite retrieval scoring (relevance + recency + importance).
+# All three weights are normalized, so relative values matter more than absolute.
+relevance_weight = 0.6
+recency_weight = 0.2
+importance_weight = 0.2
+# Half-life in days for recency decay (default: 30 days).
+recency_half_life = 30
+
+[context]
+# Token budget for context assembly (max tokens for assembled context).
+token_budget = 2000
+# Budget allocation for each layer.
+working_context_tokens = 500
+summary_tokens = 500
+retrieval_tokens = 1000
+# Max recent conversation turns to include in working context.
+max_working_turns = 5
+
+[retention]
+# Session-scoped memory TTL (default: "720h" = 30 days).
+session_ttl = "720h"
+# Enable automatic background purge of expired memories.
+auto_purge_enabled = false
+# Enable append-only audit log for memory mutations.
+audit_log_enabled = true
+# How long to retain audit log entries (default: "720h" = 30 days).
+audit_retention = "720h"
+
+[hybrid_search]
+# Enable hybrid vector + BM25 keyword search.
+enabled = true
+# Weights for score fusion (Reciprocal Rank Fusion).
+bm25_weight = 0.3
+vector_weight = 0.7
+# Enable Maximal Marginal Relevance diversity re-ranking.
+mmr_enabled = false
+# MMR lambda: 0.0 = pure diversity, 1.0 = pure relevance.
+mmr_lambda = 0.7
 `
 		if err := os.WriteFile(filePath, []byte(template), 0600); err != nil {
 			return fmt.Errorf("failed to write config file: %w", err)

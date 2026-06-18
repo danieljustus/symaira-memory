@@ -12,6 +12,10 @@ type Config struct {
 	Security      SecurityConfig      `json:"security"`
 	Server        ServerConfig        `json:"server"`
 	Consolidation ConsolidationConfig `json:"consolidation"`
+	Ranking       RankingConfig       `json:"ranking"`
+	Context       ContextConfig       `json:"context"`
+	Retention     RetentionConfig     `json:"retention"`
+	HybridSearch  HybridSearchConfig  `json:"hybrid_search"`
 }
 
 type DatabaseConfig struct {
@@ -45,6 +49,40 @@ type ConsolidationConfig struct {
 	URL         string `json:"url"`
 }
 
+// RankingConfig controls retrieval ranking weights.
+type RankingConfig struct {
+	RelevanceWeight float64 `json:"relevance_weight"` // cosine similarity weight (default 0.6)
+	RecencyWeight   float64 `json:"recency_weight"`   // recency decay weight (default 0.2)
+	ImportanceWeight float64 `json:"importance_weight"` // importance weight (default 0.2)
+	RecencyHalfLife float64 `json:"recency_half_life"` // half-life in days (default 30)
+}
+
+// ContextConfig controls the context assembler.
+type ContextConfig struct {
+	TokenBudget         int     `json:"token_budget"`          // max tokens for assembled context (default 2000)
+	WorkingContextTokens int    `json:"working_context_tokens"` // budget for working context (default 500)
+	SummaryTokens       int     `json:"summary_tokens"`        // budget for session summary (default 500)
+	RetrievalTokens     int     `json:"retrieval_tokens"`      // budget for semantic retrieval (default 1000)
+	MaxWorkingTurns     int     `json:"max_working_turns"`     // max recent turns to include (default 5)
+}
+
+// RetentionConfig controls data lifecycle governance.
+type RetentionConfig struct {
+	SessionTTL       string `json:"session_ttl"`        // e.g. "24h", "7d" (default "720h" = 30d)
+	AutoPurgeEnabled bool   `json:"auto_purge_enabled"` // enable background purge (default false)
+	AuditLogEnabled  bool   `json:"audit_log_enabled"`  // enable audit logging (default true)
+	AuditRetention   string `json:"audit_retention"`     // how long to keep audit logs (default "720h")
+}
+
+// HybridSearchConfig controls hybrid vector + BM25 retrieval.
+type HybridSearchConfig struct {
+	Enabled       bool    `json:"enabled"`        // enable hybrid search (default true)
+	BM25Weight    float64 `json:"bm25_weight"`    // BM25 weight in fusion (default 0.3)
+	VectorWeight  float64 `json:"vector_weight"`  // vector weight in fusion (default 0.7)
+	MMREnabled    bool    `json:"mmr_enabled"`    // enable MMR diversity (default false)
+	MMRLambda     float64 `json:"mmr_lambda"`     // MMR lambda (0=diversity, 1=relevance, default 0.7)
+}
+
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	trueVal := true
@@ -65,6 +103,32 @@ func Defaults() *Config {
 			IdleTimeout: "30m",
 			Provider:    "",
 			Model:       "",
+		},
+		Ranking: RankingConfig{
+			RelevanceWeight:  0.6,
+			RecencyWeight:    0.2,
+			ImportanceWeight: 0.2,
+			RecencyHalfLife:  30,
+		},
+		Context: ContextConfig{
+			TokenBudget:         2000,
+			WorkingContextTokens: 500,
+			SummaryTokens:       500,
+			RetrievalTokens:     1000,
+			MaxWorkingTurns:     5,
+		},
+		Retention: RetentionConfig{
+			SessionTTL:       "720h",
+			AutoPurgeEnabled: false,
+			AuditLogEnabled:  true,
+			AuditRetention:   "720h",
+		},
+		HybridSearch: HybridSearchConfig{
+			Enabled:      true,
+			BM25Weight:   0.3,
+			VectorWeight: 0.7,
+			MMREnabled:   false,
+			MMRLambda:    0.7,
 		},
 	}
 }
