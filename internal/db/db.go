@@ -33,6 +33,9 @@ type Memory struct {
 	ConsolidationStatus string            `json:"consolidation_status"`
 	ConsolidatedIntoID  string            `json:"consolidated_into_id,omitempty"`
 	Importance          float64           `json:"importance"` // 0.0–1.0, default 0.5
+	ValidFrom           *time.Time        `json:"valid_from,omitempty"`
+	ValidTo             *time.Time        `json:"valid_to,omitempty"`
+	SupersededBy        string            `json:"superseded_by,omitempty"`
 }
 
 // Session represents a compressed summary of a chat session.
@@ -138,9 +141,27 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 		consolidatedInto.String = m.ConsolidatedIntoID
 		consolidatedInto.Valid = true
 	}
+	var validFrom, validTo sql.NullTime
+	if m.ValidFrom != nil {
+		validFrom.Time = *m.ValidFrom
+		validFrom.Valid = true
+	} else {
+		now := time.Now().UTC()
+		validFrom.Time = now
+		validFrom.Valid = true
+	}
+	if m.ValidTo != nil {
+		validTo.Time = *m.ValidTo
+		validTo.Valid = true
+	}
+	var supersededBy sql.NullString
+	if m.SupersededBy != "" {
+		supersededBy.String = m.SupersededBy
+		supersededBy.Valid = true
+	}
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
@@ -153,7 +174,10 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 			updated_session=excluded.updated_session,
 			consolidation_status=excluded.consolidation_status,
 			consolidated_into_id=excluded.consolidated_into_id,
-			importance=excluded.importance`
+			importance=excluded.importance,
+			valid_from=excluded.valid_from,
+			valid_to=excluded.valid_to,
+			superseded_by=excluded.superseded_by`
 
 	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
@@ -161,7 +185,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy)
 	return err
 }
 
@@ -198,10 +222,12 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	var m Memory
 	var metaStr, embStr string
 	var consolidatedInto sql.NullString
+	var validFrom, validTo sql.NullTime
+	var supersededBy sql.NullString
 	err := db.conn.QueryRow(
-		"SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE id = ?",
+		"SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE id = ?",
 		id,
-	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance)
+	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -215,6 +241,13 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 		return nil, err
 	}
 	m.ConsolidatedIntoID = consolidatedInto.String
+	if validFrom.Valid {
+		m.ValidFrom = &validFrom.Time
+	}
+	if validTo.Valid {
+		m.ValidTo = &validTo.Time
+	}
+	m.SupersededBy = supersededBy.String
 
 	entities, err := db.EntitiesForMemory(m.ID)
 	if err == nil && len(entities) > 0 {
@@ -231,7 +264,9 @@ func scanMemory(rows *sql.Rows) (*Memory, error) {
 	var m Memory
 	var metaStr, embStr string
 	var consolidatedInto sql.NullString
-	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance); err != nil {
+	var validFrom, validTo sql.NullTime
+	var supersededBy sql.NullString
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
@@ -241,6 +276,13 @@ func scanMemory(rows *sql.Rows) (*Memory, error) {
 		return nil, err
 	}
 	m.ConsolidatedIntoID = consolidatedInto.String
+	if validFrom.Valid {
+		m.ValidFrom = &validFrom.Time
+	}
+	if validTo.Valid {
+		m.ValidTo = &validTo.Time
+	}
+	m.SupersededBy = supersededBy.String
 	return &m, nil
 }
 
@@ -249,13 +291,22 @@ func scanMemoryLite(rows *sql.Rows) (*Memory, error) {
 	var m Memory
 	var metaStr string
 	var consolidatedInto sql.NullString
-	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance); err != nil {
+	var validFrom, validTo sql.NullTime
+	var supersededBy sql.NullString
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
 		return nil, err
 	}
 	m.ConsolidatedIntoID = consolidatedInto.String
+	if validFrom.Valid {
+		m.ValidFrom = &validFrom.Time
+	}
+	if validTo.Valid {
+		m.ValidTo = &validTo.Time
+	}
+	m.SupersededBy = supersededBy.String
 	return &m, nil
 }
 
@@ -266,10 +317,10 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE scope = ? AND consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE scope = ? AND consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -297,10 +348,10 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE scope = ? AND consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE scope = ? AND consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -345,11 +396,11 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 
 	var query string
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		args = append([]interface{}{scope}, args...)
 		args = append(args, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE consolidation_status != 'archived' AND id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status != 'archived' AND id IN (" + inClause + ") ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		args = append(args, limit, offset)
 	}
 
@@ -374,7 +425,7 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 // Embedding data is omitted (sync payloads do not need vectors).
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	rows, err := db.conn.Query(
-		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE updated_at > ? ORDER BY updated_at ASC",
+		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE updated_at > ? ORDER BY updated_at ASC",
 		t,
 	)
 	if err != nil {
@@ -395,7 +446,7 @@ func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 
 // GetRawMemories returns all memories with consolidation_status = 'raw'.
 func (db *DB) GetRawMemories() ([]*Memory, error) {
-	query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
+	query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -448,9 +499,9 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 
 	if err == sql.ErrNoRows {
 		_, err = db.conn.Exec(
-			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance,
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy),
 		)
 		if err != nil {
 			return false, err
@@ -568,7 +619,7 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 		}
 		inClause := strings.Join(placeholders, ", ")
 
-		query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance FROM memories WHERE id IN (" + inClause + ")"
+		query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE id IN (" + inClause + ")"
 
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
@@ -752,6 +803,39 @@ func (db *DB) SetSyncCursor(remote string, t time.Time) error {
 		remote, t,
 	)
 	return err
+}
+
+// SupersedeFact marks an older memory as superseded by a newer one.
+// Sets valid_to on the superseded memory and records the superseding ID.
+func (db *DB) SupersedeFact(supersededID, supersededByID string) error {
+	now := time.Now().UTC()
+	_, err := db.conn.Exec(
+		`UPDATE memories SET valid_to = ?, superseded_by = ?, updated_at = ? WHERE id = ? AND (valid_to IS NULL OR valid_to > ?)`,
+		now, supersededByID, now, supersededID, now,
+	)
+	return err
+}
+
+// GetSupersededHistory returns all memories that were superseded by the given ID.
+func (db *DB) GetSupersededHistory(supersededByID string) ([]*Memory, error) {
+	rows, err := db.conn.Query(
+		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE superseded_by = ? ORDER BY valid_from DESC",
+		supersededByID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		m, err := scanMemoryLite(rows)
+		if err != nil {
+			return nil, err
+		}
+		memories = append(memories, m)
+	}
+	return memories, nil
 }
 
 // SaveSessionSummary inserts or updates a session summary.

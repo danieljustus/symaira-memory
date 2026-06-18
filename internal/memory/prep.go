@@ -50,6 +50,7 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 		UpdatedBy:      attr.Author,
 		CreatedSession: attr.SessionID,
 		UpdatedSession: attr.SessionID,
+		ValidFrom:      ptrTime(time.Now().UTC()),
 	}, nil
 }
 
@@ -142,4 +143,8 @@ func FormatStoreSuccess(m *db.Memory, extractedStr []string) string {
 		responseMsg += "\n\nAdditionally, secondary facts were successfully extracted:\n" + strings.Join(extractedStr, "\n")
 	}
 	return responseMsg
+}
+
+func ptrTime(t time.Time) *time.Time {
+	return &t
 }
