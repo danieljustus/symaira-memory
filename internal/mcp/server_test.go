@@ -588,6 +588,152 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 	}
 }
 
+func TestSyncChangesCursorPagination(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	for i := 0; i < 5; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("page-mem-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Metadata:  map[string]string{},
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req1, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?limit=2", nil)
+	req1.Header.Set("Authorization", "Bearer "+token)
+
+	resp1, err := http.DefaultClient.Do(req1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp1.Body.Close()
+
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp1.StatusCode)
+	}
+
+	var body1 struct {
+		Memories   []*db.Memory `json:"memories"`
+		NextCursor string       `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(resp1.Body).Decode(&body1); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body1.Memories) != 2 {
+		t.Fatalf("expected 2 memories on first page, got %d", len(body1.Memories))
+	}
+	if body1.NextCursor == "" {
+		t.Fatal("expected next_cursor on first page")
+	}
+
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?limit=2&cursor="+body1.NextCursor, nil)
+	req2.Header.Set("Authorization", "Bearer "+token)
+
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	var body2 struct {
+		Memories   []*db.Memory `json:"memories"`
+		NextCursor string       `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&body2); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body2.Memories) != 2 {
+		t.Fatalf("expected 2 memories on second page, got %d", len(body2.Memories))
+	}
+	if body2.NextCursor == "" {
+		t.Fatal("expected next_cursor on second page")
+	}
+
+	if body1.Memories[0].ID == body2.Memories[0].ID {
+		t.Error("first page and second page should have different memories")
+	}
+
+	req3, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?limit=2&cursor="+body2.NextCursor, nil)
+	req3.Header.Set("Authorization", "Bearer "+token)
+
+	resp3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp3.Body.Close()
+
+	var body3 struct {
+		Memories   []*db.Memory `json:"memories"`
+		NextCursor string       `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(resp3.Body).Decode(&body3); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body3.Memories) != 1 {
+		t.Fatalf("expected 1 memory on third page, got %d", len(body3.Memories))
+	}
+	if body3.NextCursor != "" {
+		t.Error("expected no next_cursor on last page")
+	}
+}
+
+func TestSyncChangesCursorInvalid(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?cursor=!!!invalid!!!", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid cursor, got %d", resp.StatusCode)
+	}
+}
+
+func TestSyncChangesLimitClamped(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?limit=99999", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
 // --------------------------------------------------------------------------
 // Sync: apply skips older, overwrites newer
 // --------------------------------------------------------------------------
@@ -597,7 +743,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 	token := helperAuthToken(t, s)
 
 	existing := &db.Memory{
-		ID:        "apply-1",
+		ID:        "110e8400-e29b-41d4-a716-446655440001",
 		Content:   "original content",
 		Scope:     "global",
 		Metadata:  map[string]string{},
@@ -605,11 +751,11 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 	}
 	s.db.SaveMemory(existing)
 
-	got, _ := s.db.GetMemory("apply-1")
+	got, _ := s.db.GetMemory("110e8400-e29b-41d4-a716-446655440001")
 	existingTime := got.UpdatedAt
 
 	older := &db.Memory{
-		ID:        "apply-1",
+		ID:        "110e8400-e29b-41d4-a716-446655440001",
 		Content:   "should be skipped",
 		Scope:     "global",
 		Metadata:  map[string]string{},
@@ -618,7 +764,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		CreatedAt: existingTime.Add(-1 * time.Hour),
 	}
 	newer := &db.Memory{
-		ID:        "apply-1",
+		ID:        "110e8400-e29b-41d4-a716-446655440001",
 		Content:   "should overwrite",
 		Scope:     "global",
 		Metadata:  map[string]string{},
@@ -627,7 +773,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		CreatedAt: existingTime,
 	}
 	fresh := &db.Memory{
-		ID:        "apply-2",
+		ID:        "120e8400-e29b-41d4-a716-446655440002",
 		Content:   "brand new",
 		Scope:     "global",
 		Metadata:  map[string]string{},
@@ -672,7 +818,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		t.Errorf("expected 1 skipped (older), got %d", result.Skipped)
 	}
 
-	updated, _ := s.db.GetMemory("apply-1")
+	updated, _ := s.db.GetMemory("110e8400-e29b-41d4-a716-446655440001")
 	if updated.Content != "should overwrite" {
 		t.Errorf("expected content 'should overwrite', got %q", updated.Content)
 	}
@@ -683,7 +829,7 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 	token := helperAuthToken(t, s)
 
 	withEmail := &db.Memory{
-		ID:        "pii-1",
+		ID:        "210e8400-e29b-41d4-a716-446655440010",
 		Content:   "Contact alice@example.com for details",
 		Scope:     "global",
 		Metadata:  map[string]string{},
@@ -692,7 +838,7 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 	invalidScope := &db.Memory{
-		ID:        "scope-1",
+		ID:        "220e8400-e29b-41d4-a716-446655440011",
 		Content:   "This has invalid scope",
 		Scope:     "invalid-scope-value",
 		Metadata:  map[string]string{},
@@ -701,7 +847,7 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 	valid := &db.Memory{
-		ID:        "valid-1",
+		ID:        "230e8400-e29b-41d4-a716-446655440012",
 		Content:   "Normal content",
 		Scope:     "global",
 		Metadata:  map[string]string{},
@@ -750,9 +896,135 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 		t.Errorf("expected 1 skippedInvalidScope, got %d", result.SkippedInvalidScope)
 	}
 
-	stored, _ := s.db.GetMemory("pii-1")
+	stored, _ := s.db.GetMemory("210e8400-e29b-41d4-a716-446655440010")
 	if stored.Content == "Contact alice@example.com for details" {
 		t.Error("expected PII to be redacted in stored content")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Sync: apply rejects non-UUID memory IDs
+// --------------------------------------------------------------------------
+
+func TestSyncApplyInvalidUUIDSkipped(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	validUUID := &db.Memory{
+		ID:        "550e8400-e29b-41d4-a716-446655440000",
+		Content:   "Valid UUID memory",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+	invalidID := &db.Memory{
+		ID:        "not-a-uuid!!",
+		Content:   "Malicious ID memory",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.2},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+	anotherInvalid := &db.Memory{
+		ID:        "550e8400-e29b-41d4-a716-44665544",
+		Content:   "Truncated UUID memory",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.3},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	payload, _ := json.Marshal(map[string][]*db.Memory{
+		"memories": {validUUID, invalidID, anotherInvalid},
+	})
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/sync/apply", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Applied          int `json:"applied"`
+		Skipped          int `json:"skipped"`
+		SkippedInvalidID int `json:"skippedInvalidID"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.Applied != 1 {
+		t.Errorf("expected 1 applied (valid UUID only), got %d", result.Applied)
+	}
+	if result.SkippedInvalidID != 2 {
+		t.Errorf("expected 2 skippedInvalidID (non-UUID + truncated), got %d", result.SkippedInvalidID)
+	}
+
+	stored, err := s.db.GetMemory("550e8400-e29b-41d4-a716-446655440000")
+	if err != nil || stored == nil {
+		t.Error("expected valid UUID memory to be stored")
+	}
+}
+
+func TestSyncApplyAuditLogCreated(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	mem := &db.Memory{
+		ID:        "660e8400-e29b-41d4-a716-446655440001",
+		Content:   "Memory for audit test",
+		Scope:     "global",
+		Metadata:  map[string]string{},
+		Embedding: []float32{0.1},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	payload, _ := json.Marshal(map[string][]*db.Memory{
+		"memories": {mem},
+	})
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/sync/apply", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	events, err := s.db.GetAuditLogs("sync.apply", 10)
+	if err != nil {
+		t.Fatalf("failed to fetch audit logs: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatal("expected at least 1 audit event for sync.apply")
+	}
+	if events[0].Action != "sync.apply" {
+		t.Errorf("expected action 'sync.apply', got %q", events[0].Action)
 	}
 }
 
