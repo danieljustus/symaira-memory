@@ -1,49 +1,39 @@
 ## What's Changed
 
 ### Features
-- **Session Importer Framework** — Pluggable architecture for importing memories from external AI coding tools (#121)
-- **External Memory Tool Import** — Import from OpenMemory, ChatGPT, and Mem0 (#127)
-- **Claude Code Session Importer** — Import conversation transcripts from Claude Code (#122)
-- **Hermes Agent Session Importer** — Import from Hermes Agent sessions (#123)
-- **Codex CLI Session Importer** — Import from OpenAI Codex CLI (#124)
-- **Aider Session Importer** — Import from Aider chat history (#125)
-- **Data Source Importer Framework** — Extended importer interfaces for categorization, privacy levels, and incremental imports (#135)
-- **Git Importer** — Import local commit history with diff summaries (#129)
-- **GitHub Importer** — Import PRs and issues via gh CLI (#130)
-- **Shell History Importer** — Import zsh/bash command history with tagging (#131)
-- **Google Calendar Importer** — Import calendar events as memory facts (#131)
-- **Email Importer** — Import emails via Himalaya CLI (#132)
-- **Obsidian/LifeOS Vault Importer** — Import notes from Obsidian vaults (#133)
-- **Paperless-ngx Importer** — Import document metadata from Paperless (#134)
-- **Dream CLI Command** — Run memory consolidation with `symmemory dream` (#119)
-- **Consolidation Engine** — Merge and deduplicate memories automatically (#118)
-- **Cross-Tool Memory Linker** — Find and link related memories across different tools (#126)
+- #164 Context assembler with token-budget progressive retrieval — closes #157
+- #164 Composite retrieval ranking (relevance × recency × importance) — closes #158
+- #164 Pure-Go BM25 hybrid search with RRF fusion — closes #159
+- #164 Audit log, TTL purge, and `symmemory purge` command — closes #160
+- #164 Eval harness `symmemory bench` command — closes #161
+- #164 Temporal validity windows and fact supersession — closes #162
+- #168 Cursor-based pagination for sync/changes endpoint — closes #165
 
-### Improvements
-- Add consolidation status to memories and filter archived entries (#117)
-- Add `Conn()` method to db package for direct SQL access
+### Fixes
+- #168 Fix BM25 index concurrency for MCP server — closes #167
 
-### Database
-- New `import_state` table for tracking import progress
-- New `consolidation_status` field on memories table
+### Security
+- #168 Harden sync/apply endpoint against malicious memory IDs — closes #166
 
-## Closed Issues
-- #117 Add consolidation status to memories
-- #118 Implement consolidation engine
-- #119 Add dream CLI command
-- #121 Cross-tool session import framework
-- #122 Claude Code session importer
-- #123 Hermes Agent session importer
-- #124 Codex CLI session importer
-- #125 Aider session importer
-- #126 Cross-tool memory linking
-- #127 External memory tool import
-- #129 Git importer
-- #130 GitHub importer
-- #131 Google Calendar importer
-- #132 Email importer
-- #133 Obsidian vault importer
-- #134 Paperless-ngx importer
-- #135 Data source importer framework
+### Docs
+- #163 Archive Symmemory research report and figures
 
-**Full Changelog**: https://github.com/danieljustus/symaira-memory/compare/v0.4.0...v0.5.0
+### Tests
+- #155 Add test coverage for db, consolidation, MCP, and memory packages — closes #151, #152, #153, #154
+
+### Closed Issues
+- #151 Test coverage for db package
+- #152 Test coverage for consolidation engine
+- #153 Test coverage for MCP server
+- #154 Test coverage for memory package
+- #157 Context assembler: wire up token-budget progressive retrieval
+- #158 Retrieval ranking: add composite scoring
+- #159 Hybrid retrieval: fuse BM25 keyword search with vector similarity
+- #160 Governance: retention policies, session TTL auto-purge, and audit log
+- #161 Eval harness: measure token-reduction and retrieval-quality KPIs
+- #162 Temporal memory: validity windows and fact supersession
+- #165 Add pagination to sync/changes endpoint
+- #166 Harden sync/apply endpoint against malicious memory IDs
+- #167 Fix BM25 index concurrency for MCP server
+
+**Full Changelog**: https://github.com/danieljustus/symaira-memory/compare/v0.6.0...v0.6.1
