@@ -54,14 +54,14 @@ func tokenize(text string) []string {
 }
 
 type bm25Doc struct {
-	id       string
-	terms    map[string]int // term → count
-	docLen   int
+	id     string
+	terms  map[string]int // term → count
+	docLen int
 }
 
 type bm25Index struct {
-	docs     map[string]*bm25Doc
-	docFreqs map[string]int // term → number of docs containing it
+	docs      map[string]*bm25Doc
+	docFreqs  map[string]int // term → number of docs containing it
 	totalDocs int
 	avgDocLen float64
 }
@@ -121,7 +121,7 @@ func (idx *bm25Index) score(queryTerms []string) map[string]float64 {
 
 // HybridResult extends SearchResult with hybrid scoring details.
 type HybridResult struct {
-	Memory    *Memory `json:"memory"`
+	Memory      *Memory `json:"memory"`
 	VectorScore float32 `json:"vector_score"`
 	BM25Score   float64 `json:"bm25_score"`
 	FusedScore  float64 `json:"fused_score"`

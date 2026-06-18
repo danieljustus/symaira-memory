@@ -18,10 +18,10 @@ func TestTemporalFields_RoundTrip(t *testing.T) {
 
 	now := time.Now().UTC()
 	m := &Memory{
-		ID:       "temporal-test",
-		Content:  "User lives in Berlin",
-		Scope:    "global",
-		Metadata: map[string]string{},
+		ID:        "temporal-test",
+		Content:   "User lives in Berlin",
+		Scope:     "global",
+		Metadata:  map[string]string{},
 		ValidFrom: &now,
 	}
 	if err := database.SaveMemory(m); err != nil {

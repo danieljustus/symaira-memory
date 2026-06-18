@@ -14,8 +14,8 @@ type ContextLayer string
 
 const (
 	LayerWorkingContext ContextLayer = "working_context"
-	LayerSummary       ContextLayer = "summary"
-	LayerRetrieval     ContextLayer = "retrieval"
+	LayerSummary        ContextLayer = "summary"
+	LayerRetrieval      ContextLayer = "retrieval"
 )
 
 type AssembledPiece struct {
@@ -25,17 +25,17 @@ type AssembledPiece struct {
 }
 
 type AssembledContext struct {
-	Query     string          `json:"query"`
-	Budget    int             `json:"budget"`
-	UsedTokens int            `json:"used_tokens"`
-	Pieces    []AssembledPiece `json:"pieces"`
+	Query      string           `json:"query"`
+	Budget     int              `json:"budget"`
+	UsedTokens int              `json:"used_tokens"`
+	Pieces     []AssembledPiece `json:"pieces"`
 }
 
 type Assembler struct {
-	database    *db.DB
-	summarizer  *summarizer.ExtractiveSummarizer
-	embeddings  *extractor.EmbeddingsGenerator
-	cfg         *config.ContextConfig
+	database   *db.DB
+	summarizer *summarizer.ExtractiveSummarizer
+	embeddings *extractor.EmbeddingsGenerator
+	cfg        *config.ContextConfig
 }
 
 func NewAssembler(database *db.DB, embeddings *extractor.EmbeddingsGenerator, cfg *config.ContextConfig) *Assembler {

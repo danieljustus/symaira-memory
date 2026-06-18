@@ -45,10 +45,10 @@ func TestPurgeExpiredMemories(t *testing.T) {
 	defer database.Close()
 
 	old := &Memory{
-		ID:       "old-session",
-		Content:  "old fact",
-		Scope:    "session",
-		Metadata: map[string]string{},
+		ID:        "old-session",
+		Content:   "old fact",
+		Scope:     "session",
+		Metadata:  map[string]string{},
 		CreatedAt: time.Now().Add(-48 * time.Hour),
 	}
 	if err := database.SaveMemory(old); err != nil {

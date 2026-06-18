@@ -9,10 +9,10 @@ import (
 )
 
 var (
-	purgeDryRun      bool
-	purgeSessionTTL  string
-	purgeScope       string
-	purgeID          string
+	purgeDryRun     bool
+	purgeSessionTTL string
+	purgeScope      string
+	purgeID         string
 )
 
 func init() {
