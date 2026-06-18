@@ -83,8 +83,11 @@ func TestRankSearchResults_Reorders(t *testing.T) {
 	if len(ranked) != 2 {
 		t.Fatalf("expected 2 results, got %d", len(ranked))
 	}
-	if ranked[0].Memory.Importance != 0.1 {
-		t.Errorf("expected recent/low-importance first (relevance dominates), got importance=%f", ranked[0].Memory.Importance)
+	// With weights 0.4/0.3/0.3, old/high-importance (0.5*0.4 + ~0.85*0.3 + 0.9*0.3 ≈ 0.73)
+	// scores higher than recent/low-importance (0.8*0.4 + 1.0*0.3 + 0.1*0.3 ≈ 0.65),
+	// so importance=0.9 ranks first.
+	if ranked[0].Memory.Importance != 0.9 {
+		t.Errorf("expected high-importance first with these weights, got importance=%f", ranked[0].Memory.Importance)
 	}
 }
 

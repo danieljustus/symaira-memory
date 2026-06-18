@@ -124,6 +124,9 @@ func (a *Assembler) ProduceSessionSummary(sessionText string, sessionID string) 
 }
 
 func (a *Assembler) retrieveRelevant(query string, tokenBudget int) ([]db.SearchResult, error) {
+	if a.embeddings == nil {
+		return nil, nil
+	}
 	queryVec := a.embeddings.GenerateVector(query)
 	limit := tokenBudget / 50
 	if limit < 1 {
