@@ -21,3 +21,7 @@ lint:
 clean:
 	rm -f $(BINARY_NAME)
 	rm -rf dist/
+
+.PHONY: bench
+bench: build
+	./$(BINARY_NAME) bench
