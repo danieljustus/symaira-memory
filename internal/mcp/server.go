@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -525,23 +526,63 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 		since = parsed
 	}
 
+	cursorStr := r.URL.Query().Get("cursor")
+	if cursorStr != "" {
+		decoded, err := base64.StdEncoding.DecodeString(cursorStr)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid cursor parameter"})
+			return
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, string(decoded))
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid cursor format"})
+			return
+		}
+		since = parsed
+	}
+
+	limit := 500
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 10000 {
+		limit = 10000
+	}
+
 	var memories []*db.Memory
 	var err error
-	if since.IsZero() {
-		memories, err = s.db.ListMemoriesLite("", 0, 100000)
-	} else {
-		memories, err = s.db.GetMemoriesSince(since)
-	}
+	memories, err = s.db.GetMemoriesSinceCursor(since, limit+1)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch changes", err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	var nextCursor string
+	if len(memories) > limit {
+		memories = memories[:limit]
+		last := memories[len(memories)-1]
+		nextCursor = base64.StdEncoding.EncodeToString([]byte(last.UpdatedAt.Format(time.RFC3339Nano)))
+	}
+
+	resp := map[string]interface{}{
 		"memories":    memories,
 		"server_time": time.Now().UTC().Format(time.RFC3339),
-	})
+	}
+	if nextCursor != "" {
+		resp["next_cursor"] = nextCursor
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {

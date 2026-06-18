@@ -588,6 +588,152 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 	}
 }
 
+func TestSyncChangesCursorPagination(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	for i := 0; i < 5; i++ {
+		m := &db.Memory{
+			ID:        fmt.Sprintf("page-mem-%d", i),
+			Content:   fmt.Sprintf("Memory %d", i),
+			Scope:     "global",
+			Metadata:  map[string]string{},
+			Embedding: []float32{float32(i) * 0.1},
+		}
+		s.db.SaveMemory(m)
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req1, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?limit=2", nil)
+	req1.Header.Set("Authorization", "Bearer "+token)
+
+	resp1, err := http.DefaultClient.Do(req1)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp1.Body.Close()
+
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp1.StatusCode)
+	}
+
+	var body1 struct {
+		Memories   []*db.Memory `json:"memories"`
+		NextCursor string       `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(resp1.Body).Decode(&body1); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body1.Memories) != 2 {
+		t.Fatalf("expected 2 memories on first page, got %d", len(body1.Memories))
+	}
+	if body1.NextCursor == "" {
+		t.Fatal("expected next_cursor on first page")
+	}
+
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?limit=2&cursor="+body1.NextCursor, nil)
+	req2.Header.Set("Authorization", "Bearer "+token)
+
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp2.StatusCode)
+	}
+
+	var body2 struct {
+		Memories   []*db.Memory `json:"memories"`
+		NextCursor string       `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&body2); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body2.Memories) != 2 {
+		t.Fatalf("expected 2 memories on second page, got %d", len(body2.Memories))
+	}
+	if body2.NextCursor == "" {
+		t.Fatal("expected next_cursor on second page")
+	}
+
+	if body1.Memories[0].ID == body2.Memories[0].ID {
+		t.Error("first page and second page should have different memories")
+	}
+
+	req3, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?limit=2&cursor="+body2.NextCursor, nil)
+	req3.Header.Set("Authorization", "Bearer "+token)
+
+	resp3, err := http.DefaultClient.Do(req3)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp3.Body.Close()
+
+	var body3 struct {
+		Memories   []*db.Memory `json:"memories"`
+		NextCursor string       `json:"next_cursor"`
+	}
+	if err := json.NewDecoder(resp3.Body).Decode(&body3); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(body3.Memories) != 1 {
+		t.Fatalf("expected 1 memory on third page, got %d", len(body3.Memories))
+	}
+	if body3.NextCursor != "" {
+		t.Error("expected no next_cursor on last page")
+	}
+}
+
+func TestSyncChangesCursorInvalid(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?cursor=!!!invalid!!!", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected 400 for invalid cursor, got %d", resp.StatusCode)
+	}
+}
+
+func TestSyncChangesLimitClamped(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/sync/changes?limit=99999", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
 // --------------------------------------------------------------------------
 // Sync: apply skips older, overwrites newer
 // --------------------------------------------------------------------------

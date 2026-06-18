@@ -424,9 +424,16 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 // GetMemoriesSince returns all memories with updated_at strictly after t.
 // Embedding data is omitted (sync payloads do not need vectors).
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
+	return db.GetMemoriesSinceCursor(t, 0)
+}
+
+func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int) ([]*Memory, error) {
+	if limit <= 0 {
+		limit = 50000
+	}
 	rows, err := db.conn.Query(
-		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE updated_at > ? ORDER BY updated_at ASC",
-		t,
+		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?",
+		since, limit,
 	)
 	if err != nil {
 		return nil, err
