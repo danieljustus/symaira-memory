@@ -18,6 +18,7 @@ type RateLimitConfig struct {
 	DataBurst       int
 	CleanupInterval time.Duration
 	LimiterTTL      time.Duration
+	MaxEntries      int
 }
 
 // DefaultRateLimitConfig returns production defaults: auth 10 req/min burst 5, data 100 req/min burst 20.
@@ -29,6 +30,7 @@ func DefaultRateLimitConfig() RateLimitConfig {
 		DataBurst:       20,
 		CleanupInterval: 5 * time.Minute,
 		LimiterTTL:      10 * time.Minute,
+		MaxEntries:      10000,
 	}
 }
 
@@ -67,9 +69,27 @@ func (rl *RateLimiter) getLimiter(key string, rps float64, burst int) *rate.Limi
 		return v.limiter
 	}
 
+	if rl.config.MaxEntries > 0 && len(rl.limiters) >= rl.config.MaxEntries {
+		rl.evictOldest()
+	}
+
 	limiter := rate.NewLimiter(rate.Limit(rps), burst)
 	rl.limiters[key] = &ipLimiter{limiter: limiter, lastSeen: time.Now()}
 	return limiter
+}
+
+func (rl *RateLimiter) evictOldest() {
+	var oldestKey string
+	var oldestTime time.Time
+	for k, v := range rl.limiters {
+		if oldestKey == "" || v.lastSeen.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = v.lastSeen
+		}
+	}
+	if oldestKey != "" {
+		delete(rl.limiters, oldestKey)
+	}
 }
 
 func (rl *RateLimiter) AllowAuth(key string) bool {
