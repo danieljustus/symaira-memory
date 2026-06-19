@@ -64,12 +64,6 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 			server.SetPIIEnabled(*cfg.Security.PIIEnabled)
 		}
 		if servePort > 0 {
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer stop()
-			go func() {
-				<-ctx.Done()
-				os.Exit(0)
-			}()
 			_ = server.StartHTTPServer(servePort)
 		} else {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
