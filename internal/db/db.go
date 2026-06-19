@@ -536,17 +536,31 @@ type SearchResult struct {
 	Score  float32 `json:"similarity_score"`
 }
 
+// DefaultRankingWeights returns the default ranking configuration.
+func DefaultRankingWeights() RankingWeights {
+	return RankingWeights{
+		RelevanceWeight:  0.6,
+		RecencyWeight:    0.2,
+		ImportanceWeight: 0.2,
+		RecencyHalfLife:  30,
+	}
+}
+
 // SearchMemories uses LSH bucket pre-filtering to avoid full table scans,
 // then ranks the reduced candidate set by cosine similarity.
 func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]SearchResult, error) {
-	return db.SearchMemoriesFiltered(queryVec, scope, limit, "")
+	return db.SearchMemoriesFiltered(queryVec, scope, limit, "", DefaultRankingWeights())
 }
 
 // SearchMemoriesFiltered extends SearchMemories with an optional entity filter.
 // When entityID is non-empty, only memories linked to that entity are returned.
 // Uses a two-pass approach: first collects candidate IDs without loading embeddings,
 // then loads full memories only for scoring.
-func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int, entityID string) ([]SearchResult, error) {
+func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int, entityID string, weights ...RankingWeights) ([]SearchResult, error) {
+	w := DefaultRankingWeights()
+	if len(weights) > 0 {
+		w = weights[0]
+	}
 	const maxCandidates = 2000
 	const batchSize = 64
 	type scored struct {
@@ -640,7 +654,8 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 				return nil, err
 			}
 			if len(m.Embedding) > 0 {
-				score := CosineSimilarity(queryVec, m.Embedding)
+				relevance := CosineSimilarity(queryVec, m.Embedding)
+				score := float32(CompositeScore(relevance, m.CreatedAt, float64(m.Importance)/10.0, w))
 				results = append(results, scored{m: m, score: score})
 			}
 		}

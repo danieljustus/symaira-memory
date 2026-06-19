@@ -68,7 +68,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 
 	// Test Search (Vector Cosine Similarity check)
 	query := []float32{1.0, 0.0, 0.0} // Perfect match
-	results, err := database.SearchMemories(query, "", 5)
+	results, err := database.SearchMemoriesFiltered(query, "", 5, "", RankingWeights{RelevanceWeight: 1.0, RecencyWeight: 0, ImportanceWeight: 0, RecencyHalfLife: 30})
 	if err != nil {
 		t.Fatalf("failed to search memories: %v", err)
 	}
@@ -174,8 +174,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 13 {
-		t.Errorf("expected 13 migrations after two opens, got %d", count)
+	if count != 14 {
+		t.Errorf("expected 14 migrations after two opens, got %d", count)
 	}
 }
 
