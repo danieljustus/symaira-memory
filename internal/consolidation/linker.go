@@ -2,6 +2,7 @@ package consolidation
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -93,7 +94,7 @@ func (l *Linker) linkScopePair(scope1, scope2 string, result *LinkResult, dryRun
 
 			if err := l.createLink(m1, m2, sim, result); err != nil {
 				// Log but continue — a single failed link should not abort the run.
-				fmt.Printf("linker: skip link %s<->%s: %v\n", m1.ID[:8], m2.ID[:8], err)
+				fmt.Fprintf(os.Stderr, "linker: skip link %s<->%s: %v\n", m1.ID[:8], m2.ID[:8], err)
 				continue
 			}
 		}

@@ -103,7 +103,7 @@ func callMCP(s *Server, method string, params interface{}) map[string]interface{
 	return readFramedResponse(&output)
 }
 
-func callTool(s *Server, name string, args map[string]string) map[string]interface{} {
+func callTool(s *Server, name string, args map[string]interface{}) map[string]interface{} {
 	mcpSrv := s.MCPServer()
 	params, _ := json.Marshal(map[string]interface{}{
 		"name":      name,
@@ -225,7 +225,7 @@ func TestJSONRPCMethodNotFound(t *testing.T) {
 
 func TestToolMemoryGetMissingArgs(t *testing.T) {
 	s := helperServer(t)
-	res := callTool(s, "memory_get", map[string]string{})
+	res := callTool(s, "memory_get", map[string]interface{}{})
 
 	text := getToolText(res)
 	if !strings.Contains(text, "memory_get") {
@@ -238,7 +238,7 @@ func TestToolMemoryGetMissingArgs(t *testing.T) {
 
 func TestToolMemoryGetNotFound(t *testing.T) {
 	s := helperServer(t)
-	res := callTool(s, "memory_get", map[string]string{"id": "nonexistent"})
+	res := callTool(s, "memory_get", map[string]interface{}{"id": "nonexistent"})
 
 	text := getToolText(res)
 	if !strings.Contains(text, "Memory not found") {
@@ -259,7 +259,7 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 		t.Fatalf("failed to save test memory: %v", err)
 	}
 
-	res := callTool(s, "memory_get", map[string]string{"id": "test-mem-1"})
+	res := callTool(s, "memory_get", map[string]interface{}{"id": "test-mem-1"})
 
 	text := getToolText(res)
 	var mem db.Memory
@@ -280,7 +280,7 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 
 func TestToolMemorySetMissingContent(t *testing.T) {
 	s := helperServer(t)
-	res := callTool(s, "memory_set", map[string]string{"scope": "global"})
+	res := callTool(s, "memory_set", map[string]interface{}{"scope": "global"})
 
 	text := getToolText(res)
 	if !strings.Contains(text, "memory_set") {
@@ -294,7 +294,7 @@ func TestToolMemorySetMissingContent(t *testing.T) {
 func TestToolMemorySetAndSearch(t *testing.T) {
 	s := helperServer(t)
 
-	setRes := callTool(s, "memory_set", map[string]string{
+	setRes := callTool(s, "memory_set", map[string]interface{}{
 		"content":  "The API server runs on port 8080",
 		"scope":    "project",
 		"metadata": `{"source":"test"}`,
@@ -304,7 +304,7 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 		t.Errorf("expected success message, got %q", text)
 	}
 
-	searchRes := callTool(s, "memory_search", map[string]string{"query": "port 8080", "scope": "project", "limit": "5"})
+	searchRes := callTool(s, "memory_search", map[string]interface{}{"query": "port 8080", "scope": "project", "limit": 5})
 	code, _ := getToolError(searchRes)
 	if code != 0 {
 		t.Fatalf("unexpected error in search: %v", searchRes)
@@ -317,7 +317,7 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 
 func TestToolMemorySearchMissingQuery(t *testing.T) {
 	s := helperServer(t)
-	res := callTool(s, "memory_search", map[string]string{"limit": "5"})
+	res := callTool(s, "memory_search", map[string]interface{}{"limit": 5})
 
 	text := getToolText(res)
 	if !strings.Contains(text, "memory_search") {
@@ -330,7 +330,7 @@ func TestToolMemorySearchMissingQuery(t *testing.T) {
 
 func TestToolMemorySearchEmpty(t *testing.T) {
 	s := helperServer(t)
-	res := callTool(s, "memory_search", map[string]string{"query": "nonexistent topic", "limit": "3"})
+	res := callTool(s, "memory_search", map[string]interface{}{"query": "nonexistent topic", "limit": 3})
 
 	text := getToolText(res)
 	if !strings.Contains(text, "No relevant memories found") {
@@ -344,7 +344,7 @@ func TestToolMemorySearchEmpty(t *testing.T) {
 
 func TestToolMemoryListEmpty(t *testing.T) {
 	s := helperServer(t)
-	res := callTool(s, "memory_list", map[string]string{})
+	res := callTool(s, "memory_list", map[string]interface{}{})
 
 	text := getToolText(res)
 	if !strings.Contains(text, "Memory store is empty") {
@@ -359,7 +359,7 @@ func TestToolMemoryListWithMemories(t *testing.T) {
 	s.db.SaveMemory(m1)
 	s.db.SaveMemory(m2)
 
-	res := callTool(s, "memory_list", map[string]string{})
+	res := callTool(s, "memory_list", map[string]interface{}{})
 
 	text := getToolText(res)
 	var mems []*db.Memory
@@ -383,7 +383,7 @@ func TestToolMemoryListWithLimit(t *testing.T) {
 		s.db.SaveMemory(m)
 	}
 
-	res := callTool(s, "memory_list", map[string]string{"limit": "2"})
+	res := callTool(s, "memory_list", map[string]interface{}{"limit": 2})
 
 	text := getToolText(res)
 	var mems []*db.Memory
@@ -407,7 +407,7 @@ func TestToolMemoryListLimitClampedToMax(t *testing.T) {
 		s.db.SaveMemory(m)
 	}
 
-	res := callTool(s, "memory_list", map[string]string{"limit": "5000"})
+	res := callTool(s, "memory_list", map[string]interface{}{"limit": 5000})
 
 	text := getToolText(res)
 	var mems []*db.Memory
@@ -431,15 +431,11 @@ func TestToolMemoryListInvalidLimitFallsBackToDefault(t *testing.T) {
 		s.db.SaveMemory(m)
 	}
 
-	res := callTool(s, "memory_list", map[string]string{"limit": "not-a-number"})
+	res := callTool(s, "memory_list", map[string]interface{}{"limit": "not-a-number"})
 
 	text := getToolText(res)
-	var mems []*db.Memory
-	if err := json.Unmarshal([]byte(text), &mems); err != nil {
-		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
-	}
-	if len(mems) != 2 {
-		t.Errorf("expected 2 memories (default limit), got %d", len(mems))
+	if !strings.Contains(text, "failed to parse arguments") {
+		t.Errorf("expected parse error for invalid limit type, got text=%q", text)
 	}
 }
 

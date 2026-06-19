@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/danieljustus/symaira-corekit/mcpserver"
@@ -80,14 +82,14 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_search",
 		Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"string","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"}},"required":["query"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"}},"required":["query"]}`),
 		Handler:     s.handleMemorySearch,
 	})
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_list",
 		Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"string","description":"Optional maximum number of memories to return (default 100, max 1000)"}}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of memories to return (default 100, max 1000)"}}}`),
 		Handler:     s.handleMemoryList,
 	})
 
@@ -177,7 +179,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 	var args struct {
 		Query  string `json:"query"`
 		Scope  string `json:"scope"`
-		Limit  string `json:"limit"`
+		Limit  int    `json:"limit"`
 		Entity string `json:"entity"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
@@ -187,11 +189,9 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		return nil, fmt.Errorf("Invalid arguments for 'memory_search': 'query' is required")
 	}
 
-	limit := 5
-	if args.Limit != "" {
-		if l, err := strconv.Atoi(args.Limit); err == nil && l > 0 {
-			limit = l
-		}
+	limit := args.Limit
+	if limit <= 0 {
+		limit = 5
 	}
 
 	var entityID string
@@ -225,20 +225,15 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
 		Scope string `json:"scope"`
-		Limit string `json:"limit"`
+		Limit int    `json:"limit"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("Invalid arguments for 'memory_list': failed to parse arguments: %w", err)
 	}
 
-	limit := 100
-	if args.Limit != "" {
-		if l, err := strconv.Atoi(args.Limit); err == nil {
-			limit = l
-		}
-	}
+	limit := args.Limit
 	if limit < 1 {
-		limit = 1
+		limit = 100
 	}
 	if limit > 1000 {
 		limit = 1000
@@ -284,8 +279,28 @@ func writeJSONError(w http.ResponseWriter, status int, safeMsg string, internal 
 
 func (s *Server) StartHTTPServer(port int) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	srv := &http.Server{
+		Addr:    addr,
+		Handler: s.httpMux(),
+	}
 	fmt.Fprintf(os.Stderr, "⚡ Symaira Memory API Listening on http://%s\n", addr)
-	return http.ListenAndServe(addr, s.httpMux())
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return srv.Shutdown(shutdownCtx)
+	}
 }
 
 func (s *Server) enableCORS(w http.ResponseWriter, r *http.Request) bool {
@@ -813,7 +828,9 @@ func (s *Server) httpMux() http.Handler {
 		return "data"
 	}
 
-	return RateLimitMiddleware(s.rateLimiter, mux, classify)
+	var handler http.Handler = mux
+	handler = securityHeadersHandler(handler)
+	return RateLimitMiddleware(s.rateLimiter, handler, classify)
 }
 
 func matchOrigin(origin, pattern string) bool {
@@ -825,4 +842,15 @@ func matchOrigin(origin, pattern string) bool {
 		return strings.HasPrefix(origin, scheme+"://")
 	}
 	return origin == pattern
+}
+
+// securityHeadersHandler adds Content-Security-Policy, X-Content-Type-Options,
+// and X-Frame-Options headers to all HTTP responses.
+func securityHeadersHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
 }

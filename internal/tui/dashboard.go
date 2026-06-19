@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -300,6 +301,11 @@ func (m model) View() string {
 
 // RunDashboard launches the Bubble Tea console.
 func RunDashboard(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPort int) error {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "TUI panic recovered: %v\n", r)
+		}
+	}()
 	p := tea.NewProgram(InitialModel(database, dbPath, ollamaURL, ollamaModel, httpPort), tea.WithAltScreen())
 	_, err := p.Run()
 	return err

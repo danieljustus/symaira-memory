@@ -1,6 +1,10 @@
 package db
 
-import "math/rand"
+import (
+	"fmt"
+	"math/rand"
+	"os"
+)
 
 const (
 	// LSHBits controls the number of hash bits (and thus bucket count = 2^LSHBits).
@@ -31,6 +35,9 @@ func init() {
 func ComputeLSH(vec []float32) int {
 	if len(vec) == 0 {
 		return 0
+	}
+	if len(vec) != EmbeddingDim {
+		fmt.Fprintf(os.Stderr, "lsh: dimension mismatch: got %d, expected %d — truncating\n", len(vec), EmbeddingDim)
 	}
 	var hash int
 	for i, proj := range lshProjections {
