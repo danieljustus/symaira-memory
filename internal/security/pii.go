@@ -24,9 +24,16 @@ func NewPIIGuard() *PIIGuard {
 		regexp.MustCompile(`(?i)(?:xox[abposr]-[a-zA-Z0-9-]{10,60})`),                              // Slack Token
 		regexp.MustCompile(`(?i)(?:sk_live_[a-zA-Z0-9]{24,})`),                                     // Stripe Live Key
 		regexp.MustCompile(`(?i)(?:-----BEGIN\s(?:RSA\s|EC\s|DSA\s|OPENSSH\s)?PRIVATE\sKEY-----)`), // Private Key Header
+		regexp.MustCompile(`(?i)(?:sk-[a-zA-Z0-9]{20,})`),                                          // Generic sk- key (OpenAI, etc.)
+		regexp.MustCompile(`(?i)(?:eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,})`),                 // Raw JWT token
+		regexp.MustCompile(`(?i)(?:ssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{40,})`),                // SSH public key
+		regexp.MustCompile(`(?i)(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis|amqp)://[^\s]+`),  // Connection strings
 
 		// E-mail Addresses
 		regexp.MustCompile(`(?i)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`),
+
+		// Phone Numbers (international format with country code, must have + prefix)
+		regexp.MustCompile(`\+\d{1,3}[\s.-]?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,4}`),
 
 		// Credit Card Numbers (prefix-validated: Visa 4, MC 51-55/22-27, Amex 34/37, Discover 6011/65)
 		regexp.MustCompile(`\b(?:4\d{3}|5[1-5]\d{2}|2[2-7]\d{2}|3[47]\d{2}|65\d{2}|6011)(?:[ -]?\d){9,12}\b`),
