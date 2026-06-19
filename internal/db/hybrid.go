@@ -5,8 +5,44 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 )
+
+var bm25Cache = struct {
+	sync.RWMutex
+	entries map[string]*bm25CacheEntry
+}{
+	entries: make(map[string]*bm25CacheEntry),
+}
+
+type bm25CacheEntry struct {
+	index     *bm25Index
+	memories  []*Memory
+	expiresAt time.Time
+}
+
+const bm25CacheTTL = 5 * time.Minute
+
+func getBM25Cache(scope string) (*bm25Index, []*Memory, bool) {
+	bm25Cache.RLock()
+	defer bm25Cache.RUnlock()
+	entry, ok := bm25Cache.entries[scope]
+	if ok && time.Now().Before(entry.expiresAt) {
+		return entry.index, entry.memories, true
+	}
+	return nil, nil, false
+}
+
+func setBM25Cache(scope string, index *bm25Index, memories []*Memory) {
+	bm25Cache.Lock()
+	defer bm25Cache.Unlock()
+	bm25Cache.entries[scope] = &bm25CacheEntry{
+		index:     index,
+		memories:  memories,
+		expiresAt: time.Now().Add(bm25CacheTTL),
+	}
+}
 
 var stopWords = map[string]bool{
 	"a": true, "an": true, "the": true, "is": true, "are": true, "was": true,
@@ -157,22 +193,30 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 	}
 
 	var memories []*Memory
-	var err error
-	if scope != "" {
-		memories, err = db.ListMemoriesLite(scope, 0, 5000)
-	} else {
-		memories, err = db.ListMemoriesLite("", 0, 5000)
-	}
-	if err != nil {
-		return nil, err
-	}
-	if len(memories) == 0 {
-		return nil, nil
-	}
+	var idx *bm25Index
 
-	idx := newBM25Index()
-	for _, m := range memories {
-		idx.addDoc(m.ID, m.Content)
+	if cachedIdx, cachedMems, ok := getBM25Cache(scope); ok {
+		idx = cachedIdx
+		memories = cachedMems
+	} else {
+		var err error
+		if scope != "" {
+			memories, err = db.ListMemoriesLite(scope, 0, 5000)
+		} else {
+			memories, err = db.ListMemoriesLite("", 0, 5000)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if len(memories) == 0 {
+			return nil, nil
+		}
+
+		idx = newBM25Index()
+		for _, m := range memories {
+			idx.addDoc(m.ID, m.Content)
+		}
+		setBM25Cache(scope, idx, memories)
 	}
 
 	bm25Scores := idx.score(queryTerms)
