@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -44,7 +43,15 @@ func (db *DB) SaveEntity(e *Entity) error {
 			updated_at=excluded.updated_at`
 
 	_, err = db.conn.Exec(query, e.ID, e.Name, e.Type, string(aliasesJSON), e.Description, e.CreatedBy, e.CreatedAt, e.UpdatedAt)
-	return err
+	if err != nil {
+		return err
+	}
+
+	_, _ = db.conn.Exec("DELETE FROM entities_aliases WHERE entity_id = ?", e.ID)
+	for _, alias := range e.Aliases {
+		_, _ = db.conn.Exec("INSERT OR IGNORE INTO entities_aliases (entity_id, alias) VALUES (?, ?)", e.ID, alias)
+	}
+	return nil
 }
 
 // ResolveEntity finds an entity by name (case-insensitive) or by alias match.
@@ -69,30 +76,25 @@ func (db *DB) ResolveEntity(nameOrAlias string) (*Entity, error) {
 		return nil, err
 	}
 
-	rows, err := db.conn.Query(`SELECT id, name, type, aliases, description, created_by, created_at, updated_at FROM entities`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+	aliasQuery := `SELECT e.id, e.name, e.type, e.aliases, e.description, e.created_by, e.created_at, e.updated_at
+		FROM entities e
+		INNER JOIN entities_aliases ea ON ea.entity_id = e.id
+		WHERE ea.alias = ? COLLATE NOCASE`
 
-	for rows.Next() {
-		var candidate Entity
-		var candAliases string
-		if err := rows.Scan(&candidate.ID, &candidate.Name, &candidate.Type, &candAliases, &candidate.Description, &candidate.CreatedBy, &candidate.CreatedAt, &candidate.UpdatedAt); err != nil {
+	err = db.conn.QueryRow(aliasQuery, nameOrAlias).Scan(
+		&e.ID, &e.Name, &e.Type, &aliasesStr, &e.Description,
+		&e.CreatedBy, &e.CreatedAt, &e.UpdatedAt,
+	)
+	if err == nil {
+		if err := json.Unmarshal([]byte(aliasesStr), &e.Aliases); err != nil {
 			return nil, err
 		}
-		var aliases []string
-		if err := json.Unmarshal([]byte(candAliases), &aliases); err != nil {
-			return nil, err
-		}
-		for _, alias := range aliases {
-			if strings.EqualFold(alias, nameOrAlias) {
-				candidate.Aliases = aliases
-				return &candidate, nil
-			}
-		}
+		return &e, nil
 	}
-	return nil, nil
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	return nil, err
 }
 
 // GetEntityByName retrieves an entity by its exact name (case-insensitive).
@@ -147,6 +149,7 @@ func (db *DB) ListEntities() ([]*Entity, error) {
 // DeleteEntity removes an entity by ID and its memory links.
 func (db *DB) DeleteEntity(id string) error {
 	_, _ = db.conn.Exec("DELETE FROM memory_entities WHERE entity_id = ?", id)
+	_, _ = db.conn.Exec("DELETE FROM entities_aliases WHERE entity_id = ?", id)
 	_, err := db.conn.Exec("DELETE FROM entities WHERE id = ?", id)
 	return err
 }
