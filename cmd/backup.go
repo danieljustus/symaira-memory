@@ -38,15 +38,16 @@ var exportCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		destPath := args[0]
 
-		// Find source database path
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: failed to resolve user home: %v\n", err)
-			os.Exit(1)
+		cfg := GetConfig()
+		dbPath := cfg.Database.Path
+		if dbPath == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: failed to resolve user home: %v\n", err)
+				os.Exit(1)
+			}
+			dbPath = filepath.Join(home, ".local", "share", "symmemory", "default.db")
 		}
-
-		dbDir := filepath.Join(home, ".local", "share", "symmemory")
-		dbPath := filepath.Join(dbDir, "default.db")
 
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 			fmt.Fprintf(os.Stderr, "Error: database file does not exist yet. Add memories first!\n")
@@ -184,15 +185,19 @@ var importCmd = &cobra.Command{
 		}
 
 		// Save database locally, overwriting previous DB
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+		cfg := GetConfig()
+		dbPath := cfg.Database.Path
+		if dbPath == "" {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			dbPath = filepath.Join(home, ".local", "share", "symmemory", "default.db")
 		}
 
-		dbDir := filepath.Join(home, ".local", "share", "symmemory")
+		dbDir := filepath.Dir(dbPath)
 		_ = os.MkdirAll(dbDir, 0700)
-		dbPath := filepath.Join(dbDir, "default.db")
 
 		// Write database
 		if err := os.WriteFile(dbPath, dbBytes, 0600); err != nil {
