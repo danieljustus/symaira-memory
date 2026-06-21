@@ -42,10 +42,15 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 		meta["project_name"] = detector.DetectActiveProject()
 	}
 
+	cleanMeta := meta
+	if piiEnabled {
+		cleanMeta = security.RedactMap(meta)
+	}
+
 	return &db.Memory{
 		Content:        cleanContent,
 		Scope:          scope,
-		Metadata:       meta,
+		Metadata:       cleanMeta,
 		CreatedBy:      attr.Author,
 		UpdatedBy:      attr.Author,
 		CreatedSession: attr.SessionID,
@@ -112,6 +117,9 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 		}
 		if m.Scope == "project" {
 			subMeta["project_name"] = m.Metadata["project_name"]
+		}
+		if piiEnabled {
+			subMeta = security.RedactMap(subMeta)
 		}
 
 		subMem := &db.Memory{

@@ -641,6 +641,7 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 		}
 		if s.piiEnabled {
 			m.Content = security.Redact(m.Content)
+			m.Metadata = security.RedactMap(m.Metadata)
 		}
 		isNew, err := s.db.UpsertMemoryIfNewer(m)
 		if err != nil {

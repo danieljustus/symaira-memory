@@ -898,6 +898,53 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 	}
 }
 
+func TestSyncApplyMetadataPIIRedaction(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	withPIIMeta := &db.Memory{
+		ID:        "310e8400-e29b-41d4-a716-446655440020",
+		Content:   "clean content",
+		Scope:     "global",
+		Metadata:  map[string]string{"contact": "eve@example.com", "source": "sync"},
+		Embedding: []float32{0.1},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	payload, _ := json.Marshal(map[string][]*db.Memory{
+		"memories": {withPIIMeta},
+	})
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/sync/apply", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	stored, _ := s.db.GetMemory("310e8400-e29b-41d4-a716-446655440020")
+	if stored == nil {
+		t.Fatal("expected memory to be stored")
+	}
+	if stored.Metadata["contact"] != "[REDACTED_EMAIL]" {
+		t.Errorf("expected metadata email redacted, got %q", stored.Metadata["contact"])
+	}
+	if stored.Metadata["source"] != "sync" {
+		t.Errorf("expected clean metadata preserved, got %q", stored.Metadata["source"])
+	}
+}
+
 // --------------------------------------------------------------------------
 // Sync: apply rejects non-UUID memory IDs
 // --------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/google/uuid"
 )
 
@@ -56,9 +57,9 @@ func (s *SmartImporter) storeFact(fact ImportedFact) error {
 
 	memory := &db.Memory{
 		ID:                  uuid.New().String(),
-		Content:             fact.Content,
+		Content:             security.Redact(fact.Content),
 		Scope:               "agent",
-		Metadata:            metadata,
+		Metadata:            security.RedactMap(metadata),
 		CreatedAt:           fact.Timestamp,
 		ConsolidationStatus: "raw",
 	}

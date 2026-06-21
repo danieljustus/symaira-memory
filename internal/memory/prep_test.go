@@ -42,6 +42,38 @@ func TestPreparePIIRedaction(t *testing.T) {
 	}
 }
 
+func TestPreparePIIMetadataRedaction(t *testing.T) {
+	meta := map[string]string{
+		"source":  "import",
+		"contact": "alice@example.com",
+		"token":   "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+	}
+	mem, err := Prepare("clean content", "global", meta, true, Attribution{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mem.Metadata["contact"] != "[REDACTED_EMAIL]" {
+		t.Errorf("expected metadata email redacted, got %q", mem.Metadata["contact"])
+	}
+	if mem.Metadata["token"] != "[REDACTED_API_KEY]" {
+		t.Errorf("expected metadata API key redacted, got %q", mem.Metadata["token"])
+	}
+	if mem.Metadata["source"] != "import" {
+		t.Errorf("expected clean metadata preserved, got %q", mem.Metadata["source"])
+	}
+}
+
+func TestPreparePIIMetadataDisabled(t *testing.T) {
+	meta := map[string]string{"contact": "alice@example.com"}
+	mem, err := Prepare("clean content", "global", meta, false, Attribution{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mem.Metadata["contact"] != "alice@example.com" {
+		t.Errorf("expected metadata unchanged when PII disabled, got %q", mem.Metadata["contact"])
+	}
+}
+
 func TestPreparePIIDisabled(t *testing.T) {
 	content := "contact me at john@example.com for details"
 	mem, err := Prepare(content, "global", nil, false, Attribution{})
@@ -264,6 +296,35 @@ func TestStoreWithPIIRedaction(t *testing.T) {
 	}
 	if strings.Contains(got.Content, "alice@example.com") {
 		t.Errorf("expected PII to be redacted in stored content, got '%s'", got.Content)
+	}
+}
+
+func TestStoreWithPIIMetadataRedaction(t *testing.T) {
+	database := helperMemDB(t)
+	cfg := config.Defaults()
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	patternExtractor := extractor.NewPatternExtractor()
+
+	attr := Attribution{Author: "test"}
+	meta := map[string]string{
+		"source":  "import",
+		"contact": "bob@example.com",
+	}
+
+	m, _, err := Store(database, embeddings, patternExtractor, "clean content", "global", meta, true, attr, nil)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	got, _ := database.GetMemory(m.ID)
+	if got == nil {
+		t.Fatal("expected memory to be saved")
+	}
+	if got.Metadata["contact"] != "[REDACTED_EMAIL]" {
+		t.Errorf("expected metadata email redacted, got %q", got.Metadata["contact"])
+	}
+	if got.Metadata["source"] != "import" {
+		t.Errorf("expected clean metadata preserved, got %q", got.Metadata["source"])
 	}
 }
 
