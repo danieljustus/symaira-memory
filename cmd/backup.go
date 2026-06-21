@@ -13,8 +13,8 @@ import (
 
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/spf13/cobra"
-	_ "modernc.org/sqlite"
 	"golang.org/x/term"
+	_ "modernc.org/sqlite"
 )
 
 var (

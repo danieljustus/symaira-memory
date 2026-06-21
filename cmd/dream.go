@@ -11,9 +11,9 @@ import (
 )
 
 var (
-	dreamDryRun   bool
-	dreamScope    string
-	dreamFormat   string
+	dreamDryRun bool
+	dreamScope  string
+	dreamFormat string
 )
 
 func init() {
@@ -24,10 +24,10 @@ func init() {
 }
 
 type dreamOutput struct {
-	Scope      string `json:"scope"`
-	NewMemories int   `json:"new_memories"`
-	Archived   int    `json:"archived"`
-	DryRun     bool   `json:"dry_run"`
+	Scope       string `json:"scope"`
+	NewMemories int    `json:"new_memories"`
+	Archived    int    `json:"archived"`
+	DryRun      bool   `json:"dry_run"`
 }
 
 var dreamCmd = &cobra.Command{
