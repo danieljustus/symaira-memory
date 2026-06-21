@@ -24,12 +24,14 @@ var (
 	importTool   string
 	importAll    bool
 	importDryRun bool
+	importList   bool
 )
 
 func init() {
 	importSessionsCmd.Flags().StringVar(&importTool, "tool", "", "Import from specific tool (e.g., claude-code)")
 	importSessionsCmd.Flags().BoolVar(&importAll, "all", false, "Import from all registered tools")
 	importSessionsCmd.Flags().BoolVar(&importDryRun, "dry-run", false, "Show what would be imported without writing")
+	importSessionsCmd.Flags().BoolVar(&importList, "list", false, "Show configured importers and their status")
 	rootCmd.AddCommand(importSessionsCmd)
 }
 
@@ -47,8 +49,24 @@ Examples:
   symmemory import --all
   symmemory import --tool claude-code --dry-run`,
 	Run: func(cmd *cobra.Command, args []string) {
+		if importList {
+			cfg := GetConfig()
+			tools := []string{"claude-code", "codex", "hermes", "aider", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless"}
+			for _, tool := range tools {
+				tc, ok := cfg.Import.Tools[tool]
+				status := "not configured"
+				if ok && tc.Path != "" {
+					status = "configured (path: " + tc.Path + ")"
+				} else if ok {
+					status = "configured (no path)"
+				}
+				fmt.Printf("%-15s %s\n", tool, status)
+			}
+			return
+		}
+
 		if !importAll && importTool == "" {
-			fmt.Fprintln(os.Stderr, "Error: either --tool or --all flag is required")
+			fmt.Fprintln(os.Stderr, "Error: either --tool, --all, or --list flag is required")
 			os.Exit(1)
 		}
 

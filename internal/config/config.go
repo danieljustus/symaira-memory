@@ -16,6 +16,7 @@ type Config struct {
 	Context       ContextConfig       `json:"context"`
 	Retention     RetentionConfig     `json:"retention"`
 	HybridSearch  HybridSearchConfig  `json:"hybrid_search"`
+	Import        ImportConfig        `json:"import"`
 }
 
 type DatabaseConfig struct {
@@ -82,6 +83,18 @@ type HybridSearchConfig struct {
 	VectorWeight float64 `json:"vector_weight"` // vector weight in fusion (default 0.7)
 	MMREnabled   bool    `json:"mmr_enabled"`   // enable MMR diversity (default false)
 	MMRLambda    float64 `json:"mmr_lambda"`    // MMR lambda (0=diversity, 1=relevance, default 0.7)
+}
+
+// ImportConfig holds per-tool import settings.
+type ImportConfig struct {
+	Tools map[string]ImportToolConfig `json:"tools"`
+}
+
+// ImportToolConfig holds configuration for a single importer.
+type ImportToolConfig struct {
+	Path    string            `json:"path"`
+	Token   string            `json:"token"`
+	Options map[string]string `json:"options"`
 }
 
 // Defaults returns a Config with sensible default values.
