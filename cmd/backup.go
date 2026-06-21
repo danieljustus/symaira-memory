@@ -22,6 +22,8 @@ var (
 	backupPasswordFile string
 )
 
+const maxTarEntrySize = 1 << 30 // 1 GiB
+
 func init() {
 	backupCmd.AddCommand(exportCmd)
 	backupCmd.AddCommand(importCmd)
@@ -268,16 +270,21 @@ var importCmd = &cobra.Command{
 				os.Exit(1)
 			}
 
-			if strings.HasPrefix(header.Name, "default.db") {
-				filename = header.Name
-				var buf bytesBuffer
-				if _, err := io.Copy(&buf, tr); err != nil {
-					fmt.Fprintf(os.Stderr, "Copy failure: %v\n", err)
-					os.Exit(1)
-				}
-				payload = buf.Bytes()
-				break
+		if strings.HasPrefix(header.Name, "default.db") {
+			filename = header.Name
+			limited := io.LimitReader(tr, maxTarEntrySize+1)
+			var buf bytesBuffer
+			if _, err := io.Copy(&buf, limited); err != nil {
+				fmt.Fprintf(os.Stderr, "Copy failure: %v\n", err)
+				os.Exit(1)
 			}
+			if int64(buf.Len()) > maxTarEntrySize {
+				fmt.Fprintf(os.Stderr, "Error: database entry exceeds maximum allowed size (%d bytes)\n", maxTarEntrySize)
+				os.Exit(1)
+			}
+			payload = buf.Bytes()
+			break
+		}
 		}
 
 		if len(payload) == 0 {
@@ -385,4 +392,8 @@ func (b *bytesBuffer) Write(p []byte) (n int, err error) {
 
 func (b *bytesBuffer) Bytes() []byte {
 	return b.buf
+}
+
+func (b *bytesBuffer) Len() int {
+	return len(b.buf)
 }
