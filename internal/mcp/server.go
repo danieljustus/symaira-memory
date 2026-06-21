@@ -47,7 +47,7 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version strin
 		piiEnabled:     true,
 		version:        version,
 		cfg:            cfg,
-		rateLimiter:    NewRateLimiter(DefaultRateLimitConfig()),
+		rateLimiter:    NewRateLimiter(DefaultRateLimitConfig(), cfg.Security.TrustedProxies...),
 	}
 }
 

@@ -33,7 +33,8 @@ type JWTConfig struct {
 }
 
 type SecurityConfig struct {
-	PIIEnabled *bool `json:"pii_enabled"`
+	PIIEnabled     *bool    `json:"pii_enabled"`
+	TrustedProxies []string `json:"trusted_proxies"`
 }
 
 type ServerConfig struct {

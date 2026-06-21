@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -40,17 +42,26 @@ type ipLimiter struct {
 }
 
 type RateLimiter struct {
-	mu       sync.Mutex
-	limiters map[string]*ipLimiter
-	config   RateLimitConfig
-	stopCh   chan struct{}
+	mu             sync.Mutex
+	limiters       map[string]*ipLimiter
+	config         RateLimitConfig
+	stopCh         chan struct{}
+	trustedProxies []*net.IPNet
 }
 
-func NewRateLimiter(cfg RateLimitConfig) *RateLimiter {
+func NewRateLimiter(cfg RateLimitConfig, trustedProxies ...string) *RateLimiter {
 	rl := &RateLimiter{
 		limiters: make(map[string]*ipLimiter),
 		config:   cfg,
 		stopCh:   make(chan struct{}),
+	}
+	for _, cidr := range trustedProxies {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ratelimit: invalid trusted proxy CIDR %q: %v\n", cidr, err)
+			continue
+		}
+		rl.trustedProxies = append(rl.trustedProxies, network)
 	}
 	go rl.cleanupLoop()
 	return rl
@@ -125,8 +136,23 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// clientIP extracts the client IP, respecting X-Forwarded-For and X-Real-IP for reverse-proxy deployments.
-func clientIP(r *http.Request) string {
+// clientIP extracts the client IP, respecting X-Forwarded-For and X-Real-IP only
+// when the direct connection IP matches a configured trusted proxy.
+func (rl *RateLimiter) clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+
+	directIP := net.ParseIP(host)
+	if directIP == nil {
+		return host
+	}
+
+	if !rl.isTrustedProxy(directIP) {
+		return host
+	}
+
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 		if idx := strings.IndexByte(xff, ','); idx != -1 {
 			xff = strings.TrimSpace(xff[:idx])
@@ -138,16 +164,24 @@ func clientIP(r *http.Request) string {
 	if xri := r.Header.Get("X-Real-IP"); xri != "" {
 		return xri
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
 	return host
+}
+
+func (rl *RateLimiter) isTrustedProxy(ip net.IP) bool {
+	if len(rl.trustedProxies) == 0 {
+		return false
+	}
+	for _, network := range rl.trustedProxies {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func RateLimitMiddleware(rl *RateLimiter, next http.Handler, classify func(r *http.Request) string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
+		ip := rl.clientIP(r)
 		tier := classify(r)
 
 		var allowed bool
