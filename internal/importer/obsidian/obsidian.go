@@ -24,8 +24,6 @@ type ObsidianImporter struct {
 }
 
 var (
-	// Matches YAML frontmatter between --- markers
-	frontmatterRe = regexp.MustCompile(`(?s)^---\n(.*?)\n---`)
 	// Matches wikilinks [[...]]
 	wikilinkRe = regexp.MustCompile(`\[\[([^\]|]+)(?:\|[^\]]+)?\]\]`)
 	// Matches tags #tag (including hyphens)

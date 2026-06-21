@@ -87,7 +87,7 @@ Examples:
 		registry.Register(obsidian.NewObsidianImporter("", "", nil, nil, nil))
 		registry.Register(paperless.NewPaperlessImporter("", "", "", "", 0))
 
-		tools := []string{}
+		var tools []string
 		if importAll {
 			tools = registry.List()
 		} else {

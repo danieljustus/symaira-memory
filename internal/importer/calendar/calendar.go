@@ -15,11 +15,10 @@ import (
 
 // CalendarImporter imports events from Google Calendar.
 type CalendarImporter struct {
-	calendarID   string // "primary" or specific calendar ID
-	includeDesc  bool
-	tokenPath    string // path to OAuth token JSON
-	includeDays  int    // upcoming days to include
-	onlyIncoming bool   // only import upcoming events (no past)
+	calendarID  string // "primary" or specific calendar ID
+	includeDesc bool
+	tokenPath   string // path to OAuth token JSON
+	includeDays int    // upcoming days to include
 }
 
 // calendarEvent represents a Google Calendar event from the API.

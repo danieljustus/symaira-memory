@@ -40,11 +40,10 @@ var tagPrefixes = map[string]string{
 }
 
 type ShellHistoryImporter struct {
-	historyPath    string
-	successOnly    bool
-	filters        []string
-	minDurationMs  int
-	excludeFolders []string
+	historyPath   string
+	successOnly   bool
+	filters       []string
+	minDurationMs int
 }
 
 func NewShellHistoryImporter(historyPath string, successOnly bool, filters []string) *ShellHistoryImporter {

@@ -173,9 +173,7 @@ func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dry
 			}
 		}
 
-		for _, discID := range res.DiscardedIDs {
-			summary.ArchivedMemoryIDs = append(summary.ArchivedMemoryIDs, discID)
-		}
+		summary.ArchivedMemoryIDs = append(summary.ArchivedMemoryIDs, res.DiscardedIDs...)
 
 		if !dryRun {
 			tx, err := eng.database.BeginTransaction()
@@ -237,7 +235,7 @@ func (eng *Engine) consolidateWithLLM(ctx context.Context, scope string, memorie
 	var builder strings.Builder
 	builder.WriteString("<memory_content>\n")
 	for _, m := range memories {
-		builder.WriteString(fmt.Sprintf("- ID: %s\n  Content: %s\n  Created: %s\n", m.ID, m.Content, m.CreatedAt.Format(time.RFC3339)))
+		fmt.Fprintf(&builder, "- ID: %s\n  Content: %s\n  Created: %s\n", m.ID, m.Content, m.CreatedAt.Format(time.RFC3339))
 	}
 	builder.WriteString("</memory_content>")
 
