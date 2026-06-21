@@ -49,7 +49,7 @@ func helperServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("failed to create JWT provider: %v", err)
 	}
-	return NewServer(database, jwtProvider, "test", nil)
+	return NewServer(database, jwtProvider, "test", config.Defaults())
 }
 
 func frameRequest(data []byte) []byte {
