@@ -3,7 +3,6 @@ package consolidation
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 )
@@ -120,10 +119,10 @@ func (l *Linker) similarityScore(m1, m2 *db.Memory) float32 {
 	return float32(l.jaccardContent(m1.Content, m2.Content))
 }
 
-// jaccardContent computes Jaccard similarity over whitespace-split tokens.
+// jaccardContent computes Jaccard similarity over tokenized content.
 func (l *Linker) jaccardContent(a, b string) float64 {
-	tokensA := tokenize(a)
-	tokensB := tokenize(b)
+	tokensA := db.Tokenize(a)
+	tokensB := db.Tokenize(b)
 	if len(tokensA) == 0 || len(tokensB) == 0 {
 		return 0
 	}
@@ -146,12 +145,6 @@ func (l *Linker) jaccardContent(a, b string) float64 {
 		return 0
 	}
 	return float64(intersection) / float64(union)
-}
-
-// tokenize splits on whitespace and lowercases.
-func tokenize(s string) []string {
-	parts := strings.Fields(strings.ToLower(s))
-	return parts
 }
 
 // createLink handles the linking of two highly similar memories from different scopes.

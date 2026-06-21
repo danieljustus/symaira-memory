@@ -67,7 +67,8 @@ var stopWords = map[string]bool{
 	"it": true, "its": true, "they": true, "them": true, "their": true,
 }
 
-func tokenize(text string) []string {
+// Tokenize splits text into lowercased tokens, filtering stop words and short words.
+func Tokenize(text string) []string {
 	var tokens []string
 	var current strings.Builder
 	for _, r := range strings.ToLower(text) {
@@ -115,7 +116,7 @@ func (idx *bm25Index) addDoc(id, content string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	terms := tokenize(content)
+	terms := Tokenize(content)
 	termCounts := make(map[string]int)
 	for _, t := range terms {
 		termCounts[t]++
@@ -187,7 +188,7 @@ func ReciprocalRankFusion(rankedLists [][]string, k int) map[string]float64 {
 
 // SearchMemoriesBM25 performs keyword-based search using BM25 scoring.
 func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]SearchResult, error) {
-	queryTerms := tokenize(query)
+	queryTerms := Tokenize(query)
 	if len(queryTerms) == 0 {
 		return nil, nil
 	}
