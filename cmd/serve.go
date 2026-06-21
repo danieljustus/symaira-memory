@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -64,7 +66,14 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 			server.SetPIIEnabled(*cfg.Security.PIIEnabled)
 		}
 		if servePort > 0 {
-			_ = server.StartHTTPServer(servePort)
+			if err := server.StartHTTPServer(servePort); err != nil {
+				if errors.Is(err, http.ErrServerClosed) {
+					os.Exit(0)
+				}
+				fmt.Fprintf(os.Stderr, "HTTP server error: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(0)
 		} else {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()

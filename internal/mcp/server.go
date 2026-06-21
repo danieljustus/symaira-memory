@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -283,6 +284,11 @@ func (s *Server) StartHTTPServer(port int) error {
 		Addr:    addr,
 		Handler: s.httpMux(),
 	}
+
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to bind to %s: %w", addr, err)
+	}
 	fmt.Fprintf(os.Stderr, "⚡ Symaira Memory API Listening on http://%s\n", addr)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -290,7 +296,7 @@ func (s *Server) StartHTTPServer(port int) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- srv.ListenAndServe()
+		errCh <- srv.Serve(ln)
 	}()
 
 	select {
