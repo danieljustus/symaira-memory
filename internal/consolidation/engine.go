@@ -1,17 +1,16 @@
 package consolidation
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/llm"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/google/uuid"
 )
@@ -41,29 +40,13 @@ type ScopeChangeSummary struct {
 type Engine struct {
 	database    *db.DB
 	embeddings  *extractor.EmbeddingsGenerator
-	llmURL      string
-	llmModel    string
-	llmProvider string // "ollama" | "openai"
+	llmClient   *llm.Client
+	llmProvider string
 	piiEnabled  bool
-	httpClient  *http.Client
 }
 
 // NewEngine creates a new consolidation engine instance.
 func NewEngine(database *db.DB, embeddings *extractor.EmbeddingsGenerator, llmURL, llmModel, llmProvider string, piiEnabled bool) *Engine {
-	if llmURL == "" {
-		if llmProvider == "openai" {
-			llmURL = "https://api.openai.com/v1/chat/completions"
-		} else {
-			llmURL = "http://localhost:11434/api/generate"
-		}
-	}
-	if llmModel == "" {
-		if llmProvider == "openai" {
-			llmModel = "gpt-4o-mini"
-		} else {
-			llmModel = "llama3"
-		}
-	}
 	if llmProvider == "" {
 		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
 			llmProvider = "openai"
@@ -75,13 +58,9 @@ func NewEngine(database *db.DB, embeddings *extractor.EmbeddingsGenerator, llmUR
 	return &Engine{
 		database:    database,
 		embeddings:  embeddings,
-		llmURL:      llmURL,
-		llmModel:    llmModel,
+		llmClient:   llm.NewClient(llmURL, llmModel),
 		llmProvider: llmProvider,
 		piiEnabled:  piiEnabled,
-		httpClient: &http.Client{
-			Timeout: 45 * time.Second,
-		},
 	}
 }
 
@@ -290,107 +269,13 @@ JSON Schema:
 	var rawResponse string
 	var err error
 
-	if eng.llmProvider == "openai" {
-		apiKey := os.Getenv("OPENAI_API_KEY")
-		if apiKey == "" {
-			return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
-		}
-		rawResponse, err = eng.queryOpenAI(ctx, systemPrompt, userPrompt, apiKey)
-	} else {
-		rawResponse, err = eng.queryOllama(ctx, systemPrompt, userPrompt)
-	}
+	rawResponse, err = eng.llmClient.Query(ctx, systemPrompt, userPrompt, eng.llmProvider, "")
 
 	if err != nil {
 		return nil, err
 	}
 
 	return parseJSONResponse(rawResponse)
-}
-
-func (eng *Engine) queryOllama(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	reqBody, err := json.Marshal(map[string]interface{}{
-		"model":  eng.llmModel,
-		"prompt": userPrompt,
-		"system": systemPrompt,
-		"stream": false,
-		"format": "json",
-	})
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", eng.llmURL, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := eng.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to query Ollama: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ollama returned HTTP status %d", resp.StatusCode)
-	}
-
-	var res struct {
-		Response string `json:"response"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", err
-	}
-
-	return res.Response, nil
-}
-
-func (eng *Engine) queryOpenAI(ctx context.Context, systemPrompt, userPrompt string, apiKey string) (string, error) {
-	reqBody, err := json.Marshal(map[string]interface{}{
-		"model": eng.llmModel,
-		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": userPrompt},
-		},
-		"response_format": map[string]string{"type": "json_object"},
-	})
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", eng.llmURL, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-
-	resp, err := eng.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to query OpenAI: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("openai returned HTTP status %d", resp.StatusCode)
-	}
-
-	var res struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", err
-	}
-
-	if len(res.Choices) == 0 {
-		return "", fmt.Errorf("openai returned empty choices")
-	}
-
-	return res.Choices[0].Message.Content, nil
 }
 
 func parseJSONResponse(rawResponse string) (*ConsolidationResult, error) {
