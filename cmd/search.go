@@ -60,7 +60,7 @@ var searchCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		formatter := NewOutputFormatter(searchFormat)
+		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		if err := formatter.Output(results, "search"); err != nil {
 			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
 			os.Exit(1)

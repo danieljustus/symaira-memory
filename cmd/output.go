@@ -65,7 +65,6 @@ func truncateString(n int, s string) string {
 	return s[:n] + "..."
 }
 
-// defaultTextTemplates holds the built-in text templates for each command.
 var defaultTextTemplates = map[string]string{
 	"list": `{{- if not .}}No memories found.
 {{- else}}{{- range .}}[{{.ID | truncate 8}}] ({{.Scope}}) {{.Content | truncate 80}}
@@ -93,4 +92,12 @@ Metadata:
 {{- end}}
 {{- end}}
 `,
+
+	"entity-list": `{{- if not .}}No entities found.
+{{- else}}{{- range .}}[{{.ID | truncate 8}}] {{.Name}} ({{.Type}}) {{.Description | truncate 60}}
+{{end}}{{- end}}`,
+
+	"rule-list": `{{- if not .}}No rules found.
+{{- else}}{{- range .}}[{{.ID | truncate 8}}] ({{.Scope}}) {{.Content | truncate 80}}
+{{end}}{{- end}}`,
 }
