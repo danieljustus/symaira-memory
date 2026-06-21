@@ -126,3 +126,26 @@ func TestSearchMemoriesBM25_EmptyQuery(t *testing.T) {
 		t.Errorf("expected nil for stop-word-only query, got %d results", len(results))
 	}
 }
+
+func TestSearchMemoriesBM25_RejectsInvalidScope(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Database.Path = t.TempDir() + "/test.db"
+	database, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	injections := []string{
+		`" OR 1=1 --`,
+		"global OR NOT global",
+		"scope:*",
+		"global NEAR test",
+	}
+	for _, scope := range injections {
+		_, err := database.SearchMemoriesBM25("test", scope, 5)
+		if err == nil {
+			t.Errorf("expected error for injected scope %q, got nil", scope)
+		}
+	}
+}

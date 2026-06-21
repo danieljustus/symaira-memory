@@ -2,13 +2,24 @@ package db
 
 import (
 	"database/sql"
-	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
 	"sync"
 	"unicode"
 )
+
+// allowedFTSScopes is the set of scope values permitted in FTS5 queries.
+// Must match security.ValidScopes to prevent FTS5 injection via the scope parameter.
+var allowedFTSScopes = map[string]bool{
+	"":        true,
+	"global":  true,
+	"project": true,
+	"agent":   true,
+	"user":    true,
+	"session": true,
+}
 
 var stopWords = map[string]bool{
 	"a": true, "an": true, "the": true, "is": true, "are": true, "was": true,
@@ -154,6 +165,10 @@ func ReciprocalRankFusion(rankedLists [][]string, k int) map[string]float64 {
 
 // SearchMemoriesBM25 performs keyword-based search using SQLite FTS5 BM25 scoring.
 func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]SearchResult, error) {
+	if !allowedFTSScopes[scope] {
+		return nil, fmt.Errorf("invalid search scope %q: must be one of global, project, agent, user, session", scope)
+	}
+
 	queryTerms := Tokenize(query)
 	if len(queryTerms) == 0 {
 		return nil, nil
@@ -198,17 +213,9 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 			&validFrom, &validTo, &supersededBy, &rank); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
 			return nil, err
 		}
-		m.ConsolidatedIntoID = consolidatedInto.String
-		if validFrom.Valid {
-			m.ValidFrom = &validFrom.Time
-		}
-		if validTo.Valid {
-			m.ValidTo = &validTo.Time
-		}
-		m.SupersededBy = supersededBy.String
 		results = append(results, SearchResult{
 			Memory: &m,
 			Score:  float32(-rank),

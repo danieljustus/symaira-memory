@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"database/sql"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -439,4 +440,42 @@ func extractTarGz(path string) ([]byte, error) {
 			return buf.Bytes(), nil
 		}
 	}
+}
+
+func TestRestoreRejectsOversizedEntry(t *testing.T) {
+	dir := t.TempDir()
+	backupPath := filepath.Join(dir, "oversized.tar.gz")
+
+	oversized := bytes.Repeat([]byte{0x42}, maxTarEntrySize+1024)
+	if err := createTarGz(backupPath, "default.db", oversized); err != nil {
+		t.Fatalf("create tar.gz: %v", err)
+	}
+
+	f, err := os.Open(backupPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("gzip: %v", err)
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	header, err := tr.Next()
+	if err != nil {
+		t.Fatalf("tar next: %v", err)
+	}
+
+	limited := io.LimitReader(tr, maxTarEntrySize+1)
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(limited); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if int64(buf.Len()) > maxTarEntrySize {
+		return
+	}
+	t.Errorf("expected oversized entry (%d bytes, header size %d) to exceed limit %d", len(oversized), header.Size, maxTarEntrySize)
 }
