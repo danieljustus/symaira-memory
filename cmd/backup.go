@@ -270,21 +270,21 @@ var importCmd = &cobra.Command{
 				os.Exit(1)
 			}
 
-		if strings.HasPrefix(header.Name, "default.db") {
-			filename = header.Name
-			limited := io.LimitReader(tr, maxTarEntrySize+1)
-			var buf bytesBuffer
-			if _, err := io.Copy(&buf, limited); err != nil {
-				fmt.Fprintf(os.Stderr, "Copy failure: %v\n", err)
-				os.Exit(1)
+			if strings.HasPrefix(header.Name, "default.db") {
+				filename = header.Name
+				limited := io.LimitReader(tr, maxTarEntrySize+1)
+				var buf bytesBuffer
+				if _, err := io.Copy(&buf, limited); err != nil {
+					fmt.Fprintf(os.Stderr, "Copy failure: %v\n", err)
+					os.Exit(1)
+				}
+				if int64(buf.Len()) > maxTarEntrySize {
+					fmt.Fprintf(os.Stderr, "Error: database entry exceeds maximum allowed size (%d bytes)\n", maxTarEntrySize)
+					os.Exit(1)
+				}
+				payload = buf.Bytes()
+				break
 			}
-			if int64(buf.Len()) > maxTarEntrySize {
-				fmt.Fprintf(os.Stderr, "Error: database entry exceeds maximum allowed size (%d bytes)\n", maxTarEntrySize)
-				os.Exit(1)
-			}
-			payload = buf.Bytes()
-			break
-		}
 		}
 
 		if len(payload) == 0 {
