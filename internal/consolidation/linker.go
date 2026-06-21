@@ -3,7 +3,6 @@ package consolidation
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 )
@@ -13,17 +12,22 @@ type Linker struct {
 	database            *db.DB
 	similarityThreshold float32
 	contentThreshold    float64
+	maxPairs            int
 }
 
 // NewLinker creates a new cross-tool memory linker.
-func NewLinker(database *db.DB, similarityThreshold float32) *Linker {
+func NewLinker(database *db.DB, similarityThreshold float32, maxPairs int) *Linker {
 	if similarityThreshold == 0 {
 		similarityThreshold = 0.85
+	}
+	if maxPairs <= 0 {
+		maxPairs = 10000
 	}
 	return &Linker{
 		database:            database,
 		similarityThreshold: similarityThreshold,
 		contentThreshold:    0.80,
+		maxPairs:            maxPairs,
 	}
 }
 
@@ -63,7 +67,6 @@ func (l *Linker) LinkCrossTool(dryRun bool) (*LinkResult, error) {
 
 // linkScopePair compares every non-archived memory in scope1 against scope2.
 func (l *Linker) linkScopePair(scope1, scope2 string, result *LinkResult, dryRun bool) error {
-	// Load full memories (with embeddings) for cosine similarity.
 	memories1, err := l.database.ListMemories(scope1, 0, 1000)
 	if err != nil {
 		return err
@@ -80,23 +83,68 @@ func (l *Linker) linkScopePair(scope1, scope2 string, result *LinkResult, dryRun
 		return nil
 	}
 
+	type candidate struct {
+		m1, m2 *db.Memory
+	}
+
+	var candidates []candidate
+	hashBuckets := make(map[int][]*db.Memory)
+
+	for _, m := range memories2 {
+		if len(m.Embedding) > 0 {
+			hash := db.ComputeLSH(m.Embedding)
+			hashBuckets[hash] = append(hashBuckets[hash], m)
+			for _, neighbor := range db.LSHNeighbors(hash, 3) {
+				if neighbor != hash {
+					hashBuckets[neighbor] = append(hashBuckets[neighbor], m)
+				}
+			}
+		}
+	}
+
 	for _, m1 := range memories1 {
-		for _, m2 := range memories2 {
-			sim := l.similarityScore(m1, m2)
-			if sim < l.similarityThreshold {
-				continue
+		if len(m1.Embedding) == 0 {
+			continue
+		}
+		hash1 := db.ComputeLSH(m1.Embedding)
+		seen := make(map[string]bool)
+		for _, neighbor := range db.LSHNeighbors(hash1, 3) {
+			for _, m2 := range hashBuckets[neighbor] {
+				if m1.ID == m2.ID || seen[m2.ID] {
+					continue
+				}
+				seen[m2.ID] = true
+				candidates = append(candidates, candidate{m1: m1, m2: m2})
 			}
+		}
+	}
 
-			if dryRun {
-				result.LinksCreated++
-				continue
-			}
+	if len(candidates) > l.maxPairs {
+		candidates = candidates[:l.maxPairs]
+	}
 
-			if err := l.createLink(m1, m2, sim, result); err != nil {
-				// Log but continue — a single failed link should not abort the run.
-				fmt.Fprintf(os.Stderr, "linker: skip link %s<->%s: %v\n", m1.ID[:8], m2.ID[:8], err)
-				continue
-			}
+	pairsChecked := 0
+	for _, c := range candidates {
+		sim := l.similarityScore(c.m1, c.m2)
+		if sim < l.similarityThreshold {
+			pairsChecked++
+			continue
+		}
+
+		if dryRun {
+			result.LinksCreated++
+			pairsChecked++
+			continue
+		}
+
+		if err := l.createLink(c.m1, c.m2, sim, result); err != nil {
+			fmt.Fprintf(os.Stderr, "linker: skip link %s<->%s: %v\n", c.m1.ID[:8], c.m2.ID[:8], err)
+		}
+		pairsChecked++
+
+		if pairsChecked%500 == 0 {
+			fmt.Fprintf(os.Stderr, "linker: %s<->%s: checked %d/%d pairs, created %d links\n",
+				scope1, scope2, pairsChecked, len(candidates), result.LinksCreated)
 		}
 	}
 
@@ -120,10 +168,10 @@ func (l *Linker) similarityScore(m1, m2 *db.Memory) float32 {
 	return float32(l.jaccardContent(m1.Content, m2.Content))
 }
 
-// jaccardContent computes Jaccard similarity over whitespace-split tokens.
+// jaccardContent computes Jaccard similarity over tokenized content.
 func (l *Linker) jaccardContent(a, b string) float64 {
-	tokensA := tokenize(a)
-	tokensB := tokenize(b)
+	tokensA := db.Tokenize(a)
+	tokensB := db.Tokenize(b)
 	if len(tokensA) == 0 || len(tokensB) == 0 {
 		return 0
 	}
@@ -146,12 +194,6 @@ func (l *Linker) jaccardContent(a, b string) float64 {
 		return 0
 	}
 	return float64(intersection) / float64(union)
-}
-
-// tokenize splits on whitespace and lowercases.
-func tokenize(s string) []string {
-	parts := strings.Fields(strings.ToLower(s))
-	return parts
 }
 
 // createLink handles the linking of two highly similar memories from different scopes.

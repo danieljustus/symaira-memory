@@ -1,48 +1,14 @@
 package db
 
 import (
+	"database/sql"
+	"encoding/json"
 	"math"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 )
-
-var bm25Cache = struct {
-	sync.RWMutex
-	entries map[string]*bm25CacheEntry
-}{
-	entries: make(map[string]*bm25CacheEntry),
-}
-
-type bm25CacheEntry struct {
-	index     *bm25Index
-	memories  []*Memory
-	expiresAt time.Time
-}
-
-const bm25CacheTTL = 5 * time.Minute
-
-func getBM25Cache(scope string) (*bm25Index, []*Memory, bool) {
-	bm25Cache.RLock()
-	defer bm25Cache.RUnlock()
-	entry, ok := bm25Cache.entries[scope]
-	if ok && time.Now().Before(entry.expiresAt) {
-		return entry.index, entry.memories, true
-	}
-	return nil, nil, false
-}
-
-func setBM25Cache(scope string, index *bm25Index, memories []*Memory) {
-	bm25Cache.Lock()
-	defer bm25Cache.Unlock()
-	bm25Cache.entries[scope] = &bm25CacheEntry{
-		index:     index,
-		memories:  memories,
-		expiresAt: time.Now().Add(bm25CacheTTL),
-	}
-}
 
 var stopWords = map[string]bool{
 	"a": true, "an": true, "the": true, "is": true, "are": true, "was": true,
@@ -67,7 +33,8 @@ var stopWords = map[string]bool{
 	"it": true, "its": true, "they": true, "them": true, "their": true,
 }
 
-func tokenize(text string) []string {
+// Tokenize splits text into lowercased tokens, filtering stop words and short words.
+func Tokenize(text string) []string {
 	var tokens []string
 	var current strings.Builder
 	for _, r := range strings.ToLower(text) {
@@ -115,7 +82,7 @@ func (idx *bm25Index) addDoc(id, content string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	terms := tokenize(content)
+	terms := Tokenize(content)
 	termCounts := make(map[string]int)
 	for _, t := range terms {
 		termCounts[t]++
@@ -185,70 +152,70 @@ func ReciprocalRankFusion(rankedLists [][]string, k int) map[string]float64 {
 	return scores
 }
 
-// SearchMemoriesBM25 performs keyword-based search using BM25 scoring.
+// SearchMemoriesBM25 performs keyword-based search using SQLite FTS5 BM25 scoring.
 func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]SearchResult, error) {
-	queryTerms := tokenize(query)
+	queryTerms := Tokenize(query)
 	if len(queryTerms) == 0 {
 		return nil, nil
 	}
 
-	var memories []*Memory
-	var idx *bm25Index
-
-	if cachedIdx, cachedMems, ok := getBM25Cache(scope); ok {
-		idx = cachedIdx
-		memories = cachedMems
+	var ftsQuery string
+	if scope != "" {
+		ftsQuery = "scope:" + scope + " AND " + strings.Join(queryTerms, " OR ")
 	} else {
-		var err error
-		if scope != "" {
-			memories, err = db.ListMemoriesLite(scope, 0, 5000)
-		} else {
-			memories, err = db.ListMemoriesLite("", 0, 5000)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if len(memories) == 0 {
-			return nil, nil
-		}
-
-		idx = newBM25Index()
-		for _, m := range memories {
-			idx.addDoc(m.ID, m.Content)
-		}
-		setBM25Cache(scope, idx, memories)
+		ftsQuery = strings.Join(queryTerms, " OR ")
 	}
 
-	bm25Scores := idx.score(queryTerms)
-	type scored struct {
-		id    string
-		score float64
+	rows, err := db.conn.Query(
+		`SELECT m.id, m.content, m.scope, m.metadata, m.created_at, m.updated_at,
+		        m.created_by, m.updated_by, m.created_session, m.updated_session,
+		        m.consolidation_status, m.consolidated_into_id, m.importance,
+		        m.valid_from, m.valid_to, m.superseded_by,
+		        rank
+		 FROM memories_fts fts
+		 JOIN memories m ON fts.id = m.id
+		 WHERE memories_fts MATCH ?
+		 ORDER BY rank
+		 LIMIT ?`,
+		ftsQuery, limit,
+	)
+	if err != nil {
+		return nil, err
 	}
-	var ranked []scored
-	for id, s := range bm25Scores {
-		ranked = append(ranked, scored{id: id, score: s})
-	}
-	sort.Slice(ranked, func(i, j int) bool {
-		return ranked[i].score > ranked[j].score
-	})
-
-	if limit > len(ranked) {
-		limit = len(ranked)
-	}
-
-	memByID := make(map[string]*Memory, len(memories))
-	for _, m := range memories {
-		memByID[m.ID] = m
-	}
+	defer rows.Close()
 
 	var results []SearchResult
-	for i := 0; i < limit; i++ {
+	for rows.Next() {
+		var m Memory
+		var metaStr string
+		var consolidatedInto sql.NullString
+		var validFrom, validTo sql.NullTime
+		var supersededBy sql.NullString
+		var rank float64
+		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt,
+			&m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession,
+			&m.ConsolidationStatus, &consolidatedInto, &m.Importance,
+			&validFrom, &validTo, &supersededBy, &rank); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+			return nil, err
+		}
+		m.ConsolidatedIntoID = consolidatedInto.String
+		if validFrom.Valid {
+			m.ValidFrom = &validFrom.Time
+		}
+		if validTo.Valid {
+			m.ValidTo = &validTo.Time
+		}
+		m.SupersededBy = supersededBy.String
 		results = append(results, SearchResult{
-			Memory: memByID[ranked[i].id],
-			Score:  float32(ranked[i].score),
+			Memory: &m,
+			Score:  float32(-rank),
 		})
 	}
-	return results, nil
+
+	return results, rows.Err()
 }
 
 // HybridSearch combines vector similarity and BM25 keyword search using

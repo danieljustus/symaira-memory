@@ -7,14 +7,14 @@ import (
 )
 
 func TestTokenize(t *testing.T) {
-	tokens := tokenize("Hello, World! This is a test.")
+	tokens := Tokenize("Hello, World! This is a test.")
 	if len(tokens) != 3 {
 		t.Errorf("expected 3 tokens (hello, world, test), got %d: %v", len(tokens), tokens)
 	}
 }
 
 func TestTokenize_StopWordsRemoved(t *testing.T) {
-	tokens := tokenize("the quick brown fox is a very fast animal")
+	tokens := Tokenize("the quick brown fox is a very fast animal")
 	for _, stop := range []string{"the", "is", "a", "very"} {
 		for _, tok := range tokens {
 			if tok == stop {
@@ -30,7 +30,7 @@ func TestBM25Index_BasicScoring(t *testing.T) {
 	idx.addDoc("doc2", "the lazy dog sleeps in the corner")
 	idx.addDoc("doc3", "a quick red car drives fast")
 
-	scores := idx.score(tokenize("quick fox"))
+	scores := idx.score(Tokenize("quick fox"))
 	if scores["doc1"] <= 0 {
 		t.Errorf("expected doc1 to score > 0 for 'quick fox', got %f", scores["doc1"])
 	}
@@ -46,7 +46,7 @@ func TestBM25Index_ExactKeywordMatch(t *testing.T) {
 	idx.addDoc("doc1", "Alice prefers dark mode in all applications")
 	idx.addDoc("doc2", "Bob likes light themes")
 
-	scores := idx.score(tokenize("dark mode"))
+	scores := idx.score(Tokenize("dark mode"))
 	if scores["doc1"] <= 0 {
 		t.Errorf("expected doc1 to score > 0 for 'dark mode'")
 	}

@@ -99,25 +99,57 @@ func TestRateLimiter_AuthDataSeparation(t *testing.T) {
 }
 
 func TestClientIP_XForwardedFor(t *testing.T) {
+	rl := NewRateLimiter(RateLimitConfig{
+		AuthRPS:         10.0,
+		AuthBurst:       10,
+		DataRPS:         10.0,
+		DataBurst:       10,
+		CleanupInterval: time.Hour,
+		LimiterTTL:      time.Hour,
+	}, "127.0.0.0/8")
+	defer rl.Stop()
+
 	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
 	r.Header.Set("X-Forwarded-For", "203.0.113.50, 70.41.3.18")
-	if got := clientIP(r); got != "203.0.113.50" {
+	if got := rl.clientIP(r); got != "203.0.113.50" {
 		t.Fatalf("expected 203.0.113.50, got %s", got)
 	}
 }
 
 func TestClientIP_XRealIP(t *testing.T) {
+	rl := NewRateLimiter(RateLimitConfig{
+		AuthRPS:         10.0,
+		AuthBurst:       10,
+		DataRPS:         10.0,
+		DataBurst:       10,
+		CleanupInterval: time.Hour,
+		LimiterTTL:      time.Hour,
+	}, "127.0.0.0/8")
+	defer rl.Stop()
+
 	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
 	r.Header.Set("X-Real-IP", "198.51.100.17")
-	if got := clientIP(r); got != "198.51.100.17" {
+	if got := rl.clientIP(r); got != "198.51.100.17" {
 		t.Fatalf("expected 198.51.100.17, got %s", got)
 	}
 }
 
 func TestClientIP_RemoteAddr(t *testing.T) {
+	rl := NewRateLimiter(RateLimitConfig{
+		AuthRPS:         10.0,
+		AuthBurst:       10,
+		DataRPS:         10.0,
+		DataBurst:       10,
+		CleanupInterval: time.Hour,
+		LimiterTTL:      time.Hour,
+	})
+	defer rl.Stop()
+
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "192.168.1.100:12345"
-	if got := clientIP(r); got != "192.168.1.100" {
+	if got := rl.clientIP(r); got != "192.168.1.100" {
 		t.Fatalf("expected 192.168.1.100, got %s", got)
 	}
 }

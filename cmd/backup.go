@@ -9,22 +9,71 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 	_ "modernc.org/sqlite"
 )
 
 var (
-	backupPassword string
+	backupPassword     string
+	backupPasswordFile string
 )
 
 func init() {
 	backupCmd.AddCommand(exportCmd)
 	backupCmd.AddCommand(importCmd)
 
-	backupCmd.PersistentFlags().StringVarP(&backupPassword, "password", "p", "", "Optional password to encrypt/decrypt the backup payload")
+	backupCmd.PersistentFlags().StringVarP(&backupPassword, "password", "p", "", "Optional password to encrypt/decrypt the backup payload (deprecated: use --password-file, env var, or stdin prompt)")
+	backupCmd.PersistentFlags().StringVar(&backupPasswordFile, "password-file", "", "Read the encryption password from this file")
 	rootCmd.AddCommand(backupCmd)
+}
+
+// resolveBackupPassword determines the backup password from multiple sources
+// in priority order: --password flag (deprecated), --password-file, env var,
+// or interactive stdin prompt. Returns the resolved password.
+func resolveBackupPassword(operation string) (string, error) {
+	// 1. --password flag (deprecated, prints warning)
+	if backupPassword != "" {
+		fmt.Fprintf(os.Stderr, "Warning: --password / -p flag is deprecated and exposes the password in process listings. Use --password-file, SYMMEMORY_BACKUP_PASSWORD env var, or omit for an interactive prompt.\n")
+		return backupPassword, nil
+	}
+
+	// 2. --password-file flag
+	if backupPasswordFile != "" {
+		data, err := os.ReadFile(backupPasswordFile)
+		if err != nil {
+			return "", fmt.Errorf("failed to read password file %s: %w", backupPasswordFile, err)
+		}
+		pw := strings.TrimSpace(string(data))
+		if pw == "" {
+			return "", fmt.Errorf("password file %s is empty", backupPasswordFile)
+		}
+		return pw, nil
+	}
+
+	// 3. Environment variable
+	if envPW := os.Getenv("SYMMEMORY_BACKUP_PASSWORD"); envPW != "" {
+		return envPW, nil
+	}
+
+	// 4. Interactive stdin prompt (TTY only)
+	if term.IsTerminal(int(syscall.Stdin)) {
+		fmt.Fprintf(os.Stderr, "Enter backup %s password: ", operation)
+		pw, err := term.ReadPassword(int(syscall.Stdin))
+		fmt.Fprintln(os.Stderr) // newline after hidden input
+		if err != nil {
+			return "", fmt.Errorf("failed to read password from stdin: %w", err)
+		}
+		if len(pw) == 0 {
+			return "", fmt.Errorf("empty password provided")
+		}
+		return string(pw), nil
+	}
+
+	return "", fmt.Errorf("no password source available: use --password-file, set SYMMEMORY_BACKUP_PASSWORD, or run on an interactive terminal")
 }
 
 var backupCmd = &cobra.Command{
@@ -126,11 +175,17 @@ var exportCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		password, err := resolveBackupPassword("encryption")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 		var finalBytes []byte
-		if backupPassword != "" {
+		if password != "" {
 			fmt.Println("🔒 Encrypting backup with AES-256-GCM...")
 			crypto := security.NewCryptoEngine()
-			cipherBytes, err := crypto.Encrypt(dbBytes, backupPassword)
+			cipherBytes, err := crypto.Encrypt(dbBytes, password)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Encryption failure: %v\n", err)
 				os.Exit(1)
@@ -154,7 +209,7 @@ var exportCmd = &cobra.Command{
 		defer tw.Close()
 
 		filename := "default.db"
-		if backupPassword != "" {
+		if password != "" {
 			filename = "default.db.enc"
 		}
 
@@ -232,13 +287,14 @@ var importCmd = &cobra.Command{
 
 		var dbBytes []byte
 		if strings.HasSuffix(filename, ".enc") {
-			if backupPassword == "" {
-				fmt.Fprintf(os.Stderr, "Error: backup is encrypted. Provide decryption password using -p / --password\n")
+			password, err := resolveBackupPassword("decryption")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
 			fmt.Println("🔓 Decrypting database payload with AES-256-GCM...")
 			crypto := security.NewCryptoEngine()
-			plainBytes, err := crypto.Decrypt(payload, backupPassword)
+			plainBytes, err := crypto.Decrypt(payload, password)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Decryption failure: %v\n", err)
 				os.Exit(1)

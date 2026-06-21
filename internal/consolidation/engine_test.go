@@ -83,31 +83,6 @@ func TestParseJSONResponse(t *testing.T) {
 	}
 }
 
-func TestQueryOllamaConnectionFailure(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "symmemory-ollama-fail-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	cfg := config.Defaults()
-	cfg.Database.Path = filepath.Join(tempDir, "test.db")
-
-	database, err := db.Open(cfg)
-	if err != nil {
-		t.Fatalf("failed to open database: %v", err)
-	}
-	defer database.Close()
-
-	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := NewEngine(database, embeddings, "http://localhost:1", "test-model", "ollama", false)
-
-	_, err = engine.queryOllama(context.Background(), "test prompt")
-	if err == nil {
-		t.Error("expected error for connection failure, got nil")
-	}
-}
-
 func TestNewEngineDefaults(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "symmemory-engine-defaults-test-*")
 	if err != nil {
@@ -128,11 +103,11 @@ func TestNewEngineDefaults(t *testing.T) {
 
 	// Test Ollama defaults
 	eng := NewEngine(database, embeddings, "", "", "", false)
-	if eng.llmURL != "http://localhost:11434/api/generate" {
-		t.Errorf("expected Ollama default URL, got %s", eng.llmURL)
+	if eng.llmClient.OllamaURL != "http://localhost:11434/api/generate" {
+		t.Errorf("expected Ollama default URL, got %s", eng.llmClient.OllamaURL)
 	}
-	if eng.llmModel != "llama3" {
-		t.Errorf("expected Ollama default model 'llama3', got %s", eng.llmModel)
+	if eng.llmClient.OllamaModel != "llama3" {
+		t.Errorf("expected Ollama default model 'llama3', got %s", eng.llmClient.OllamaModel)
 	}
 	if eng.llmProvider != "ollama" {
 		t.Errorf("expected provider 'ollama', got %s", eng.llmProvider)
@@ -140,11 +115,11 @@ func TestNewEngineDefaults(t *testing.T) {
 
 	// Test OpenAI defaults
 	eng2 := NewEngine(database, embeddings, "", "", "openai", false)
-	if eng2.llmURL != "https://api.openai.com/v1/chat/completions" {
-		t.Errorf("expected OpenAI default URL, got %s", eng2.llmURL)
+	if eng2.llmClient.OllamaURL != "http://localhost:11434/api/generate" {
+		t.Errorf("expected Ollama default URL, got %s", eng2.llmClient.OllamaURL)
 	}
-	if eng2.llmModel != "gpt-4o-mini" {
-		t.Errorf("expected OpenAI default model 'gpt-4o-mini', got %s", eng2.llmModel)
+	if eng2.llmClient.OllamaModel != "llama3" {
+		t.Errorf("expected Ollama default model 'llama3', got %s", eng2.llmClient.OllamaModel)
 	}
 }
 

@@ -47,7 +47,7 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version strin
 		piiEnabled:     true,
 		version:        version,
 		cfg:            cfg,
-		rateLimiter:    NewRateLimiter(DefaultRateLimitConfig()),
+		rateLimiter:    NewRateLimiter(DefaultRateLimitConfig(), cfg.Security.TrustedProxies...),
 	}
 }
 
@@ -117,8 +117,7 @@ func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (an
 
 	m, err := s.db.GetMemory(args.ID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[MCP ERROR] Failed to fetch memory: %v\n", err)
-		return nil, fmt.Errorf("Failed to fetch memory")
+		return mcpError("Failed to fetch memory", err)
 	}
 
 	if m == nil {
@@ -199,8 +198,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 	if args.Entity != "" {
 		entity, err := s.db.ResolveEntity(args.Entity)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[MCP ERROR] Failed to resolve entity: %v\n", err)
-			return nil, fmt.Errorf("Failed to resolve entity")
+			return mcpError("Failed to resolve entity", err)
 		}
 		if entity == nil {
 			return nil, fmt.Errorf("Entity not found: %s", args.Entity)
@@ -211,8 +209,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 	queryVector := s.embeddings.GenerateVector(args.Query)
 	results, err := s.db.SearchMemoriesFiltered(queryVector, args.Scope, limit, entityID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[MCP ERROR] Failed to search memories: %v\n", err)
-		return nil, fmt.Errorf("Failed to search memories")
+		return mcpError("Failed to search memories", err)
 	}
 
 	if len(results) == 0 {
@@ -242,8 +239,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 
 	memories, err := s.db.ListMemoriesLite(args.Scope, 0, limit)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[MCP ERROR] Failed to list memories: %v\n", err)
-		return nil, fmt.Errorf("Failed to list memories")
+		return mcpError("Failed to list memories", err)
 	}
 
 	if len(memories) == 0 {
@@ -257,8 +253,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 func (s *Server) handleEntityList(ctx context.Context, input json.RawMessage) (any, error) {
 	entities, err := s.db.ListEntities()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[MCP ERROR] Failed to list entities: %v\n", err)
-		return nil, fmt.Errorf("Failed to list entities")
+		return mcpError("Failed to list entities", err)
 	}
 
 	if len(entities) == 0 {
@@ -276,6 +271,13 @@ func writeJSONError(w http.ResponseWriter, status int, safeMsg string, internal 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": safeMsg})
+}
+
+func mcpError(safeMsg string, internal error) (any, error) {
+	if internal != nil {
+		fmt.Fprintf(os.Stderr, "[MCP ERROR] %s: %v\n", safeMsg, internal)
+	}
+	return nil, fmt.Errorf("%s", safeMsg)
 }
 
 func (s *Server) StartHTTPServer(port int) error {

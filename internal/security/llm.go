@@ -13,6 +13,9 @@ import (
 )
 
 // LLMEnhancer connects to local or cloud LLMs for background memory cleanup and merging.
+//
+// Deprecated: Use internal/llm.Client instead. This type is retained for backward
+// compatibility and will be removed in a future version.
 type LLMEnhancer struct {
 	OllamaURL string
 	Model     string
