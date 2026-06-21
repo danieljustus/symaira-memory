@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sync"
 )
 
 const (
@@ -14,19 +15,23 @@ const (
 	EmbeddingDim = 768
 )
 
-// Fixed-seed random projection vectors for deterministic LSH across restarts.
-var lshProjections [][]float32
+var (
+	lshProjectionsOnce sync.Once
+	lshProjections     [][]float32
+)
 
-func init() {
-	rng := rand.New(rand.NewSource(42))
-	lshProjections = make([][]float32, LSHBits)
-	for i := range lshProjections {
-		lshProjections[i] = make([]float32, EmbeddingDim)
-		for j := range lshProjections[i] {
-			// Random normal approximation via Box-Muller
-			lshProjections[i][j] = float32(rng.NormFloat64())
+func getLSHProjections() [][]float32 {
+	lshProjectionsOnce.Do(func() {
+		rng := rand.New(rand.NewSource(42))
+		lshProjections = make([][]float32, LSHBits)
+		for i := range lshProjections {
+			lshProjections[i] = make([]float32, EmbeddingDim)
+			for j := range lshProjections[i] {
+				lshProjections[i][j] = float32(rng.NormFloat64())
+			}
 		}
-	}
+	})
+	return lshProjections
 }
 
 // ComputeLSH computes the LSH hash bits for a vector.
@@ -39,8 +44,9 @@ func ComputeLSH(vec []float32) int {
 	if len(vec) != EmbeddingDim {
 		fmt.Fprintf(os.Stderr, "lsh: dimension mismatch: got %d, expected %d — truncating\n", len(vec), EmbeddingDim)
 	}
+	projections := getLSHProjections()
 	var hash int
-	for i, proj := range lshProjections {
+	for i, proj := range projections {
 		var dot float64
 		lim := min(len(vec), len(proj))
 		for j := range lim {
