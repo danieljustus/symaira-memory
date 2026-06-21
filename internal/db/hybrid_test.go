@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
@@ -147,5 +148,80 @@ func TestSearchMemoriesBM25_RejectsInvalidScope(t *testing.T) {
 		if err == nil {
 			t.Errorf("expected error for injected scope %q, got nil", scope)
 		}
+	}
+}
+
+func TestHybridSearch_CandidateCap(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Database.Path = t.TempDir() + "/test.db"
+	database, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	const count = maxCandidates + 500
+	for i := 0; i < count; i++ {
+		emb := make([]float32, EmbeddingDim)
+		emb[i%EmbeddingDim] = 1.0
+		emb[(i+37)%EmbeddingDim] = 0.5
+		m := &Memory{
+			ID:        fmt.Sprintf("cap-mem-%d", i),
+			Content:   fmt.Sprintf("test document number %d for candidate cap", i),
+			Scope:     "global",
+			Metadata:  map[string]string{},
+			Embedding: emb,
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("failed to save memory %d: %v", i, err)
+		}
+	}
+
+	queryVec := make([]float32, EmbeddingDim)
+	queryVec[0] = 1.0
+
+	highLimit := maxCandidates / 2
+	results, err := database.HybridSearch(queryVec, "test document", "global", highLimit, 0.5, 0.5)
+	if err != nil {
+		t.Fatalf("HybridSearch failed: %v", err)
+	}
+	if len(results) > highLimit {
+		t.Errorf("expected at most %d results, got %d", highLimit, len(results))
+	}
+}
+
+func TestHybridSearch_SmallLimitUnchanged(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Database.Path = t.TempDir() + "/test.db"
+	database, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	for i := 0; i < 50; i++ {
+		emb := make([]float32, EmbeddingDim)
+		emb[i%EmbeddingDim] = 1.0
+		m := &Memory{
+			ID:        fmt.Sprintf("small-mem-%d", i),
+			Content:   fmt.Sprintf("document %d about testing", i),
+			Scope:     "global",
+			Metadata:  map[string]string{},
+			Embedding: emb,
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("failed to save memory %d: %v", i, err)
+		}
+	}
+
+	queryVec := make([]float32, EmbeddingDim)
+	queryVec[0] = 1.0
+
+	results, err := database.HybridSearch(queryVec, "testing", "global", 10, 0.5, 0.5)
+	if err != nil {
+		t.Fatalf("HybridSearch failed: %v", err)
+	}
+	if len(results) > 10 {
+		t.Errorf("expected at most 10 results, got %d", len(results))
 	}
 }
