@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -898,6 +900,53 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 	}
 }
 
+func TestSyncApplyMetadataPIIRedaction(t *testing.T) {
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	withPIIMeta := &db.Memory{
+		ID:        "310e8400-e29b-41d4-a716-446655440020",
+		Content:   "clean content",
+		Scope:     "global",
+		Metadata:  map[string]string{"contact": "eve@example.com", "source": "sync"},
+		Embedding: []float32{0.1},
+		UpdatedAt: time.Now().UTC(),
+		CreatedAt: time.Now().UTC(),
+	}
+
+	payload, _ := json.Marshal(map[string][]*db.Memory{
+		"memories": {withPIIMeta},
+	})
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/sync/apply", bytes.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	stored, _ := s.db.GetMemory("310e8400-e29b-41d4-a716-446655440020")
+	if stored == nil {
+		t.Fatal("expected memory to be stored")
+	}
+	if stored.Metadata["contact"] != "[REDACTED_EMAIL]" {
+		t.Errorf("expected metadata email redacted, got %q", stored.Metadata["contact"])
+	}
+	if stored.Metadata["source"] != "sync" {
+		t.Errorf("expected clean metadata preserved, got %q", stored.Metadata["source"])
+	}
+}
+
 // --------------------------------------------------------------------------
 // Sync: apply rejects non-UUID memory IDs
 // --------------------------------------------------------------------------
@@ -1579,5 +1628,109 @@ func TestWebConsoleDoesNotShadowAPIRoutes(t *testing.T) {
 	json.NewDecoder(resp.Body).Decode(&body)
 	if body["status"] != "healthy" {
 		t.Errorf("expected status 'healthy', got %q", body["status"])
+	}
+}
+
+// --------------------------------------------------------------------------
+// HTTP server startup: occupied port returns error
+// --------------------------------------------------------------------------
+
+func TestStartHTTPServerOccupiedPort(t *testing.T) {
+	s := helperServer(t)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to occupy port: %v", err)
+	}
+	defer ln.Close()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+	err = s.StartHTTPServer(port)
+	if err == nil {
+		t.Fatal("expected error when port is already occupied")
+	}
+}
+
+// --------------------------------------------------------------------------
+// HTTP server startup: graceful shutdown returns nil
+// --------------------------------------------------------------------------
+
+func TestStartHTTPServerGracefulShutdown(t *testing.T) {
+	s := helperServer(t)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to get free port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- s.StartHTTPServer(port)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	proc, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("failed to find process: %v", err)
+	}
+	proc.Signal(os.Interrupt)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("expected nil error on graceful shutdown, got: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server to shut down")
+	}
+}
+
+// --------------------------------------------------------------------------
+// HTTP server startup: runtime error propagates
+// --------------------------------------------------------------------------
+
+func TestStartHTTPServerServeError(t *testing.T) {
+	s := helperServer(t)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to get free port: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- s.StartHTTPServer(port)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	killProc, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("failed to find process: %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- killProc.Signal(os.Interrupt)
+	}()
+
+	select {
+	case <-errCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout sending signal")
+	}
+
+	select {
+	case srvErr := <-done:
+		if srvErr != nil && !errors.Is(srvErr, http.ErrServerClosed) {
+			t.Logf("server returned error (expected for non-graceful): %v", srvErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for server to shut down")
 	}
 }

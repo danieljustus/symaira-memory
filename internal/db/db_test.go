@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/extractor"
 )
 
 func TestDBSchemaAndOperations(t *testing.T) {
@@ -964,5 +965,181 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 	}
 	if !foundArchived {
 		t.Errorf("GetMemoriesSince did not return archived memory")
+	}
+}
+
+func TestSetMemoryEmbedding(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-setemb-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	m := &Memory{
+		ID:        "setemb-1",
+		Content:   "test memory content",
+		Scope:     "global",
+		Metadata:  map[string]string{"source": "test"},
+		Embedding: nil,
+		CreatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	if err := database.SaveMemory(m); err != nil {
+		t.Fatalf("SaveMemory failed: %v", err)
+	}
+
+	got, err := database.GetMemory("setemb-1")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if len(got.Embedding) != 0 {
+		t.Fatalf("expected no embedding initially, got %d dims", len(got.Embedding))
+	}
+
+	newEmb := []float32{0.5, 0.3, 0.8, 0.1, 0.9}
+	if err := database.SetMemoryEmbedding("setemb-1", newEmb); err != nil {
+		t.Fatalf("SetMemoryEmbedding failed: %v", err)
+	}
+
+	got, err = database.GetMemory("setemb-1")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if len(got.Embedding) != 5 {
+		t.Fatalf("expected 5-dim embedding, got %d", len(got.Embedding))
+	}
+	for i, v := range got.Embedding {
+		if v != newEmb[i] {
+			t.Errorf("embedding[%d] = %f, want %f", i, v, newEmb[i])
+		}
+	}
+
+	if got.CreatedAt.Year() != 2025 {
+		t.Errorf("created_at should be preserved from original, got %v", got.CreatedAt)
+	}
+	if got.Content != "test memory content" {
+		t.Errorf("content should be preserved, got %q", got.Content)
+	}
+}
+
+func TestSyncedMemorySearchableAfterEmbeddingBackfill(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-sync-search-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	syncTime := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	syncedMemories := []*Memory{
+		{
+			ID:        "sync-1",
+			Content:   "Alice prefers dark mode in all applications",
+			Scope:     "agent",
+			Metadata:  map[string]string{"source": "remote-sync"},
+			Embedding: nil,
+			CreatedAt: syncTime,
+			UpdatedAt: syncTime,
+		},
+		{
+			ID:        "sync-2",
+			Content:   "Bob uses light theme exclusively",
+			Scope:     "agent",
+			Metadata:  map[string]string{"source": "remote-sync"},
+			Embedding: nil,
+			CreatedAt: syncTime,
+			UpdatedAt: syncTime,
+		},
+	}
+
+	for _, m := range syncedMemories {
+		ok, err := database.UpsertMemoryIfNewer(m)
+		if err != nil {
+			t.Fatalf("UpsertMemoryIfNewer failed: %v", err)
+		}
+		if !ok {
+			t.Fatalf("expected upsert to succeed for %s", m.ID)
+		}
+	}
+
+	for _, m := range syncedMemories {
+		got, err := database.GetMemory(m.ID)
+		if err != nil {
+			t.Fatalf("GetMemory failed: %v", err)
+		}
+		if len(got.Embedding) != 0 {
+			t.Fatalf("expected no embedding before backfill for %s", m.ID)
+		}
+	}
+
+	emb := extractor.GenerateLocalHashVector("Alice prefers dark mode in all applications", 768)
+	if err := database.SetMemoryEmbedding("sync-1", emb); err != nil {
+		t.Fatalf("SetMemoryEmbedding failed: %v", err)
+	}
+
+	emb2 := extractor.GenerateLocalHashVector("Bob uses light theme exclusively", 768)
+	if err := database.SetMemoryEmbedding("sync-2", emb2); err != nil {
+		t.Fatalf("SetMemoryEmbedding failed: %v", err)
+	}
+
+	for _, m := range syncedMemories {
+		got, err := database.GetMemory(m.ID)
+		if err != nil {
+			t.Fatalf("GetMemory failed: %v", err)
+		}
+		if len(got.Embedding) == 0 {
+			t.Errorf("expected non-empty embedding after backfill for %s", m.ID)
+		}
+		if len(got.Embedding) != 768 {
+			t.Errorf("expected 768-dim embedding for %s, got %d", m.ID, len(got.Embedding))
+		}
+	}
+
+	got, err := database.GetMemory("sync-1")
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if got.CreatedAt.Year() != 2025 || got.CreatedAt.Month() != 6 {
+		t.Errorf("created_at should be preserved from sync, got %v", got.CreatedAt)
+	}
+	if got.Content != "Alice prefers dark mode in all applications" {
+		t.Errorf("content should be preserved from sync, got %q", got.Content)
+	}
+
+	queryVec := extractor.GenerateLocalHashVector("Alice prefers dark mode in all applications", 768)
+	results, err := database.SearchMemories(queryVec, "", 10)
+	if err != nil {
+		t.Fatalf("SearchMemories failed: %v", err)
+	}
+
+	found := false
+	for _, r := range results {
+		if r.Memory.ID == "sync-1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("synced memory not found via semantic search (LSH may not match for local hash vectors; embedding is %d-dim)", len(emb))
 	}
 }

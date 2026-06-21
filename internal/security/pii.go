@@ -49,6 +49,20 @@ func Redact(text string) string {
 	return defaultGuard().Redact(text)
 }
 
+// RedactMap applies PII redaction to every value in a metadata map.
+// It returns a new map; the original is not modified.
+func RedactMap(meta map[string]string) map[string]string {
+	if meta == nil {
+		return nil
+	}
+	cleaned := make(map[string]string, len(meta))
+	guard := defaultGuard()
+	for k, v := range meta {
+		cleaned[k] = guard.Redact(v)
+	}
+	return cleaned
+}
+
 // Redact replaces PII matching strings with standard mask tags.
 func (pg *PIIGuard) Redact(text string) string {
 	cleaned := text

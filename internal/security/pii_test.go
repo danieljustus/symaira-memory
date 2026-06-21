@@ -45,6 +45,91 @@ func TestPIIGuardRedaction(t *testing.T) {
 	}
 }
 
+func TestRedactMap(t *testing.T) {
+	tests := []struct {
+		name string
+		meta map[string]string
+		want map[string]string
+	}{
+		{
+			name: "nil map returns nil",
+			meta: nil,
+			want: nil,
+		},
+		{
+			name: "empty map returns empty map",
+			meta: map[string]string{},
+			want: map[string]string{},
+		},
+		{
+			name: "email in value is redacted",
+			meta: map[string]string{"note": "email is alice@example.com"},
+			want: map[string]string{"note": "email is [REDACTED_EMAIL]"},
+		},
+		{
+			name: "API key in value is redacted",
+			meta: map[string]string{"token": "ghp_abcdefghijklmnopqrstuvwxyz0123456789"},
+			want: map[string]string{"token": "[REDACTED_API_KEY]"},
+		},
+		{
+			name: "clean values are unchanged",
+			meta: map[string]string{"source": "import", "version": "1.0"},
+			want: map[string]string{"source": "import", "version": "1.0"},
+		},
+		{
+			name: "mixed clean and PII values",
+			meta: map[string]string{
+				"source":  "sync",
+				"contact": "bob@example.com",
+				"key":     "sk-proj-abc123def456ghi789jkl012mno345pqr678",
+			},
+			want: map[string]string{
+				"source":  "sync",
+				"contact": "[REDACTED_EMAIL]",
+				"key":     "[REDACTED_API_KEY]",
+			},
+		},
+		{
+			name: "original map is not mutated",
+			meta: map[string]string{"note": "user@host.com"},
+			want: map[string]string{"note": "[REDACTED_EMAIL]"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			origCopy := make(map[string]string)
+			for k, v := range tt.meta {
+				origCopy[k] = v
+			}
+
+			got := RedactMap(tt.meta)
+
+			if tt.meta == nil {
+				if got != nil {
+					t.Errorf("expected nil, got %v", got)
+				}
+				return
+			}
+
+			for k, v := range tt.want {
+				if got[k] != v {
+					t.Errorf("key %q: expected %q, got %q", k, v, got[k])
+				}
+			}
+			if len(got) != len(tt.want) {
+				t.Errorf("expected %d keys, got %d", len(tt.want), len(got))
+			}
+
+			for k, v := range origCopy {
+				if tt.meta[k] != v {
+					t.Errorf("original map mutated at key %q: expected %q, got %q", k, v, tt.meta[k])
+				}
+			}
+		})
+	}
+}
+
 func TestCreditCardPrefixValidation(t *testing.T) {
 	pg := NewPIIGuard()
 
