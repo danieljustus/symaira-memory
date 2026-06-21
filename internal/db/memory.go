@@ -163,20 +163,12 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+	if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
 		return nil, err
 	}
-	m.ConsolidatedIntoID = consolidatedInto.String
-	if validFrom.Valid {
-		m.ValidFrom = &validFrom.Time
-	}
-	if validTo.Valid {
-		m.ValidTo = &validTo.Time
-	}
-	m.SupersededBy = supersededBy.String
 
 	entities, err := db.EntitiesForMemory(m.ID)
 	if err == nil && len(entities) > 0 {
@@ -186,6 +178,21 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	}
 
 	return &m, nil
+}
+
+func populateMemoryFields(m *Memory, metaStr string, consolidatedInto sql.NullString, validFrom, validTo sql.NullTime, supersededBy sql.NullString) error {
+	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		return err
+	}
+	m.ConsolidatedIntoID = consolidatedInto.String
+	if validFrom.Valid {
+		m.ValidFrom = &validFrom.Time
+	}
+	if validTo.Valid {
+		m.ValidTo = &validTo.Time
+	}
+	m.SupersededBy = supersededBy.String
+	return nil
 }
 
 // scanMemory scans a full Memory row (including embedding) from *sql.Rows.
@@ -198,20 +205,12 @@ func scanMemory(rows *sql.Rows) (*Memory, error) {
 	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+	if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
 		return nil, err
 	}
 	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
 		return nil, err
 	}
-	m.ConsolidatedIntoID = consolidatedInto.String
-	if validFrom.Valid {
-		m.ValidFrom = &validFrom.Time
-	}
-	if validTo.Valid {
-		m.ValidTo = &validTo.Time
-	}
-	m.SupersededBy = supersededBy.String
 	return &m, nil
 }
 
@@ -225,17 +224,9 @@ func scanMemoryLite(rows *sql.Rows) (*Memory, error) {
 	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+	if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
 		return nil, err
 	}
-	m.ConsolidatedIntoID = consolidatedInto.String
-	if validFrom.Valid {
-		m.ValidFrom = &validFrom.Time
-	}
-	if validTo.Valid {
-		m.ValidTo = &validTo.Time
-	}
-	m.SupersededBy = supersededBy.String
 	return &m, nil
 }
 

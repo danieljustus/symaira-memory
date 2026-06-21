@@ -2,7 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -214,17 +213,9 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 			&validFrom, &validTo, &supersededBy, &rank); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal([]byte(metaStr), &m.Metadata); err != nil {
+		if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
 			return nil, err
 		}
-		m.ConsolidatedIntoID = consolidatedInto.String
-		if validFrom.Valid {
-			m.ValidFrom = &validFrom.Time
-		}
-		if validTo.Valid {
-			m.ValidTo = &validTo.Time
-		}
-		m.SupersededBy = supersededBy.String
 		results = append(results, SearchResult{
 			Memory: &m,
 			Score:  float32(-rank),
