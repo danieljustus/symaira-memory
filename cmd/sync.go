@@ -54,47 +54,66 @@ func runSync(database *db.DB, remote, token string) error {
 		return fmt.Errorf("reading sync cursor: %w", err)
 	}
 
-	pullURL := remote + "/api/sync/changes"
+	// Pull: drain every remote page before advancing the local cursor.
+	var allMemories []*db.Memory
+	var serverTimeStr string
+	cursorParam := ""
 	if !cursor.IsZero() {
-		pullURL += "?since=" + cursor.UTC().Format(time.RFC3339)
+		cursorParam = "?since=" + cursor.UTC().Format(time.RFC3339)
 	}
 
-	pullReq, err := http.NewRequest("GET", pullURL, nil)
-	if err != nil {
-		return fmt.Errorf("building pull request: %w", err)
-	}
-	pullReq.Header.Set("Authorization", "Bearer "+token)
+	for {
+		pullURL := remote + "/api/sync/changes" + cursorParam
 
-	pullResp, err := client.Do(pullReq)
-	if err != nil {
-		return fmt.Errorf("contacting remote: %w", err)
-	}
-	defer pullResp.Body.Close()
+		pullReq, err := http.NewRequest("GET", pullURL, nil)
+		if err != nil {
+			return fmt.Errorf("building pull request: %w", err)
+		}
+		pullReq.Header.Set("Authorization", "Bearer "+token)
 
-	if pullResp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("authentication failed (401). Check your --token")
-	}
-	if pullResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(pullResp.Body)
-		return fmt.Errorf("pull failed with status %d: %s", pullResp.StatusCode, string(body))
+		pullResp, err := client.Do(pullReq)
+		if err != nil {
+			return fmt.Errorf("contacting remote: %w", err)
+		}
+
+		if pullResp.StatusCode == http.StatusUnauthorized {
+			pullResp.Body.Close()
+			return fmt.Errorf("authentication failed (401). Check your --token")
+		}
+		if pullResp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(pullResp.Body)
+			pullResp.Body.Close()
+			return fmt.Errorf("pull failed with status %d: %s", pullResp.StatusCode, string(body))
+		}
+
+		var pullResult struct {
+			Memories   []*db.Memory `json:"memories"`
+			ServerTime string       `json:"server_time"`
+			NextCursor string       `json:"next_cursor"`
+		}
+		if err := json.NewDecoder(pullResp.Body).Decode(&pullResult); err != nil {
+			pullResp.Body.Close()
+			return fmt.Errorf("decoding pull response: %w", err)
+		}
+		pullResp.Body.Close()
+
+		allMemories = append(allMemories, pullResult.Memories...)
+		serverTimeStr = pullResult.ServerTime
+
+		if pullResult.NextCursor == "" {
+			break
+		}
+		cursorParam = "?cursor=" + pullResult.NextCursor
 	}
 
-	var pullResult struct {
-		Memories   []*db.Memory `json:"memories"`
-		ServerTime string       `json:"server_time"`
-	}
-	if err := json.NewDecoder(pullResp.Body).Decode(&pullResult); err != nil {
-		return fmt.Errorf("decoding pull response: %w", err)
-	}
-
-	serverTime, err := time.Parse(time.RFC3339, pullResult.ServerTime)
+	serverTime, err := time.Parse(time.RFC3339, serverTimeStr)
 	if err != nil {
 		return fmt.Errorf("parsing server_time: %w", err)
 	}
 
 	appliedCount := 0
 	skippedCount := 0
-	for _, m := range pullResult.Memories {
+	for _, m := range allMemories {
 		if m.ID == "" {
 			skippedCount++
 			continue
@@ -155,6 +174,7 @@ func runSync(database *db.DB, remote, token string) error {
 		pushedCount = pushResult.Applied
 	}
 
+	// Advance cursor only after a complete successful pull.
 	if err := database.SetSyncCursor(remote, serverTime); err != nil {
 		return fmt.Errorf("saving sync cursor: %w", err)
 	}

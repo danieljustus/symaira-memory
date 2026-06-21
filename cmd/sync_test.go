@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -213,5 +215,159 @@ func TestSync401Handling(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "401") {
 		t.Errorf("expected error to mention 401, got: %v", err)
+	}
+}
+
+func paginatedFakeServer(t *testing.T, allMemories []*db.Memory, pageSize int) *httptest.Server {
+	t.Helper()
+	serverTime := time.Now().UTC()
+
+	sort.Slice(allMemories, func(i, j int) bool {
+		return allMemories[i].UpdatedAt.Before(allMemories[j].UpdatedAt)
+	})
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/sync/changes":
+			var since time.Time
+			if cursorStr := r.URL.Query().Get("cursor"); cursorStr != "" {
+				decoded, err := base64.StdEncoding.DecodeString(cursorStr)
+				if err != nil {
+					http.Error(w, "bad cursor", http.StatusBadRequest)
+					return
+				}
+				parsed, err := time.Parse(time.RFC3339Nano, string(decoded))
+				if err != nil {
+					http.Error(w, "bad cursor format", http.StatusBadRequest)
+					return
+				}
+				since = parsed
+			} else if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
+				parsed, err := time.Parse(time.RFC3339, sinceStr)
+				if err != nil {
+					http.Error(w, "bad since", http.StatusBadRequest)
+					return
+				}
+				since = parsed
+			}
+
+			var page []*db.Memory
+			for _, m := range allMemories {
+				if m.UpdatedAt.After(since) {
+					page = append(page, m)
+				}
+			}
+
+			var nextCursor string
+			if len(page) > pageSize {
+				page = page[:pageSize]
+				last := page[len(page)-1]
+				nextCursor = base64.StdEncoding.EncodeToString([]byte(last.UpdatedAt.Format(time.RFC3339Nano)))
+			}
+
+			resp := map[string]interface{}{
+				"memories":    page,
+				"server_time": serverTime.Format(time.RFC3339),
+			}
+			if nextCursor != "" {
+				resp["next_cursor"] = nextCursor
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(resp)
+
+		case "/api/sync/apply":
+			var body struct {
+				Memories []*db.Memory `json:"memories"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]int{
+				"applied": len(body.Memories),
+				"skipped": 0,
+			})
+
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestSyncMultiPage(t *testing.T) {
+	localDB := helperTestDB(t)
+
+	base := time.Now().UTC()
+	memories := make([]*db.Memory, 5)
+	for i := range memories {
+		memories[i] = &db.Memory{
+			ID:        "mem-" + string(rune('a'+i)),
+			Content:   "Memory " + string(rune('A'+i)),
+			Scope:     "global",
+			Metadata:  map[string]string{},
+			Embedding: []float32{float32(i) * 0.1},
+			UpdatedAt: base.Add(time.Duration(i) * time.Minute),
+			CreatedAt: base,
+		}
+	}
+
+	ts := paginatedFakeServer(t, memories, 2)
+	defer ts.Close()
+
+	err := runSync(localDB, ts.URL, "")
+	if err != nil {
+		t.Fatalf("sync failed: %v", err)
+	}
+
+	for _, m := range memories {
+		got, _ := localDB.GetMemory(m.ID)
+		if got == nil {
+			t.Errorf("expected memory %q to be synced", m.ID)
+		}
+	}
+
+	cursor, _ := localDB.GetSyncCursor(ts.URL)
+	if cursor.IsZero() {
+		t.Error("expected cursor to be set after multi-page sync")
+	}
+}
+
+func TestSyncSecondSyncNoLoss(t *testing.T) {
+	localDB := helperTestDB(t)
+
+	base := time.Now().UTC()
+	memories := make([]*db.Memory, 5)
+	for i := range memories {
+		memories[i] = &db.Memory{
+			ID:        "nl-" + string(rune('a'+i)),
+			Content:   "NoLoss " + string(rune('A'+i)),
+			Scope:     "global",
+			Metadata:  map[string]string{},
+			Embedding: []float32{float32(i) * 0.1},
+			UpdatedAt: base.Add(time.Duration(i) * time.Minute),
+			CreatedAt: base,
+		}
+	}
+
+	ts := paginatedFakeServer(t, memories, 2)
+	defer ts.Close()
+
+	err := runSync(localDB, ts.URL, "")
+	if err != nil {
+		t.Fatalf("first sync failed: %v", err)
+	}
+
+	err = runSync(localDB, ts.URL, "")
+	if err != nil {
+		t.Fatalf("second sync failed: %v", err)
+	}
+
+	for _, m := range memories {
+		got, _ := localDB.GetMemory(m.ID)
+		if got == nil {
+			t.Errorf("memory %q missing after second sync", m.ID)
+		}
 	}
 }
