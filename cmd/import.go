@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/importer"
 	"github.com/danieljustus/symaira-memory/internal/importer/aider"
 	"github.com/danieljustus/symaira-memory/internal/importer/calendar"
@@ -51,7 +52,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		registry := importer.NewRegistry(GetDB())
+		registry := importer.NewRegistry(GetDB(), extractor.NewEmbeddingsGenerator(GetConfig()))
 
 		// Session importers
 		registry.Register(claudecode.NewClaudeCodeImporter(""))

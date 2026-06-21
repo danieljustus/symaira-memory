@@ -7,25 +7,28 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/google/uuid"
 )
 
 // Registry manages multiple session importers and orchestrates import runs.
 type Registry struct {
-	importers map[string]SessionImporter
-	database  *db.DB
-	state     *ImportState
-	stderr    *os.File
+	importers  map[string]SessionImporter
+	database   *db.DB
+	embeddings *extractor.EmbeddingsGenerator
+	state      *ImportState
+	stderr     *os.File
 }
 
 // NewRegistry creates a new importer registry.
-func NewRegistry(database *db.DB) *Registry {
+func NewRegistry(database *db.DB, embeddings *extractor.EmbeddingsGenerator) *Registry {
 	return &Registry{
-		importers: make(map[string]SessionImporter),
-		database:  database,
-		state:     NewImportState(database.Conn()),
-		stderr:    os.Stderr,
+		importers:  make(map[string]SessionImporter),
+		database:   database,
+		embeddings: embeddings,
+		state:      NewImportState(database.Conn()),
+		stderr:     os.Stderr,
 	}
 }
 
@@ -196,7 +199,7 @@ func (r *Registry) runToolImport(ctx context.Context, importer SessionImporter, 
 	return result, nil
 }
 
-// storeFacts stores imported facts in the database.
+// storeFacts stores imported facts in the database with local embeddings.
 func (r *Registry) storeFacts(facts []ImportedFact) error {
 	for _, fact := range facts {
 		now := time.Now().UTC()
@@ -209,14 +212,20 @@ func (r *Registry) storeFacts(facts []ImportedFact) error {
 		metadata["session_id"] = fact.SessionID
 		metadata["imported_at"] = now.Format(time.RFC3339)
 
+		content := security.Redact(fact.Content)
+
 		memory := &db.Memory{
 			ID:                  uuid.New().String(),
-			Content:             security.Redact(fact.Content),
+			Content:             content,
 			Scope:               "agent",
 			Metadata:            security.RedactMap(metadata),
 			CreatedAt:           fact.Timestamp,
 			UpdatedAt:           now,
 			ConsolidationStatus: "raw",
+		}
+
+		if r.embeddings != nil {
+			memory.Embedding = r.embeddings.GenerateVector(content)
 		}
 
 		if err := r.database.SaveMemory(memory); err != nil {

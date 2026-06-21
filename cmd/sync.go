@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/spf13/cobra"
 )
 
@@ -48,6 +49,7 @@ var syncCmd = &cobra.Command{
 func runSync(database *db.DB, remote, token string) error {
 	remote = strings.TrimRight(remote, "/")
 	client := &http.Client{Timeout: 30 * time.Second}
+	embeddings := extractor.NewEmbeddingsGenerator(nil)
 
 	cursor, err := database.GetSyncCursor(remote)
 	if err != nil {
@@ -126,6 +128,16 @@ func runSync(database *db.DB, remote, token string) error {
 			appliedCount++
 		} else {
 			skippedCount++
+		}
+	}
+
+	for _, m := range allMemories {
+		if m.ID == "" || len(m.Embedding) > 0 {
+			continue
+		}
+		vec := embeddings.GenerateVector(m.Content)
+		if err := database.SetMemoryEmbedding(m.ID, vec); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to backfill embedding for %s: %v\n", m.ID, err)
 		}
 	}
 

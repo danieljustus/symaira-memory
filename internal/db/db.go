@@ -827,6 +827,25 @@ func (db *DB) SetSyncCursor(remote string, t time.Time) error {
 	return err
 }
 
+// SetMemoryEmbedding updates only the embedding columns of an existing memory,
+// leaving all other fields (identity, timestamps, content, metadata) untouched.
+// This is used by import and sync paths to backfill local search vectors without
+// disturbing remote identity or LWW conflict-resolution timestamps.
+func (db *DB) SetMemoryEmbedding(id string, embedding []float32) error {
+	embeddingJSON, err := json.Marshal(embedding)
+	if err != nil {
+		return fmt.Errorf("failed to marshal embedding: %w", err)
+	}
+	embeddingDim := len(embedding)
+	lshHash := ComputeLSH(embedding)
+
+	_, err = db.conn.Exec(
+		`UPDATE memories SET embedding = ?, embedding_dim = ?, lsh_hash = ? WHERE id = ?`,
+		string(embeddingJSON), embeddingDim, lshHash, id,
+	)
+	return err
+}
+
 // SupersedeFact marks an older memory as superseded by a newer one.
 // Sets valid_to on the superseded memory and records the superseding ID.
 func (db *DB) SupersedeFact(supersededID, supersededByID string) error {
