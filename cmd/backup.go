@@ -115,16 +115,16 @@ func validateSQLiteFile(data []byte) error {
 
 	tmp, err := os.CreateTemp("", "symmemory-validate-*.db")
 	if err != nil {
-		return nil
+		return fmt.Errorf("validation I/O error: %w", err)
 	}
 	defer os.Remove(tmp.Name())
 	defer tmp.Close()
 
 	if _, err := tmp.Write(data); err != nil {
-		return nil
+		return fmt.Errorf("validation I/O error: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		return nil
+		return fmt.Errorf("validation I/O error: %w", err)
 	}
 
 	testDB, err := sql.Open("sqlite", tmp.Name())
