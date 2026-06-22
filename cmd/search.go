@@ -38,7 +38,8 @@ var searchCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		query := args[0]
 		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
-		queryVector := embeddings.GenerateVector(query)
+		emb := embeddings.GenerateVector(query)
+		queryVector := emb.Vector
 
 		var entityID string
 		if searchEntity != "" {
@@ -54,7 +55,7 @@ var searchCmd = &cobra.Command{
 			entityID = entity.ID
 		}
 
-		results, err := GetDB().SearchMemoriesFiltered(queryVector, searchScope, searchLimit, entityID)
+		results, err := GetDB().SearchMemoriesFiltered(queryVector, emb.Source, searchScope, searchLimit, entityID)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Semantic search failure: %v\n", err)
 			os.Exit(1)

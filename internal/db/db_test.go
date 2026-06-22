@@ -69,7 +69,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 
 	// Test Search (Vector Cosine Similarity check)
 	query := []float32{1.0, 0.0, 0.0} // Perfect match
-	results, err := database.SearchMemoriesFiltered(query, "", 5, "", RankingWeights{RelevanceWeight: 1.0, RecencyWeight: 0, ImportanceWeight: 0, RecencyHalfLife: 30})
+	results, err := database.SearchMemoriesFiltered(query, "", "", 5, "", RankingWeights{RelevanceWeight: 1.0, RecencyWeight: 0, ImportanceWeight: 0, RecencyHalfLife: 30})
 	if err != nil {
 		t.Fatalf("failed to search memories: %v", err)
 	}
@@ -175,8 +175,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 15 {
-		t.Errorf("expected 15 migrations after two opens, got %d", count)
+	if count != 16 {
+		t.Errorf("expected 16 migrations after two opens, got %d", count)
 	}
 }
 
@@ -307,7 +307,7 @@ func TestSearchWithLSHIndex(t *testing.T) {
 	queryVec := make([]float32, EmbeddingDim)
 	queryVec[0] = 1.0
 
-	results, err := database.SearchMemories(queryVec, "global", 5)
+	results, err := database.SearchMemories(queryVec, "", "global", 5)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -357,7 +357,7 @@ func BenchmarkSearchWithLSH(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := database.SearchMemories(queryVec, "global", 5)
+		_, err := database.SearchMemories(queryVec, "", "global", 5)
 		if err != nil {
 			b.Fatalf("search failed: %v", err)
 		}
@@ -927,7 +927,7 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 
 	// 2. SearchMemories should exclude 'archived'
 	searchVal := []float32{0.0, 0.0, 1.0} // perfect alignment with mem-archived
-	searchResults, err := database.SearchMemories(searchVal, "global", 3)
+	searchResults, err := database.SearchMemories(searchVal, "", "global", 3)
 	if err != nil {
 		t.Fatalf("SearchMemories failed: %v", err)
 	}
@@ -1007,7 +1007,7 @@ func TestSetMemoryEmbedding(t *testing.T) {
 	}
 
 	newEmb := []float32{0.5, 0.3, 0.8, 0.1, 0.9}
-	if err := database.SetMemoryEmbedding("setemb-1", newEmb); err != nil {
+	if err := database.SetMemoryEmbedding("setemb-1", newEmb, "hash-fallback", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
@@ -1093,12 +1093,12 @@ func TestSyncedMemorySearchableAfterEmbeddingBackfill(t *testing.T) {
 	}
 
 	emb := extractor.GenerateLocalHashVector("Alice prefers dark mode in all applications", 768)
-	if err := database.SetMemoryEmbedding("sync-1", emb); err != nil {
+	if err := database.SetMemoryEmbedding("sync-1", emb, "hash-fallback", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
 	emb2 := extractor.GenerateLocalHashVector("Bob uses light theme exclusively", 768)
-	if err := database.SetMemoryEmbedding("sync-2", emb2); err != nil {
+	if err := database.SetMemoryEmbedding("sync-2", emb2, "hash-fallback", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
@@ -1127,7 +1127,7 @@ func TestSyncedMemorySearchableAfterEmbeddingBackfill(t *testing.T) {
 	}
 
 	queryVec := extractor.GenerateLocalHashVector("Alice prefers dark mode in all applications", 768)
-	results, err := database.SearchMemories(queryVec, "", 10)
+	results, err := database.SearchMemories(queryVec, "hash-fallback", "", 10)
 	if err != nil {
 		t.Fatalf("SearchMemories failed: %v", err)
 	}

@@ -154,17 +154,17 @@ func (l *Linker) linkScopePair(scope1, scope2 string, result *LinkResult, dryRun
 // similarityScore returns a value in [0,1] combining embedding cosine similarity
 // with a text-content fallback when embeddings are unavailable.
 func (l *Linker) similarityScore(m1, m2 *db.Memory) float32 {
-	// Fast path: exact content match is always a perfect score.
 	if m1.Content == m2.Content {
 		return 1.0
 	}
 
-	// Prefer embedding cosine similarity when both embeddings are present.
 	if len(m1.Embedding) > 0 && len(m2.Embedding) > 0 {
+		if m1.EmbeddingSource != "" && m2.EmbeddingSource != "" && m1.EmbeddingSource != m2.EmbeddingSource {
+			return float32(l.jaccardContent(m1.Content, m2.Content))
+		}
 		return db.CosineSimilarity(m1.Embedding, m2.Embedding)
 	}
 
-	// Fall back to Jaccard token similarity on content.
 	return float32(l.jaccardContent(m1.Content, m2.Content))
 }
 

@@ -17,6 +17,8 @@ type Memory struct {
 	Scope               string            `json:"scope"`     // global, project, agent, user, session
 	Metadata            map[string]string `json:"metadata"`  // key-value metadata
 	Embedding           []float32         `json:"embedding"` // semantic embedding
+	EmbeddingSource     string            `json:"embedding_source,omitempty"`
+	EmbeddingModel      string            `json:"embedding_model,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
 	CreatedBy           string            `json:"created_by,omitempty"`
@@ -89,14 +91,16 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 		supersededBy.Valid = true
 	}
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
 			metadata=excluded.metadata,
 			embedding=excluded.embedding,
 			embedding_dim=excluded.embedding_dim,
+			embedding_source=excluded.embedding_source,
+			embedding_model=excluded.embedding_model,
 			lsh_hash=excluded.lsh_hash,
 			updated_at=excluded.updated_at,
 			updated_by=excluded.updated_by,
@@ -114,7 +118,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy)
 	return err
 }
 
@@ -154,9 +158,9 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	var validFrom, validTo sql.NullTime
 	var supersededBy sql.NullString
 	err := db.conn.QueryRow(
-		"SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE id = ?",
+		"SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE id = ?",
 		id,
-	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy)
+	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -202,7 +206,7 @@ func scanMemory(rows *sql.Rows) (*Memory, error) {
 	var consolidatedInto sql.NullString
 	var validFrom, validTo sql.NullTime
 	var supersededBy sql.NullString
-	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy); err != nil {
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy); err != nil {
 		return nil, err
 	}
 	if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
@@ -237,10 +241,10 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE scope = ? AND consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE scope = ? AND consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status != 'archived' ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -373,7 +377,7 @@ func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int) ([]*Memory, err
 
 // GetRawMemories returns all memories with consolidation_status = 'raw'.
 func (db *DB) GetRawMemories() ([]*Memory, error) {
-	query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
+	query := "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -426,9 +430,9 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 
 	if err == sql.ErrNoRows {
 		_, err = db.conn.Exec(
-			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy),
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy),
 		)
 		if err != nil {
 			return false, err
@@ -441,8 +445,8 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	}
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=?, importance=? WHERE id=?`,
-		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ID,
+		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, embedding_source=?, embedding_model=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=?, importance=? WHERE id=?`,
+		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ID,
 	)
 	if err != nil {
 		return false, err
@@ -462,15 +466,15 @@ func DefaultRankingWeights() RankingWeights {
 
 // SearchMemories uses LSH bucket pre-filtering to avoid full table scans,
 // then ranks the reduced candidate set by cosine similarity.
-func (db *DB) SearchMemories(queryVec []float32, scope string, limit int) ([]SearchResult, error) {
-	return db.SearchMemoriesFiltered(queryVec, scope, limit, "", DefaultRankingWeights())
+func (db *DB) SearchMemories(queryVec []float32, querySource string, scope string, limit int) ([]SearchResult, error) {
+	return db.SearchMemoriesFiltered(queryVec, querySource, scope, limit, "", DefaultRankingWeights())
 }
 
 // SearchMemoriesFiltered extends SearchMemories with an optional entity filter.
 // When entityID is non-empty, only memories linked to that entity are returned.
-// Uses a two-pass approach: first collects candidate IDs without loading embeddings,
-// then loads full memories only for scoring.
-func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int, entityID string, weights ...RankingWeights) ([]SearchResult, error) {
+// Only memories whose embedding_source matches querySource are scored; rows
+// from a different embedding space are silently skipped.
+func (db *DB) SearchMemoriesFiltered(queryVec []float32, querySource string, scope string, limit int, entityID string, weights ...RankingWeights) ([]SearchResult, error) {
 	w := DefaultRankingWeights()
 	if len(weights) > 0 {
 		w = weights[0]
@@ -554,7 +558,7 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 		}
 		inClause := strings.Join(placeholders, ", ")
 
-		query := "SELECT id, content, scope, metadata, embedding, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE id IN (" + inClause + ")"
+		query := "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE id IN (" + inClause + ")"
 
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
@@ -567,7 +571,7 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, scope string, limit int
 				rows.Close()
 				return nil, err
 			}
-			if len(m.Embedding) > 0 {
+			if len(m.Embedding) > 0 && m.EmbeddingSource == querySource {
 				relevance := CosineSimilarity(queryVec, m.Embedding)
 				score := float32(CompositeScore(relevance, m.CreatedAt, float64(m.Importance)/10.0, w))
 				results = append(results, scored{m: m, score: score})
@@ -686,9 +690,7 @@ func (db *DB) FactExists(contentHash string) (bool, error) {
 
 // SetMemoryEmbedding updates only the embedding columns of an existing memory,
 // leaving all other fields (identity, timestamps, content, metadata) untouched.
-// This is used by import and sync paths to backfill local search vectors without
-// disturbing remote identity or LWW conflict-resolution timestamps.
-func (db *DB) SetMemoryEmbedding(id string, embedding []float32) error {
+func (db *DB) SetMemoryEmbedding(id string, embedding []float32, source, model string) error {
 	embeddingJSON, err := json.Marshal(embedding)
 	if err != nil {
 		return fmt.Errorf("failed to marshal embedding: %w", err)
@@ -697,8 +699,8 @@ func (db *DB) SetMemoryEmbedding(id string, embedding []float32) error {
 	lshHash := ComputeLSH(embedding)
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET embedding = ?, embedding_dim = ?, lsh_hash = ? WHERE id = ?`,
-		string(embeddingJSON), embeddingDim, lshHash, id,
+		`UPDATE memories SET embedding = ?, embedding_dim = ?, embedding_source = ?, embedding_model = ?, lsh_hash = ? WHERE id = ?`,
+		string(embeddingJSON), embeddingDim, source, model, lshHash, id,
 	)
 	return err
 }

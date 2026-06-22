@@ -68,7 +68,10 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 		return nil, nil, err
 	}
 	m.ID = uuid.New().String()
-	m.Embedding = embeddings.GenerateVector(m.Content)
+	emb := embeddings.GenerateVector(m.Content)
+	m.Embedding = emb.Vector
+	m.EmbeddingSource = emb.Source
+	m.EmbeddingModel = emb.Model
 
 	if err := database.SaveMemory(m); err != nil {
 		return nil, nil, fmt.Errorf("failed to save memory: %w", err)
@@ -109,7 +112,8 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 		}
 
 		subID := uuid.New().String()
-		subVector := embeddings.GenerateVector(cleanFactContent)
+		subEmb := embeddings.GenerateVector(cleanFactContent)
+		subVector := subEmb.Vector
 
 		subMeta := f.Metadata
 		if subMeta == nil {
@@ -123,15 +127,17 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 		}
 
 		subMem := &db.Memory{
-			ID:             subID,
-			Content:        cleanFactContent,
-			Scope:          m.Scope,
-			Metadata:       subMeta,
-			Embedding:      subVector,
-			CreatedBy:      attr.Author,
-			UpdatedBy:      attr.Author,
-			CreatedSession: attr.SessionID,
-			UpdatedSession: attr.SessionID,
+			ID:              subID,
+			Content:         cleanFactContent,
+			Scope:           m.Scope,
+			Metadata:        subMeta,
+			Embedding:       subVector,
+			EmbeddingSource: subEmb.Source,
+			EmbeddingModel:  subEmb.Model,
+			CreatedBy:       attr.Author,
+			UpdatedBy:       attr.Author,
+			CreatedSession:  attr.SessionID,
+			UpdatedSession:  attr.SessionID,
 		}
 		if err := database.SaveMemory(subMem); err == nil {
 			extractedStr = append(extractedStr, fmt.Sprintf("  - [Fact Extracted] %s (ID: %s)", cleanFactContent, subID))

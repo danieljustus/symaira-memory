@@ -225,7 +225,10 @@ func (r *Registry) storeFacts(facts []ImportedFact) error {
 		}
 
 		if r.embeddings != nil {
-			memory.Embedding = r.embeddings.GenerateVector(content)
+			emb := r.embeddings.GenerateVector(content)
+			memory.Embedding = emb.Vector
+			memory.EmbeddingSource = emb.Source
+			memory.EmbeddingModel = emb.Model
 		}
 
 		if err := r.database.SaveMemory(memory); err != nil {

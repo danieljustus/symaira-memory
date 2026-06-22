@@ -154,8 +154,9 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		entityID = entity.ID
 	}
 
-	queryVector := s.embeddings.GenerateVector(args.Query)
-	results, err := s.db.SearchMemoriesFiltered(queryVector, args.Scope, limit, entityID)
+	emb := s.embeddings.GenerateVector(args.Query)
+	queryVector := emb.Vector
+	results, err := s.db.SearchMemoriesFiltered(queryVector, emb.Source, args.Scope, limit, entityID)
 	if err != nil {
 		return mcpError("Failed to search memories", err)
 	}

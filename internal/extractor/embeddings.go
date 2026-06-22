@@ -64,12 +64,23 @@ func NewEmbeddingsGenerator(cfg *config.Config) *EmbeddingsGenerator {
 	}
 }
 
-// GenerateVector produces a 768-dimensional vector using Ollama if available, or the local hashing fallback.
-// Results are cached by content hash to avoid redundant computation for identical text.
-func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
+// EmbeddingResult carries the generated vector together with provenance
+// metadata that identifies which embedding space the vector belongs to.
+// Search and consolidation must never cross-score rows from different sources.
+type EmbeddingResult struct {
+	Vector []float32 // the embedding vector
+	Source string    // "ollama" or "hash-fallback"
+	Model  string    // model name (e.g. "nomic-embed-text") or "" for hash
+}
+
+// GenerateVector produces a 768-dimensional vector using Ollama if available,
+// or the local hashing fallback. Ollama vectors are cached by content hash to
+// avoid redundant computation for identical text. Fallback vectors are never
+// cached so that recovery after Ollama comes back online is automatic.
+func (eg *EmbeddingsGenerator) GenerateVector(text string) EmbeddingResult {
 	cacheKey := eg.cacheKey(text)
 	if cached, ok := eg.embeddingCache.Get(cacheKey); ok {
-		return cached
+		return EmbeddingResult{Vector: cached, Source: "ollama", Model: eg.Model}
 	}
 
 	dims := 768
@@ -78,22 +89,22 @@ func (eg *EmbeddingsGenerator) GenerateVector(text string) []float32 {
 	skip := time.Since(eg.lastFail) < ollamaCacheTTL
 	eg.mu.Unlock()
 
-	var vec []float32
 	if !skip {
-		var err error
-		vec, err = eg.queryOllama(text)
+		vec, err := eg.queryOllama(text)
 		if err == nil && len(vec) == dims {
 			eg.embeddingCache.Add(cacheKey, vec)
-			return vec
+			return EmbeddingResult{Vector: vec, Source: "ollama", Model: eg.Model}
 		}
 		eg.mu.Lock()
 		eg.lastFail = time.Now()
 		eg.mu.Unlock()
 	}
 
-	vec = GenerateLocalHashVector(text, dims)
-	eg.embeddingCache.Add(cacheKey, vec)
-	return vec
+	// Fallback vectors are intentionally NOT cached so that when Ollama
+	// recovers, the next request for the same text will succeed via Ollama
+	// and produce a properly cached Ollama vector.
+	vec := GenerateLocalHashVector(text, dims)
+	return EmbeddingResult{Vector: vec, Source: "hash-fallback", Model: ""}
 }
 
 func (eg *EmbeddingsGenerator) cacheKey(text string) string {

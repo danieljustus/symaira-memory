@@ -70,8 +70,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		entityID = entity.ID
 	}
 
-	queryVector := s.embeddings.GenerateVector(args.Query)
-	results, err := s.db.SearchMemoriesFiltered(queryVector, args.Scope, args.Limit, entityID)
+	emb := s.embeddings.GenerateVector(args.Query)
+	queryVector := emb.Vector
+	results, err := s.db.SearchMemoriesFiltered(queryVector, emb.Source, args.Scope, args.Limit, entityID)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Search failed", err)
 		return
