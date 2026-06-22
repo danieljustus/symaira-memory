@@ -65,4 +65,3 @@ func (s *SmartImporter) storeFact(fact ImportedFact, contentHash string) error {
 
 	return s.database.SaveMemory(memory)
 }
-
