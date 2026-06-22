@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/danieljustus/symaira-memory/internal/config"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -481,5 +483,130 @@ func TestRestoreRejectsOversizedEntry(t *testing.T) {
 	if int64(buf.Len()) > maxTarEntrySize {
 		return
 	}
-	t.Errorf("expected oversized entry (%d bytes, header size %d) to exceed limit %d", len(oversized), header.Size, maxTarEntrySize)
+		t.Errorf("expected oversized entry (%d bytes, header size %d) to exceed limit %d", len(oversized), header.Size, maxTarEntrySize)
 }
+
+func TestResolveBackupPasswordFromFile(t *testing.T) {
+	dir := t.TempDir()
+	pwFile := filepath.Join(dir, "pw.txt")
+	if err := os.WriteFile(pwFile, []byte("secret123\n"), 0600); err != nil {
+		t.Fatalf("write password file: %v", err)
+	}
+
+	old := backupPasswordFile
+	backupPasswordFile = pwFile
+	defer func() { backupPasswordFile = old }()
+
+	pw, err := resolveBackupPassword("encryption")
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if pw != "secret123" {
+		t.Errorf("expected password 'secret123', got %q", pw)
+	}
+}
+
+func TestResolveBackupPasswordFromEnv(t *testing.T) {
+	t.Setenv("SYMMEMORY_BACKUP_PASSWORD", "envsecret")
+	old := backupPassword
+	backupPassword = ""
+	defer func() { backupPassword = old }()
+
+	pw, err := resolveBackupPassword("encryption")
+	if err != nil {
+		t.Fatalf("expected success, got error: %v", err)
+	}
+	if pw != "envsecret" {
+		t.Errorf("expected password 'envsecret', got %q", pw)
+	}
+}
+
+func TestResolveBackupPasswordErrorsWithoutSource(t *testing.T) {
+	oldPW := backupPassword
+	oldFile := backupPasswordFile
+	backupPassword = ""
+	backupPasswordFile = ""
+	defer func() {
+		backupPassword = oldPW
+		backupPasswordFile = oldFile
+	}()
+
+	t.Setenv("SYMMEMORY_BACKUP_PASSWORD", "")
+
+	_, err := resolveBackupPassword("encryption")
+	if err == nil {
+		t.Fatal("expected error when no password source is available")
+	}
+}
+
+func TestExportCreatesEncryptedArchive(t *testing.T) {
+	oldHome := os.Getenv("HOME")
+	dir := t.TempDir()
+	os.Setenv("HOME", dir)
+	defer os.Setenv("HOME", oldHome)
+
+	SetConfig(config.Defaults())
+
+	dbDir := filepath.Join(dir, ".local", "share", "symmemory")
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	dbPath := filepath.Join(dbDir, "default.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if _, err := db.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY);"); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	db.Close()
+
+	pwFile := filepath.Join(dir, "pw.txt")
+	if err := os.WriteFile(pwFile, []byte("exportsecret"), 0600); err != nil {
+		t.Fatalf("write password file: %v", err)
+	}
+
+	oldPW := backupPassword
+	oldFile := backupPasswordFile
+	backupPassword = ""
+	backupPasswordFile = pwFile
+	defer func() {
+		backupPassword = oldPW
+		backupPasswordFile = oldFile
+	}()
+
+	backupPath := filepath.Join(dir, "backup.tar.gz")
+
+	var buf bytes.Buffer
+	oldStdout := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+
+	exportCmd.Run(exportCmd, []string{backupPath})
+
+	w.Close()
+	os.Stdout = oldStdout
+	buf.ReadFrom(r)
+
+	f, err := os.Open(backupPath)
+	if err != nil {
+		t.Fatalf("open backup: %v", err)
+	}
+	defer f.Close()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("gzip: %v", err)
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	hdr, err := tr.Next()
+	if err != nil {
+		t.Fatalf("tar next: %v", err)
+	}
+	if hdr.Name != "default.db.enc" {
+		t.Errorf("expected encrypted entry name default.db.enc, got %q", hdr.Name)
+	}
+}
+
