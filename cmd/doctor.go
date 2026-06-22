@@ -1,11 +1,12 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
@@ -99,17 +100,47 @@ func checkOllama() checkResult {
 		url = "http://localhost:11434/api/embeddings"
 	}
 
+	return checkOllamaEndpoint(url, cfg.Ollama.Model)
+}
+
+func checkOllamaEndpoint(url, model string) checkResult {
+	if model == "" {
+		model = "nomic-embed-text"
+	}
+
+	body, err := json.Marshal(map[string]string{
+		"model":  model,
+		"prompt": "symmemory health test",
+	})
+	if err != nil {
+		return checkResult{name: "Ollama", passed: false, detail: fmt.Sprintf("cannot build request: %v", err)}
+	}
+
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(strings.TrimSuffix(url, "/embeddings"))
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		return checkResult{name: "Ollama", passed: false, detail: fmt.Sprintf("not reachable: %v", err)}
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
-		return checkResult{name: "Ollama", passed: true, detail: "reachable"}
+	if resp.StatusCode == http.StatusNotFound {
+		return checkResult{name: "Ollama", passed: false, detail: "model not found or endpoint unavailable"}
 	}
-	return checkResult{name: "Ollama", passed: false, detail: fmt.Sprintf("returned status %d", resp.StatusCode)}
+	if resp.StatusCode != http.StatusOK {
+		return checkResult{name: "Ollama", passed: false, detail: fmt.Sprintf("returned status %d", resp.StatusCode)}
+	}
+
+	var result struct {
+		Embedding []float32 `json:"embedding"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return checkResult{name: "Ollama", passed: false, detail: fmt.Sprintf("invalid response: %v", err)}
+	}
+	if len(result.Embedding) == 0 {
+		return checkResult{name: "Ollama", passed: false, detail: "empty embedding in response"}
+	}
+
+	return checkResult{name: "Ollama", passed: true, detail: fmt.Sprintf("embedding returned (%d dimensions)", len(result.Embedding))}
 }
 
 func checkEmbeddingBackend() checkResult {

@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -100,5 +103,71 @@ func TestCheckFilePermissions(t *testing.T) {
 	result = checkFilePermissions()
 	if !result.passed {
 		t.Errorf("checkFilePermissions failed after creating dir: %s", result.detail)
+	}
+}
+
+func TestCheckOllamaEndpointSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"embedding":[0.1,0.2,0.3]}`)
+	}))
+	defer server.Close()
+
+	result := checkOllamaEndpoint(server.URL, "nomic-embed-text")
+	if !result.passed {
+		t.Fatalf("expected check to pass, got %q", result.detail)
+	}
+}
+
+func TestCheckOllamaEndpointDefaultURLEndsWithEmbeddings(t *testing.T) {
+	var requestedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"embedding":[0.1,0.2,0.3]}`)
+	}))
+	defer server.Close()
+
+	checkOllamaEndpoint(server.URL+"/api/embeddings", "nomic-embed-text")
+	if requestedPath != "/api/embeddings" {
+		t.Errorf("expected request path /api/embeddings, got %q", requestedPath)
+	}
+}
+
+func TestCheckOllamaEndpointNotReachable(t *testing.T) {
+	result := checkOllamaEndpoint("http://127.0.0.1:1/api/embeddings", "nomic-embed-text")
+	if result.passed {
+		t.Fatal("expected check to fail for unreachable server")
+	}
+	if result.detail == "" || result.detail == "returned status 404" {
+		t.Errorf("expected unreachable detail, got %q", result.detail)
+	}
+}
+
+func TestCheckOllamaEndpointModelMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	result := checkOllamaEndpoint(server.URL, "missing-model")
+	if result.passed {
+		t.Fatal("expected check to fail for missing model")
+	}
+}
+
+func TestCheckOllamaEndpointEmptyEmbedding(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"embedding":[]}`)
+	}))
+	defer server.Close()
+
+	result := checkOllamaEndpoint(server.URL, "nomic-embed-text")
+	if result.passed {
+		t.Fatal("expected check to fail for empty embedding")
 	}
 }

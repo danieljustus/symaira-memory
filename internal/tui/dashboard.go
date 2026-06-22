@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -89,7 +91,7 @@ type model struct {
 
 // InitialModel configures state.
 func InitialModel(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPort int) model {
-	ollamaReachable := checkOllamaReachable(ollamaURL)
+	ollamaReachable := checkOllamaReachable(ollamaURL, ollamaModel)
 	m := model{
 		db:              database,
 		scope:           "",
@@ -103,18 +105,37 @@ func InitialModel(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPo
 	return m
 }
 
-func checkOllamaReachable(url string) bool {
-	if url == "" {
+func checkOllamaReachable(url, model string) bool {
+	if url == "" || model == "" {
 		return false
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	baseURL := strings.TrimSuffix(url, "/api/embeddings")
-	resp, err := client.Get(baseURL)
+
+	body, err := json.Marshal(map[string]string{
+		"model":  model,
+		"prompt": "symmemory health test",
+	})
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
-	return true
+
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	var result struct {
+		Embedding []float32 `json:"embedding"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false
+	}
+	return len(result.Embedding) > 0
 }
 
 func (m *model) loadMemories() {
