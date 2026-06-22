@@ -326,6 +326,41 @@ func TestToolMemorySetMissingContent(t *testing.T) {
 	}
 }
 
+func TestToolMemorySetInvalidMetadata(t *testing.T) {
+	s := helperServer(t)
+	res := callTool(s, "memory_set", map[string]interface{}{
+		"content":  "test content",
+		"metadata": "not-json",
+	})
+
+	text := getToolText(res)
+	if text == "" {
+		t.Fatal("expected error text for invalid metadata")
+	}
+	if !strings.Contains(text, "metadata") {
+		t.Errorf("expected error message to mention metadata, got %q", text)
+	}
+	if !strings.Contains(text, "JSON") {
+		t.Errorf("expected error message to mention JSON, got %q", text)
+	}
+}
+
+func TestToolMemorySetMetadataArrayRejected(t *testing.T) {
+	s := helperServer(t)
+	res := callTool(s, "memory_set", map[string]interface{}{
+		"content":  "test content",
+		"metadata": `["one", "two"]`,
+	})
+
+	text := getToolText(res)
+	if text == "" {
+		t.Fatal("expected error text for array metadata")
+	}
+	if !strings.Contains(text, "metadata") {
+		t.Errorf("expected error message to mention metadata, got %q", text)
+	}
+}
+
 func TestToolMemorySetAndSearch(t *testing.T) {
 	s := helperServer(t)
 

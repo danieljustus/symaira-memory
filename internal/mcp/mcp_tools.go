@@ -148,7 +148,9 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 
 	meta := make(map[string]string)
 	if args.Metadata != "" {
-		_ = json.Unmarshal([]byte(args.Metadata), &meta)
+		if err := json.Unmarshal([]byte(args.Metadata), &meta); err != nil {
+			return nil, fmt.Errorf("invalid arguments for 'memory_set': 'metadata' must be a valid JSON object: %w", err)
+		}
 	}
 
 	var entityNames []string
