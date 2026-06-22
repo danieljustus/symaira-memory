@@ -65,6 +65,17 @@ func TestCheckConfig(t *testing.T) {
 	}
 }
 
+func TestCheckEmbeddingBackendDefaultOllama(t *testing.T) {
+	SetConfig(config.Defaults())
+	result := checkEmbeddingBackend()
+	if !result.passed {
+		t.Errorf("expected checkEmbeddingBackend to pass on fresh config, got: %s", result.detail)
+	}
+	if result.detail != "ollama" {
+		t.Errorf("expected detail 'ollama', got %q", result.detail)
+	}
+}
+
 func TestCheckFilePermissions(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
 	if err != nil {

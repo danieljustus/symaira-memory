@@ -10,6 +10,7 @@ import (
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +30,7 @@ Reports pass/fail for database, Ollama, JWT secrets, configuration, and file per
 
 		results = append(results, checkDatabase())
 		results = append(results, checkOllama())
+		results = append(results, checkEmbeddingBackend())
 		results = append(results, checkJWTSecret())
 		results = append(results, checkConfig())
 		results = append(results, checkFilePermissions())
@@ -108,6 +110,19 @@ func checkOllama() checkResult {
 		return checkResult{name: "Ollama", passed: true, detail: "reachable"}
 	}
 	return checkResult{name: "Ollama", passed: false, detail: fmt.Sprintf("returned status %d", resp.StatusCode)}
+}
+
+func checkEmbeddingBackend() checkResult {
+	cfg := GetConfig()
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+	eg := extractor.NewEmbeddingsGenerator(cfg)
+	backend := eg.ActiveBackend()
+	if backend == "lexical" {
+		return checkResult{name: "Embedding Backend", passed: false, detail: "using lexical fallback (Ollama recently failed)"}
+	}
+	return checkResult{name: "Embedding Backend", passed: true, detail: "ollama"}
 }
 
 func checkJWTSecret() checkResult {

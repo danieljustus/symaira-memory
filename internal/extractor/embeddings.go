@@ -107,6 +107,28 @@ func (eg *EmbeddingsGenerator) GenerateVector(text string) EmbeddingResult {
 	return EmbeddingResult{Vector: vec, Source: "hash-fallback", Model: ""}
 }
 
+// ActiveBackend reports the embedding backend that would be used for the
+// next GenerateVector call. It returns "ollama" when Ollama is reachable or
+// the cooldown has expired, and "lexical" when Ollama is currently being
+// skipped due to a recent failure within the cooldown window.
+func (eg *EmbeddingsGenerator) ActiveBackend() string {
+	eg.mu.Lock()
+	defer eg.mu.Unlock()
+	if time.Since(eg.lastFail) < ollamaCacheTTL {
+		return "lexical"
+	}
+	return "ollama"
+}
+
+// MarkOllamaFailed records an Ollama failure, switching the generator to
+// lexical-fallback mode for the duration of the cooldown window. This is
+// useful in tests that need to exercise the fallback path.
+func (eg *EmbeddingsGenerator) MarkOllamaFailed() {
+	eg.mu.Lock()
+	eg.lastFail = time.Now()
+	eg.mu.Unlock()
+}
+
 func (eg *EmbeddingsGenerator) cacheKey(text string) string {
 	h := sha256.Sum256([]byte(text))
 	return fmt.Sprintf("%x", h[:16])

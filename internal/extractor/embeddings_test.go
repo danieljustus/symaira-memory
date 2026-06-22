@@ -2,6 +2,7 @@ package extractor
 
 import (
 	"testing"
+	"time"
 )
 
 func TestLocalHashVectorizer(t *testing.T) {
@@ -47,6 +48,33 @@ func TestLocalHashVectorizer(t *testing.T) {
 	}
 	if matches == dims {
 		t.Errorf("distinct statements produced identical vectors")
+	}
+}
+
+func TestActiveBackendDefaultOllama(t *testing.T) {
+	eg := NewEmbeddingsGenerator(nil)
+	if got := eg.ActiveBackend(); got != "ollama" {
+		t.Errorf("expected ActiveBackend() to return 'ollama' on fresh instance, got %q", got)
+	}
+}
+
+func TestActiveBackendLexicalAfterFailure(t *testing.T) {
+	eg := NewEmbeddingsGenerator(nil)
+	eg.mu.Lock()
+	eg.lastFail = time.Now()
+	eg.mu.Unlock()
+	if got := eg.ActiveBackend(); got != "lexical" {
+		t.Errorf("expected ActiveBackend() to return 'lexical' after recent failure, got %q", got)
+	}
+}
+
+func TestActiveBackendRecoveryAfterCooldown(t *testing.T) {
+	eg := NewEmbeddingsGenerator(nil)
+	eg.mu.Lock()
+	eg.lastFail = time.Now().Add(-ollamaCacheTTL - time.Second)
+	eg.mu.Unlock()
+	if got := eg.ActiveBackend(); got != "ollama" {
+		t.Errorf("expected ActiveBackend() to return 'ollama' after cooldown, got %q", got)
 	}
 }
 

@@ -39,6 +39,9 @@ var searchCmd = &cobra.Command{
 		query := args[0]
 		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
 		emb := embeddings.GenerateVector(query)
+		if emb.Source == "hash-fallback" {
+			fmt.Fprintf(os.Stderr, "Warning: using lexical fallback (Ollama unavailable); results may be less relevant.\n")
+		}
 		queryVector := emb.Vector
 
 		var entityID string
