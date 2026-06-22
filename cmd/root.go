@@ -19,8 +19,9 @@ var (
 )
 
 var (
-	rootDB  *db.DB
-	rootCfg *config.Config
+	rootDB       *db.DB
+	rootCfg      *config.Config
+	outputFormat string // global --output flag: "table" or "json"
 )
 
 func GetDB() *db.DB {
@@ -81,7 +82,21 @@ func Execute() {
 	}
 }
 
+// GetOutputFormat returns the resolved output format for the current command.
+// It checks the global --output flag first; if not set or "table", it falls
+// back to the command-local --format flag when present.
+func GetOutputFormat(cmd *cobra.Command) string {
+	if outputFormat != "" && outputFormat != "table" {
+		return outputFormat
+	}
+	if f := cmd.Flags().Lookup("format"); f != nil {
+		return f.Value.String()
+	}
+	return outputFormat
+}
+
 func init() {
+	rootCmd.PersistentFlags().StringVar(&outputFormat, "output", "table", "Output format: table or json")
 	rootCmd.AddCommand(versionCmd)
 }
 

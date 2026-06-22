@@ -57,10 +57,10 @@ func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (an
 		ID string `json:"id"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
-		return nil, fmt.Errorf("Invalid arguments for 'memory_get': failed to parse arguments: %w", err)
+		return nil, fmt.Errorf("invalid arguments for 'memory_get': failed to parse arguments: %w", err)
 	}
 	if args.ID == "" {
-		return nil, fmt.Errorf("Invalid arguments for 'memory_get': 'id' is required")
+		return nil, fmt.Errorf("invalid arguments for 'memory_get': 'id' is required")
 	}
 
 	m, err := s.db.GetMemory(args.ID)
@@ -78,7 +78,7 @@ func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (an
 
 func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (any, error) {
 	if s.profile != nil && !security.ParseRole(s.profile.Role).CanWrite() {
-		return nil, fmt.Errorf("Permission denied: profile role is read-only")
+		return nil, fmt.Errorf("permission denied: profile role is read-only")
 	}
 
 	var args struct {
@@ -89,10 +89,10 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 		Entities  string `json:"entities"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
-		return nil, fmt.Errorf("Invalid arguments for 'memory_set': failed to parse arguments: %w", err)
+		return nil, fmt.Errorf("invalid arguments for 'memory_set': failed to parse arguments: %w", err)
 	}
 	if args.Content == "" {
-		return nil, fmt.Errorf("Invalid arguments for 'memory_set': 'content' is required")
+		return nil, fmt.Errorf("invalid arguments for 'memory_set': 'content' is required")
 	}
 
 	meta := make(map[string]string)
@@ -131,10 +131,10 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		Entity string `json:"entity"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
-		return nil, fmt.Errorf("Invalid arguments for 'memory_search': failed to parse arguments: %w", err)
+		return nil, fmt.Errorf("invalid arguments for 'memory_search': failed to parse arguments: %w", err)
 	}
 	if args.Query == "" {
-		return nil, fmt.Errorf("Invalid arguments for 'memory_search': 'query' is required")
+		return nil, fmt.Errorf("invalid arguments for 'memory_search': 'query' is required")
 	}
 
 	limit := args.Limit
@@ -149,7 +149,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 			return mcpError("Failed to resolve entity", err)
 		}
 		if entity == nil {
-			return nil, fmt.Errorf("Entity not found: %s", args.Entity)
+			return nil, fmt.Errorf("entity not found: %s", args.Entity)
 		}
 		entityID = entity.ID
 	}
@@ -174,7 +174,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 		Limit int    `json:"limit"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
-		return nil, fmt.Errorf("Invalid arguments for 'memory_list': failed to parse arguments: %w", err)
+		return nil, fmt.Errorf("invalid arguments for 'memory_list': failed to parse arguments: %w", err)
 	}
 
 	limit := args.Limit

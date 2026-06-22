@@ -3,7 +3,6 @@ package memorytool
 import (
 	"crypto/sha256"
 	"fmt"
-	"os"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/security"
@@ -70,9 +69,4 @@ func (s *SmartImporter) storeFact(fact ImportedFact) error {
 func computeContentHash(content string) string {
 	h := sha256.Sum256([]byte(content))
 	return fmt.Sprintf("%x", h)
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }

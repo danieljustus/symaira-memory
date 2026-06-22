@@ -165,7 +165,7 @@ func formatRetrievalResults(results []db.SearchResult) string {
 		if i >= 10 {
 			break
 		}
-		sb.WriteString(fmt.Sprintf("- %s\n", r.Memory.Content))
+		fmt.Fprintf(&sb, "- %s\n", r.Memory.Content)
 	}
 	return sb.String()
 }

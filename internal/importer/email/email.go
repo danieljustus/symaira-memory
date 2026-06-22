@@ -200,18 +200,3 @@ func (e *EmailImporter) matchesSender(from string) bool {
 
 	return true
 }
-
-// listMailboxes returns available mailboxes from himalaya.
-func listMailboxes() ([]string, error) {
-	out, err := exec.Command("himalaya", "account", "list", "--json").Output()
-	if err != nil {
-		return nil, fmt.Errorf("himalaya account list failed: %w", err)
-	}
-
-	var accounts []string
-	if err := json.Unmarshal(out, &accounts); err != nil {
-		return nil, fmt.Errorf("failed to parse accounts: %w", err)
-	}
-
-	return accounts, nil
-}

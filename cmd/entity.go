@@ -86,17 +86,11 @@ var entityListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if len(entities) == 0 {
-			fmt.Println("No entities found.")
-			return
-		}
-
-		bytes, err := json.MarshalIndent(entities, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error encoding entities: %v\n", err)
+		formatter := NewOutputFormatter(GetOutputFormat(cmd))
+		if err := formatter.Output(entities, "entity-list"); err != nil {
+			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println(string(bytes))
 	},
 }
 

@@ -443,6 +443,10 @@ func extractTarGz(path string) ([]byte, error) {
 }
 
 func TestRestoreRejectsOversizedEntry(t *testing.T) {
+	if raceEnabled() {
+		t.Skip("skipping memory-intensive oversized-entry test under race detector")
+	}
+
 	dir := t.TempDir()
 	backupPath := filepath.Join(dir, "oversized.tar.gz")
 

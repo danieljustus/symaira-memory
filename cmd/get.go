@@ -36,7 +36,7 @@ var getCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		formatter := NewOutputFormatter(getFormat)
+		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		if err := formatter.Output(m, "get"); err != nil {
 			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
 			os.Exit(1)

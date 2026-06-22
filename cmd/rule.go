@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
@@ -90,17 +89,11 @@ var ruleListCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if len(rules) == 0 {
-			fmt.Println("[]")
-			return
-		}
-
-		bytes, err := json.MarshalIndent(rules, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to encode rules: %v\n", err)
+		formatter := NewOutputFormatter(GetOutputFormat(cmd))
+		if err := formatter.Output(rules, "rule-list"); err != nil {
+			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println(string(bytes))
 	},
 }
 

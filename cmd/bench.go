@@ -3,9 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"sort"
-	"sync"
-	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/summarizer"
@@ -128,47 +125,4 @@ func truncateStr(s string, max int) string {
 		return s
 	}
 	return s[:max-3] + "..."
-}
-
-func measureLatencyPercentiles(durations []time.Duration) (p50, p95 time.Duration) {
-	if len(durations) == 0 {
-		return 0, 0
-	}
-	sorted := make([]time.Duration, len(durations))
-	copy(sorted, durations)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-
-	p50Idx := len(sorted) * 50 / 100
-	p95Idx := len(sorted) * 95 / 100
-	if p50Idx >= len(sorted) {
-		p50Idx = len(sorted) - 1
-	}
-	if p95Idx >= len(sorted) {
-		p95Idx = len(sorted) - 1
-	}
-	return sorted[p50Idx], sorted[p95Idx]
-}
-
-type benchStats struct {
-	mu        sync.Mutex
-	durations []time.Duration
-}
-
-func (s *benchStats) record(d time.Duration) {
-	s.mu.Lock()
-	s.durations = append(s.durations, d)
-	s.mu.Unlock()
-}
-
-func (s *benchStats) report() (p50, p95 time.Duration, avg time.Duration) {
-	if len(s.durations) == 0 {
-		return 0, 0, 0
-	}
-	p50, p95 = measureLatencyPercentiles(s.durations)
-	var total time.Duration
-	for _, d := range s.durations {
-		total += d
-	}
-	avg = total / time.Duration(len(s.durations))
-	return
 }

@@ -1,0 +1,13 @@
+version: "2"
+
+linters:
+  # Standard set minus errcheck. The standard set in v2 is:
+  # errcheck, gosimple, govet, ineffassign, staticcheck, unused.
+  # errcheck is excluded because 50+ pre-existing unchecked error returns
+  # (defer Close, fmt.Fprintf to stderr, etc.) require a dedicated follow-up.
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused

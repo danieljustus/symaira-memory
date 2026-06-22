@@ -17,8 +17,7 @@ type PaperlessImporter struct {
 	token         string
 	tag           string // optional filter
 	correspondent string // optional filter
-	since         time.Time
-	maxContent    int // max chars of content preview
+	maxContent    int    // max chars of content preview
 }
 
 // paperlessDocument represents a document from Paperless API.

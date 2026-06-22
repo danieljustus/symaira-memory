@@ -44,7 +44,7 @@ func (le *LLMEnhancer) ConsolidateMemories(memories []*db.Memory) ([]string, err
 	var builder strings.Builder
 	builder.WriteString("Statements:\n")
 	for i, m := range memories {
-		builder.WriteString(fmt.Sprintf("%d. %s (Scope: %s)\n", i+1, m.Content, m.Scope))
+		fmt.Fprintf(&builder, "%d. %s (Scope: %s)\n", i+1, m.Content, m.Scope)
 	}
 
 	prompt := fmt.Sprintf(`You are the semantic memory cleaning engine for Symaira Memory. 
