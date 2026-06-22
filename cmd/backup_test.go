@@ -483,7 +483,7 @@ func TestRestoreRejectsOversizedEntry(t *testing.T) {
 	if int64(buf.Len()) > maxTarEntrySize {
 		return
 	}
-		t.Errorf("expected oversized entry (%d bytes, header size %d) to exceed limit %d", len(oversized), header.Size, maxTarEntrySize)
+	t.Errorf("expected oversized entry (%d bytes, header size %d) to exceed limit %d", len(oversized), header.Size, maxTarEntrySize)
 }
 
 func TestResolveBackupPasswordFromFile(t *testing.T) {
@@ -609,4 +609,3 @@ func TestExportCreatesEncryptedArchive(t *testing.T) {
 		t.Errorf("expected encrypted entry name default.db.enc, got %q", hdr.Name)
 	}
 }
-
