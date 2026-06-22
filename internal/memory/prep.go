@@ -111,6 +111,10 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 			cleanFactContent = security.Redact(f.Content)
 		}
 
+		if isDuplicateOfPrimary(cleanFactContent, f.Metadata["raw_trigger"], m.Content) {
+			continue
+		}
+
 		subID := uuid.New().String()
 		subEmb := embeddings.GenerateVector(cleanFactContent)
 		subVector := subEmb.Vector
@@ -161,4 +165,23 @@ func FormatStoreSuccess(m *db.Memory, extractedStr []string) string {
 
 func ptrTime(t time.Time) *time.Time {
 	return &t
+}
+
+func isDuplicateOfPrimary(fact, rawTrigger, primary string) bool {
+	norm := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		return strings.Trim(s, `.*"';!?`)
+	}
+	factNorm := norm(fact)
+	primaryNorm := norm(primary)
+	if factNorm == "" {
+		return false
+	}
+	if factNorm == primaryNorm || strings.Contains(primaryNorm, factNorm) {
+		return true
+	}
+	if rawTrigger != "" {
+		return norm(rawTrigger) == primaryNorm
+	}
+	return false
 }
