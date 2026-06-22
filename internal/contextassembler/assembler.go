@@ -127,7 +127,8 @@ func (a *Assembler) retrieveRelevant(query string, tokenBudget int) ([]db.Search
 	if a.embeddings == nil {
 		return nil, nil
 	}
-	queryVec := a.embeddings.GenerateVector(query)
+	emb := a.embeddings.GenerateVector(query)
+	queryVec := emb.Vector
 	limit := tokenBudget / 50
 	if limit < 1 {
 		limit = 1
@@ -135,7 +136,7 @@ func (a *Assembler) retrieveRelevant(query string, tokenBudget int) ([]db.Search
 	if limit > 20 {
 		limit = 20
 	}
-	return a.database.SearchMemories(queryVec, "", limit)
+	return a.database.SearchMemories(queryVec, emb.Source, "", limit)
 }
 
 func extractWorkingContext(sessionText string, maxTurns int) string {

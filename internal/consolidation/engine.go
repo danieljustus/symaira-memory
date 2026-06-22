@@ -141,8 +141,12 @@ func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dry
 
 			// Generate vector embedding
 			var vector []float32
+			var embSource, embModel string
 			if eng.embeddings != nil {
-				vector = eng.embeddings.GenerateVector(content)
+				emb := eng.embeddings.GenerateVector(content)
+				vector = emb.Vector
+				embSource = emb.Source
+				embModel = emb.Model
 			}
 
 			newID := uuid.New().String()
@@ -159,6 +163,8 @@ func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dry
 				Scope:               scope,
 				Metadata:            meta,
 				Embedding:           vector,
+				EmbeddingSource:     embSource,
+				EmbeddingModel:      embModel,
 				CreatedAt:           now,
 				UpdatedAt:           now,
 				ConsolidationStatus: "consolidated",

@@ -1,7 +1,6 @@
 package memorytool
 
 import (
-	"crypto/sha256"
 	"fmt"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -24,7 +23,7 @@ func (s *SmartImporter) ImportFacts(facts []ImportedFact, dryRun bool) (*ImportR
 	result := &ImportResult{}
 
 	for _, fact := range facts {
-		contentHash := computeContentHash(fact.Content)
+		contentHash := db.ComputeContentHash(fact.Content)
 
 		exists, err := s.database.FactExists(contentHash)
 		if err != nil {
@@ -37,7 +36,7 @@ func (s *SmartImporter) ImportFacts(facts []ImportedFact, dryRun bool) (*ImportR
 		}
 
 		if !dryRun {
-			if err := s.storeFact(fact); err != nil {
+			if err := s.storeFact(fact, contentHash); err != nil {
 				return nil, fmt.Errorf("failed to store fact: %w", err)
 			}
 		}
@@ -48,7 +47,7 @@ func (s *SmartImporter) ImportFacts(facts []ImportedFact, dryRun bool) (*ImportR
 	return result, nil
 }
 
-func (s *SmartImporter) storeFact(fact ImportedFact) error {
+func (s *SmartImporter) storeFact(fact ImportedFact, contentHash string) error {
 	metadata := make(map[string]string)
 	for k, v := range fact.Metadata {
 		metadata[fmt.Sprintf("%v", k)] = fmt.Sprintf("%v", v)
@@ -59,14 +58,10 @@ func (s *SmartImporter) storeFact(fact ImportedFact) error {
 		Content:             security.Redact(fact.Content),
 		Scope:               "agent",
 		Metadata:            security.RedactMap(metadata),
+		ContentHash:         contentHash,
 		CreatedAt:           fact.Timestamp,
 		ConsolidationStatus: "raw",
 	}
 
 	return s.database.SaveMemory(memory)
-}
-
-func computeContentHash(content string) string {
-	h := sha256.Sum256([]byte(content))
-	return fmt.Sprintf("%x", h)
 }

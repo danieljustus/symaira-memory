@@ -69,7 +69,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 
 	// Test Search (Vector Cosine Similarity check)
 	query := []float32{1.0, 0.0, 0.0} // Perfect match
-	results, err := database.SearchMemoriesFiltered(query, "", 5, "", RankingWeights{RelevanceWeight: 1.0, RecencyWeight: 0, ImportanceWeight: 0, RecencyHalfLife: 30})
+	results, err := database.SearchMemoriesFiltered(query, "", "", 5, "", RankingWeights{RelevanceWeight: 1.0, RecencyWeight: 0, ImportanceWeight: 0, RecencyHalfLife: 30})
 	if err != nil {
 		t.Fatalf("failed to search memories: %v", err)
 	}
@@ -175,8 +175,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 15 {
-		t.Errorf("expected 15 migrations after two opens, got %d", count)
+	if count != 17 {
+		t.Errorf("expected 17 migrations after two opens, got %d", count)
 	}
 }
 
@@ -307,7 +307,7 @@ func TestSearchWithLSHIndex(t *testing.T) {
 	queryVec := make([]float32, EmbeddingDim)
 	queryVec[0] = 1.0
 
-	results, err := database.SearchMemories(queryVec, "global", 5)
+	results, err := database.SearchMemories(queryVec, "", "global", 5)
 	if err != nil {
 		t.Fatalf("search failed: %v", err)
 	}
@@ -357,7 +357,7 @@ func BenchmarkSearchWithLSH(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := database.SearchMemories(queryVec, "global", 5)
+		_, err := database.SearchMemories(queryVec, "", "global", 5)
 		if err != nil {
 			b.Fatalf("search failed: %v", err)
 		}
@@ -473,29 +473,6 @@ func TestGetMemoriesSinceFilter(t *testing.T) {
 	}
 }
 
-func TestEscapeLIKE(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"simple", "simple"},
-		{"with%percent", "with\\%percent"},
-		{"with_underscore", "with\\_underscore"},
-		{"with\\backslash", "with\\\\backslash"},
-		{"%_\\all", "\\%\\_\\\\all"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := escapeLIKE(tt.input)
-			if result != tt.expected {
-				t.Errorf("escapeLIKE(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestFactExistsWithSpecialCharacters(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "symmemory-fact-test-*")
 	if err != nil {
@@ -514,10 +491,11 @@ func TestFactExistsWithSpecialCharacters(t *testing.T) {
 	defer database.Close()
 
 	m := &Memory{
-		ID:       "fact-test-1",
-		Content:  "Test memory with special chars",
-		Scope:    "global",
-		Metadata: map[string]string{"content_hash": "abc123"},
+		ID:          "fact-test-1",
+		Content:     "Test memory with special chars",
+		Scope:       "global",
+		ContentHash: "abc123",
+		Metadata:    map[string]string{},
 	}
 	if err := database.SaveMemory(m); err != nil {
 		t.Fatalf("failed to save memory: %v", err)
@@ -561,6 +539,52 @@ func TestFactExistsWithSpecialCharacters(t *testing.T) {
 	}
 	if exists {
 		t.Error("expected FactExists to return false for empty hash")
+	}
+}
+
+func TestFactExistsAutoHash(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-autohash-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	content := "Alice prefers dark mode"
+	autoHash := ComputeContentHash(content)
+
+	m := &Memory{
+		ID:      "auto-hash-1",
+		Content: content,
+		Scope:   "global",
+	}
+	if err := database.SaveMemory(m); err != nil {
+		t.Fatalf("failed to save memory: %v", err)
+	}
+
+	exists, err := database.FactExists(autoHash)
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if !exists {
+		t.Error("expected FactExists to find auto-computed hash")
+	}
+
+	exists, err = database.FactExists(ComputeContentHash("different content"))
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if exists {
+		t.Error("expected FactExists to return false for different content hash")
 	}
 }
 
@@ -927,7 +951,7 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 
 	// 2. SearchMemories should exclude 'archived'
 	searchVal := []float32{0.0, 0.0, 1.0} // perfect alignment with mem-archived
-	searchResults, err := database.SearchMemories(searchVal, "global", 3)
+	searchResults, err := database.SearchMemories(searchVal, "", "global", 3)
 	if err != nil {
 		t.Fatalf("SearchMemories failed: %v", err)
 	}
@@ -1007,7 +1031,7 @@ func TestSetMemoryEmbedding(t *testing.T) {
 	}
 
 	newEmb := []float32{0.5, 0.3, 0.8, 0.1, 0.9}
-	if err := database.SetMemoryEmbedding("setemb-1", newEmb); err != nil {
+	if err := database.SetMemoryEmbedding("setemb-1", newEmb, "hash-fallback", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
@@ -1093,12 +1117,12 @@ func TestSyncedMemorySearchableAfterEmbeddingBackfill(t *testing.T) {
 	}
 
 	emb := extractor.GenerateLocalHashVector("Alice prefers dark mode in all applications", 768)
-	if err := database.SetMemoryEmbedding("sync-1", emb); err != nil {
+	if err := database.SetMemoryEmbedding("sync-1", emb, "hash-fallback", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
 	emb2 := extractor.GenerateLocalHashVector("Bob uses light theme exclusively", 768)
-	if err := database.SetMemoryEmbedding("sync-2", emb2); err != nil {
+	if err := database.SetMemoryEmbedding("sync-2", emb2, "hash-fallback", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
@@ -1127,7 +1151,7 @@ func TestSyncedMemorySearchableAfterEmbeddingBackfill(t *testing.T) {
 	}
 
 	queryVec := extractor.GenerateLocalHashVector("Alice prefers dark mode in all applications", 768)
-	results, err := database.SearchMemories(queryVec, "", 10)
+	results, err := database.SearchMemories(queryVec, "hash-fallback", "", 10)
 	if err != nil {
 		t.Fatalf("SearchMemories failed: %v", err)
 	}

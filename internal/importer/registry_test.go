@@ -204,9 +204,10 @@ func TestImportedMemorySearchable(t *testing.T) {
 	}
 
 	eg := extractor.NewEmbeddingsGenerator(config.Defaults())
-	queryVec := eg.GenerateVector(content)
+	emb := eg.GenerateVector(content)
+	queryVec := emb.Vector
 
-	results, err := database.SearchMemories(queryVec, "", 10)
+	results, err := database.SearchMemories(queryVec, emb.Source, "", 10)
 	if err != nil {
 		t.Fatalf("SearchMemories failed: %v", err)
 	}

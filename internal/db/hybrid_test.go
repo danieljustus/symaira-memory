@@ -181,7 +181,7 @@ func TestHybridSearch_CandidateCap(t *testing.T) {
 	queryVec[0] = 1.0
 
 	highLimit := maxCandidates / 2
-	results, err := database.HybridSearch(queryVec, "test document", "global", highLimit, 0.5, 0.5)
+	results, err := database.HybridSearch(queryVec, "", "test document", "global", highLimit, 0.5, 0.5)
 	if err != nil {
 		t.Fatalf("HybridSearch failed: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestHybridSearch_SmallLimitUnchanged(t *testing.T) {
 	queryVec := make([]float32, EmbeddingDim)
 	queryVec[0] = 1.0
 
-	results, err := database.HybridSearch(queryVec, "testing", "global", 10, 0.5, 0.5)
+	results, err := database.HybridSearch(queryVec, "", "testing", "global", 10, 0.5, 0.5)
 	if err != nil {
 		t.Fatalf("HybridSearch failed: %v", err)
 	}

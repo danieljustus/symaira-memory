@@ -1605,6 +1605,50 @@ func TestRequireRoleReadOnlyProfile(t *testing.T) {
 	}
 }
 
+func TestStatusIncludesEmbeddingBackend(t *testing.T) {
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/api/status")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+
+	var body map[string]string
+	json.NewDecoder(res.Body).Decode(&body)
+	if body["embedding_backend"] == "" {
+		t.Error("expected non-empty embedding_backend in status response")
+	}
+	if body["embedding_backend"] != "ollama" && body["embedding_backend"] != "lexical" {
+		t.Errorf("expected embedding_backend to be 'ollama' or 'lexical', got %q", body["embedding_backend"])
+	}
+}
+
+func TestStatusEmbeddingBackendLexicalAfterFailure(t *testing.T) {
+	s := helperServer(t)
+	s.embeddings.MarkOllamaFailed()
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/api/status")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	var body map[string]string
+	json.NewDecoder(res.Body).Decode(&body)
+	if body["embedding_backend"] != "lexical" {
+		t.Errorf("expected embedding_backend 'lexical' after failure, got %q", body["embedding_backend"])
+	}
+}
+
 func TestWebConsoleDoesNotShadowAPIRoutes(t *testing.T) {
 	s := helperServer(t)
 	token := helperAuthToken(t, s)

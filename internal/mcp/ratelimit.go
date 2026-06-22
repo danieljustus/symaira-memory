@@ -14,8 +14,6 @@ import (
 
 // RateLimitConfig holds configurable rate limit parameters.
 type RateLimitConfig struct {
-	AuthRPS         float64
-	AuthBurst       int
 	DataRPS         float64
 	DataBurst       int
 	CleanupInterval time.Duration
@@ -23,11 +21,9 @@ type RateLimitConfig struct {
 	MaxEntries      int
 }
 
-// DefaultRateLimitConfig returns production defaults: auth 10 req/min burst 5, data 100 req/min burst 20.
+// DefaultRateLimitConfig returns production defaults: data 100 req/min burst 20.
 func DefaultRateLimitConfig() RateLimitConfig {
 	return RateLimitConfig{
-		AuthRPS:         10.0 / 60.0,
-		AuthBurst:       5,
 		DataRPS:         100.0 / 60.0,
 		DataBurst:       20,
 		CleanupInterval: 5 * time.Minute,
@@ -103,10 +99,6 @@ func (rl *RateLimiter) evictOldest() {
 	}
 }
 
-func (rl *RateLimiter) AllowAuth(key string) bool {
-	return rl.getLimiter("auth:"+key, rl.config.AuthRPS, rl.config.AuthBurst).Allow()
-}
-
 func (rl *RateLimiter) AllowData(key string) bool {
 	return rl.getLimiter("data:"+key, rl.config.DataRPS, rl.config.DataBurst).Allow()
 }
@@ -179,20 +171,11 @@ func (rl *RateLimiter) isTrustedProxy(ip net.IP) bool {
 	return false
 }
 
-func RateLimitMiddleware(rl *RateLimiter, next http.Handler, classify func(r *http.Request) string) http.Handler {
+func RateLimitMiddleware(rl *RateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := rl.clientIP(r)
-		tier := classify(r)
 
-		var allowed bool
-		switch tier {
-		case "auth":
-			allowed = rl.AllowAuth(ip)
-		default:
-			allowed = rl.AllowData(ip)
-		}
-
-		if !allowed {
+		if !rl.AllowData(ip) {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusTooManyRequests)

@@ -136,16 +136,9 @@ func (s *Server) httpMux() http.Handler {
 		mux.HandleFunc(rt.pattern, rt.handler)
 	}
 
-	classify := func(r *http.Request) string {
-		if strings.HasPrefix(r.URL.Path, "/api/token") || strings.HasPrefix(r.URL.Path, "/api/login") {
-			return "auth"
-		}
-		return "data"
-	}
-
 	var handler http.Handler = mux
 	handler = securityHeadersHandler(handler)
-	return RateLimitMiddleware(s.rateLimiter, handler, classify)
+	return RateLimitMiddleware(s.rateLimiter, handler)
 }
 
 func matchOrigin(origin, pattern string) bool {

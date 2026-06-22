@@ -229,16 +229,13 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 
 // HybridSearch combines vector similarity and BM25 keyword search using
 // Reciprocal Rank Fusion. Returns results ranked by fused score.
-func (db *DB) HybridSearch(queryVec []float32, queryText string, scope string, limit int, vectorWeight, bm25Weight float64) ([]HybridResult, error) {
-	// Cap per-source candidate fetches so that limit*3 does not exceed
-	// the package-level maxCandidates ceiling (same value used by
-	// SearchMemories for LSH candidate batching).
+func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText string, scope string, limit int, vectorWeight, bm25Weight float64) ([]HybridResult, error) {
 	candidateLimit := limit * 3
 	if candidateLimit > maxCandidates {
 		candidateLimit = maxCandidates
 	}
 
-	vectorResults, err := db.SearchMemories(queryVec, scope, candidateLimit)
+	vectorResults, err := db.SearchMemories(queryVec, querySource, scope, candidateLimit)
 	if err != nil {
 		return nil, err
 	}

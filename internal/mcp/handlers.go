@@ -21,9 +21,10 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "healthy",
-		"version": s.version,
-		"server":  "symaira-memory",
+		"status":            "healthy",
+		"version":           s.version,
+		"server":            "symaira-memory",
+		"embedding_backend": s.embeddings.ActiveBackend(),
 	})
 }
 
@@ -70,8 +71,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		entityID = entity.ID
 	}
 
-	queryVector := s.embeddings.GenerateVector(args.Query)
-	results, err := s.db.SearchMemoriesFiltered(queryVector, args.Scope, args.Limit, entityID)
+	emb := s.embeddings.GenerateVector(args.Query)
+	queryVector := emb.Vector
+	results, err := s.db.SearchMemoriesFiltered(queryVector, emb.Source, args.Scope, args.Limit, entityID)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Search failed", err)
 		return
