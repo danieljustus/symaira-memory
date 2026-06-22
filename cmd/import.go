@@ -14,6 +14,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/importer/git"
 	"github.com/danieljustus/symaira-memory/internal/importer/github"
 	"github.com/danieljustus/symaira-memory/internal/importer/hermes"
+	"github.com/danieljustus/symaira-memory/internal/importer/memorytool"
 	"github.com/danieljustus/symaira-memory/internal/importer/obsidian"
 	"github.com/danieljustus/symaira-memory/internal/importer/paperless"
 	"github.com/danieljustus/symaira-memory/internal/importer/shellhistory"
@@ -42,16 +43,17 @@ var importSessionsCmd = &cobra.Command{
 Symaira Memory facts.
 
 Supported tools: claude-code, codex, hermes, aider, git, github, shell-history,
-calendar, email, obsidian, paperless.
+calendar, email, obsidian, paperless, openmemory, mem0, chatgpt.
 
 Examples:
   symmemory import --tool claude-code
+  symmemory import --tool openmemory
   symmemory import --all
   symmemory import --tool claude-code --dry-run`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if importList {
 			cfg := GetConfig()
-			tools := []string{"claude-code", "codex", "hermes", "aider", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless"}
+			tools := []string{"claude-code", "codex", "hermes", "aider", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "openmemory", "mem0", "chatgpt"}
 			for _, tool := range tools {
 				tc, ok := cfg.Import.Tools[tool]
 				status := "not configured"
@@ -72,6 +74,8 @@ Examples:
 
 		registry := importer.NewRegistry(GetDB(), extractor.NewEmbeddingsGenerator(GetConfig()))
 
+		cfg := GetConfig()
+
 		// Session importers
 		registry.Register(claudecode.NewClaudeCodeImporter(""))
 		registry.Register(codex.NewCodexImporter(""))
@@ -86,6 +90,10 @@ Examples:
 		registry.Register(email.NewEmailImporter("", "", 0))
 		registry.Register(obsidian.NewObsidianImporter("", "", nil, nil, nil))
 		registry.Register(paperless.NewPaperlessImporter("", "", "", "", 0))
+
+		registry.Register(memorytool.NewSessionAdapter(memorytool.NewOpenMemoryImporter(), cfg.Import.Tools["openmemory"].Path))
+		registry.Register(memorytool.NewSessionAdapter(memorytool.NewMem0Importer(), cfg.Import.Tools["mem0"].Path))
+		registry.Register(memorytool.NewSessionAdapter(memorytool.NewChatGPTImporter(), cfg.Import.Tools["chatgpt"].Path))
 
 		var tools []string
 		if importAll {
