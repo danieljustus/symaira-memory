@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -54,15 +56,36 @@ Examples:
 		if importList {
 			cfg := GetConfig()
 			tools := []string{"claude-code", "codex", "hermes", "aider", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "openmemory", "mem0", "chatgpt"}
+
+			type toolStatus struct {
+				Tool   string `json:"tool"`
+				Status string `json:"status"`
+				Path   string `json:"path,omitempty"`
+			}
+			var statuses []toolStatus
 			for _, tool := range tools {
 				tc, ok := cfg.Import.Tools[tool]
 				status := "not configured"
+				path := ""
 				if ok && tc.Path != "" {
-					status = "configured (path: " + tc.Path + ")"
+					status = "configured"
+					path = tc.Path
 				} else if ok {
 					status = "configured (no path)"
 				}
-				fmt.Printf("%-15s %s\n", tool, status)
+				if GetOutputFormat(cmd) == "json" {
+					statuses = append(statuses, toolStatus{Tool: tool, Status: status, Path: path})
+				} else {
+					fmt.Printf("%-15s %s\n", tool, status)
+				}
+			}
+			if GetOutputFormat(cmd) == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(statuses); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
 			}
 			return
 		}
@@ -102,10 +125,24 @@ Examples:
 			tools = []string{importTool}
 		}
 
-		results, err := registry.RunImport(cmd.Context(), tools, importDryRun)
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		results, err := registry.RunImport(ctx, tools, importDryRun)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Import failed: %v\n", err)
 			os.Exit(1)
+		}
+
+		if GetOutputFormat(cmd) == "json" {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(results); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
 
 		for _, result := range results {

@@ -43,17 +43,17 @@ func (s *ImportState) MarkImported(tool, sessionID string, memoryCount int) erro
 
 // GetLastImportTime returns the most recent import time for a tool.
 func (s *ImportState) GetLastImportTime(tool string) (time.Time, error) {
-	var t time.Time
+	var t sql.NullTime
 	err := s.conn.QueryRow(
 		"SELECT MAX(imported_at) FROM import_state WHERE tool = ?", tool,
 	).Scan(&t)
-	if err == sql.ErrNoRows {
-		return time.Time{}, nil
-	}
 	if err != nil {
 		return time.Time{}, err
 	}
-	return t, nil
+	if !t.Valid {
+		return time.Time{}, nil
+	}
+	return t.Time, nil
 }
 
 // GetImportCount returns the total number of imported sessions for a tool.

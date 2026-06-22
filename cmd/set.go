@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
@@ -70,10 +71,39 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 			}
 		}
 
-		m, _, err := memory.Store(GetDB(), embeddings, patternExtractor, setValue, setScope, meta, true, attr, entities)
+		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, setValue, setScope, meta, true, attr, entities)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
+		}
+
+		if GetOutputFormat(cmd) == "json" {
+			out := struct {
+				ID             string            `json:"id"`
+				Content        string            `json:"content"`
+				Scope          string            `json:"scope"`
+				Metadata       map[string]string `json:"metadata"`
+				Author         string            `json:"author,omitempty"`
+				Session        string            `json:"session,omitempty"`
+				Entities       []string          `json:"entities,omitempty"`
+				SecondaryFacts []string          `json:"secondary_facts,omitempty"`
+			}{
+				ID:             m.ID,
+				Content:        m.Content,
+				Scope:          m.Scope,
+				Metadata:       m.Metadata,
+				Author:         m.CreatedBy,
+				Session:        m.CreatedSession,
+				Entities:       m.Entities,
+				SecondaryFacts: secondaryIDs,
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(out); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
 
 		fmt.Printf("⚡ Memory saved successfully!\n")
