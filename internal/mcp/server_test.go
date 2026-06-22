@@ -264,7 +264,7 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 	res := callTool(s, "memory_get", map[string]interface{}{"id": "test-mem-1"})
 
 	text := getToolText(res)
-	var mem db.Memory
+	var mem MemoryResponse
 	if err := json.Unmarshal([]byte(text), &mem); err != nil {
 		t.Fatalf("failed to unmarshal memory from response: %v\ntext: %s", err, text)
 	}
@@ -273,6 +273,39 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 	}
 	if mem.Content != "User prefers Go for backend" {
 		t.Errorf("expected content 'User prefers Go for backend', got %q", mem.Content)
+	}
+	if len(mem.Metadata) != 1 || mem.Metadata["source"] != "test" {
+		t.Errorf("expected metadata source=test, got %v", mem.Metadata)
+	}
+	if mem.Scope != "global" {
+		t.Errorf("expected scope 'global', got %q", mem.Scope)
+	}
+}
+
+func TestToolMemoryGetOmitsEmbedding(t *testing.T) {
+	s := helperServer(t)
+	m := &db.Memory{
+		ID:        "test-mem-embed",
+		Content:   "embedding should not be returned",
+		Scope:     "global",
+		Embedding: []float32{0.9, 0.8, 0.7},
+	}
+	if err := s.db.SaveMemory(m); err != nil {
+		t.Fatalf("failed to save test memory: %v", err)
+	}
+
+	res := callTool(s, "memory_get", map[string]interface{}{"id": "test-mem-embed"})
+
+	text := getToolText(res)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &raw); err != nil {
+		t.Fatalf("failed to unmarshal raw response: %v\ntext: %s", err, text)
+	}
+	if _, ok := raw["embedding"]; ok {
+		t.Errorf("memory_get should not include embedding field, got %s", raw["embedding"])
+	}
+	if _, ok := raw["vector"]; ok {
+		t.Errorf("memory_get should not include vector field, got %s", raw["vector"])
 	}
 }
 
@@ -293,11 +326,47 @@ func TestToolMemorySetMissingContent(t *testing.T) {
 	}
 }
 
+func TestToolMemorySetInvalidMetadata(t *testing.T) {
+	s := helperServer(t)
+	res := callTool(s, "memory_set", map[string]interface{}{
+		"content":  "test content",
+		"metadata": "not-json",
+	})
+
+	text := getToolText(res)
+	if text == "" {
+		t.Fatal("expected error text for invalid metadata")
+	}
+	if !strings.Contains(text, "metadata") {
+		t.Errorf("expected error message to mention metadata, got %q", text)
+	}
+	if !strings.Contains(text, "JSON") {
+		t.Errorf("expected error message to mention JSON, got %q", text)
+	}
+}
+
+func TestToolMemorySetMetadataArrayRejected(t *testing.T) {
+	s := helperServer(t)
+	res := callTool(s, "memory_set", map[string]interface{}{
+		"content":  "test content",
+		"metadata": `["one", "two"]`,
+	})
+
+	text := getToolText(res)
+	if text == "" {
+		t.Fatal("expected error text for array metadata")
+	}
+	if !strings.Contains(text, "metadata") {
+		t.Errorf("expected error message to mention metadata, got %q", text)
+	}
+}
+
 func TestToolMemorySetAndSearch(t *testing.T) {
 	s := helperServer(t)
 
+	content := "The API server runs on port 8080"
 	setRes := callTool(s, "memory_set", map[string]interface{}{
-		"content":  "The API server runs on port 8080",
+		"content":  content,
 		"scope":    "project",
 		"metadata": `{"source":"test"}`,
 	})
@@ -306,10 +375,41 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 		t.Errorf("expected success message, got %q", text)
 	}
 
-	searchRes := callTool(s, "memory_search", map[string]interface{}{"query": "port 8080", "scope": "project", "limit": 5})
+	searchRes := callTool(s, "memory_search", map[string]interface{}{"query": content, "scope": "project", "limit": 5})
 	code, _ := getToolError(searchRes)
 	if code != 0 {
 		t.Fatalf("unexpected error in search: %v", searchRes)
+	}
+
+	searchText := getToolText(searchRes)
+	var results []SearchResultResponse
+	if err := json.Unmarshal([]byte(searchText), &results); err != nil {
+		t.Fatalf("failed to unmarshal search results: %v\ntext: %s", err, searchText)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least one search result")
+	}
+	if results[0].Memory.ID == "" {
+		t.Error("expected non-empty memory ID in search result")
+	}
+
+	var raw []map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(searchText), &raw); err != nil {
+		t.Fatalf("failed to unmarshal raw search results: %v", err)
+	}
+	memRaw, ok := raw[0]["memory"]
+	if !ok {
+		t.Fatal("expected memory field in search result")
+	}
+	var rawMem map[string]json.RawMessage
+	if err := json.Unmarshal(memRaw, &rawMem); err != nil {
+		t.Fatalf("failed to unmarshal raw memory: %v", err)
+	}
+	if _, ok := rawMem["embedding"]; ok {
+		t.Errorf("memory_search should not include embedding field, got %s", rawMem["embedding"])
+	}
+	if _, ok := rawMem["vector"]; ok {
+		t.Errorf("memory_search should not include vector field, got %s", rawMem["vector"])
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -108,8 +109,7 @@ func (r *Registry) RunImport(ctx context.Context, tools []string, dryRun bool) (
 	for _, toolName := range tools {
 		importer := r.importers[toolName]
 		if importer == nil {
-			fmt.Fprintf(r.stderr, "Warning: unknown importer %q, skipping\n", toolName)
-			continue
+			return nil, fmt.Errorf("unknown importer %q; valid importers: %s", toolName, strings.Join(r.List(), ", "))
 		}
 
 		result, err := r.runToolImport(ctx, importer, dryRun)

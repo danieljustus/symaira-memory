@@ -5,11 +5,62 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/danieljustus/symaira-corekit/mcpserver"
+	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 )
+
+type MemoryResponse struct {
+	ID                  string            `json:"id"`
+	Content             string            `json:"content"`
+	Scope               string            `json:"scope"`
+	Metadata            map[string]string `json:"metadata,omitempty"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
+	CreatedBy           string            `json:"created_by,omitempty"`
+	CreatedSession      string            `json:"created_session,omitempty"`
+	Entities            []string          `json:"entities,omitempty"`
+	ConsolidationStatus string            `json:"consolidation_status,omitempty"`
+	EmbeddingSource     string            `json:"embedding_source,omitempty"`
+	EmbeddingModel      string            `json:"embedding_model,omitempty"`
+	Importance          float64           `json:"importance,omitempty"`
+}
+
+type SearchResultResponse struct {
+	Memory MemoryResponse `json:"memory"`
+	Score  float32        `json:"score"`
+}
+
+func memoryResponse(m *db.Memory) MemoryResponse {
+	if m == nil {
+		return MemoryResponse{}
+	}
+	return MemoryResponse{
+		ID:                  m.ID,
+		Content:             m.Content,
+		Scope:               m.Scope,
+		Metadata:            m.Metadata,
+		CreatedAt:           m.CreatedAt,
+		UpdatedAt:           m.UpdatedAt,
+		CreatedBy:           m.CreatedBy,
+		CreatedSession:      m.CreatedSession,
+		Entities:            m.Entities,
+		ConsolidationStatus: m.ConsolidationStatus,
+		EmbeddingSource:     m.EmbeddingSource,
+		EmbeddingModel:      m.EmbeddingModel,
+		Importance:          m.Importance,
+	}
+}
+
+func searchResultResponse(r db.SearchResult) SearchResultResponse {
+	return SearchResultResponse{
+		Memory: memoryResponse(r.Memory),
+		Score:  r.Score,
+	}
+}
 
 func (s *Server) MCPServer() *mcpserver.Server {
 	srv := mcpserver.New("symaira-memory", s.version)
@@ -72,7 +123,7 @@ func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (an
 		return "Memory not found", nil
 	}
 
-	data, _ := json.MarshalIndent(m, "", "  ")
+	data, _ := json.MarshalIndent(memoryResponse(m), "", "  ")
 	return string(data), nil
 }
 
@@ -97,7 +148,9 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 
 	meta := make(map[string]string)
 	if args.Metadata != "" {
-		_ = json.Unmarshal([]byte(args.Metadata), &meta)
+		if err := json.Unmarshal([]byte(args.Metadata), &meta); err != nil {
+			return nil, fmt.Errorf("invalid arguments for 'memory_set': 'metadata' must be a valid JSON object: %w", err)
+		}
 	}
 
 	var entityNames []string
@@ -165,7 +218,12 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		return "No relevant memories found.", nil
 	}
 
-	data, _ := json.MarshalIndent(results, "", "  ")
+	compact := make([]SearchResultResponse, len(results))
+	for i, r := range results {
+		compact[i] = searchResultResponse(r)
+	}
+
+	data, _ := json.MarshalIndent(compact, "", "  ")
 	return string(data), nil
 }
 

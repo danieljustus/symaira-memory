@@ -28,7 +28,7 @@ func init() {
 	backupCmd.AddCommand(exportCmd)
 	backupCmd.AddCommand(importCmd)
 
-	backupCmd.PersistentFlags().StringVarP(&backupPassword, "password", "p", "", "Optional password to encrypt/decrypt the backup payload (deprecated: use --password-file, env var, or stdin prompt)")
+	backupCmd.PersistentFlags().StringVarP(&backupPassword, "password", "p", "", "Password to encrypt/decrypt the backup payload (deprecated: use --password-file, env var, or stdin prompt)")
 	backupCmd.PersistentFlags().StringVar(&backupPasswordFile, "password-file", "", "Read the encryption password from this file")
 	rootCmd.AddCommand(backupCmd)
 }
@@ -80,8 +80,8 @@ func resolveBackupPassword(operation string) (string, error) {
 
 var backupCmd = &cobra.Command{
 	Use:   "backup",
-	Short: "Export and import local memory backups (with optional E2E encryption)",
-	Long:  `Export or import compressed backups of your local memory database, with optional zero-knowledge AES-256 encryption.`,
+	Short: "Export and import encrypted local memory backups",
+	Long:  `Export or import compressed backups of your local memory database. Exports are encrypted with AES-256-GCM and require a password source.`,
 }
 
 // sqliteHeaderMagic is the 16-byte prefix of every valid SQLite database file.
@@ -145,7 +145,7 @@ func validateSQLiteFile(data []byte) error {
 
 var exportCmd = &cobra.Command{
 	Use:   "export [destination.tar.gz]",
-	Short: "Export local SQLite memory database to a compressed backup",
+	Short: "Export local SQLite memory database to an encrypted backup",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		destPath := args[0]
@@ -182,19 +182,17 @@ var exportCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+		if password == "" {
+			fmt.Fprintln(os.Stderr, "Error: backup export requires an encryption password")
+			os.Exit(1)
+		}
 
-		var finalBytes []byte
-		if password != "" {
-			fmt.Println("🔒 Encrypting backup with AES-256-GCM...")
-			crypto := security.NewCryptoEngine()
-			cipherBytes, err := crypto.Encrypt(dbBytes, password)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Encryption failure: %v\n", err)
-				os.Exit(1)
-			}
-			finalBytes = cipherBytes
-		} else {
-			finalBytes = dbBytes
+		fmt.Println("🔒 Encrypting backup with AES-256-GCM...")
+		crypto := security.NewCryptoEngine()
+		finalBytes, err := crypto.Encrypt(dbBytes, password)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Encryption failure: %v\n", err)
+			os.Exit(1)
 		}
 
 		file, err := os.Create(destPath)
@@ -210,13 +208,8 @@ var exportCmd = &cobra.Command{
 		tw := tar.NewWriter(gw)
 		defer tw.Close()
 
-		filename := "default.db"
-		if password != "" {
-			filename = "default.db.enc"
-		}
-
 		header := &tar.Header{
-			Name: filename,
+			Name: "default.db.enc",
 			Size: int64(len(finalBytes)),
 			Mode: 0600,
 		}

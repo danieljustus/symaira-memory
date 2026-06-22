@@ -328,6 +328,36 @@ func TestStoreWithPIIMetadataRedaction(t *testing.T) {
 	}
 }
 
+func TestStoreDeduplicatesSecondaryFacts(t *testing.T) {
+	database := helperMemDB(t)
+	cfg := config.Defaults()
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	patternExtractor := extractor.NewPatternExtractor()
+
+	attr := Attribution{Author: "test"}
+	content := "I prefer Go for backend"
+
+	m, extractedStr, err := Store(database, embeddings, patternExtractor, content, "global", nil, false, attr, nil)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	if m.Content != content {
+		t.Errorf("expected primary content %q, got %q", content, m.Content)
+	}
+	if len(extractedStr) != 0 {
+		t.Errorf("expected no secondary facts when fact duplicates primary, got %v", extractedStr)
+	}
+
+	mems, err := database.ListMemoriesLite("", 0, 100)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	if len(mems) != 1 {
+		t.Errorf("expected 1 memory (primary only), got %d", len(mems))
+	}
+}
+
 func TestFormatStoreSuccess(t *testing.T) {
 	m := &db.Memory{
 		ID:       "test-id",

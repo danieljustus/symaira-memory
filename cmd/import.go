@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/importer/git"
 	"github.com/danieljustus/symaira-memory/internal/importer/github"
 	"github.com/danieljustus/symaira-memory/internal/importer/hermes"
+	"github.com/danieljustus/symaira-memory/internal/importer/memorytool"
 	"github.com/danieljustus/symaira-memory/internal/importer/obsidian"
 	"github.com/danieljustus/symaira-memory/internal/importer/paperless"
 	"github.com/danieljustus/symaira-memory/internal/importer/shellhistory"
@@ -42,25 +45,47 @@ var importSessionsCmd = &cobra.Command{
 Symaira Memory facts.
 
 Supported tools: claude-code, codex, hermes, aider, git, github, shell-history,
-calendar, email, obsidian, paperless.
+calendar, email, obsidian, paperless, openmemory, mem0, chatgpt.
 
 Examples:
   symmemory import --tool claude-code
+  symmemory import --tool openmemory
   symmemory import --all
   symmemory import --tool claude-code --dry-run`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if importList {
 			cfg := GetConfig()
-			tools := []string{"claude-code", "codex", "hermes", "aider", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless"}
+			tools := []string{"claude-code", "codex", "hermes", "aider", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "openmemory", "mem0", "chatgpt"}
+
+			type toolStatus struct {
+				Tool   string `json:"tool"`
+				Status string `json:"status"`
+				Path   string `json:"path,omitempty"`
+			}
+			var statuses []toolStatus
 			for _, tool := range tools {
 				tc, ok := cfg.Import.Tools[tool]
 				status := "not configured"
+				path := ""
 				if ok && tc.Path != "" {
-					status = "configured (path: " + tc.Path + ")"
+					status = "configured"
+					path = tc.Path
 				} else if ok {
 					status = "configured (no path)"
 				}
-				fmt.Printf("%-15s %s\n", tool, status)
+				if GetOutputFormat(cmd) == "json" {
+					statuses = append(statuses, toolStatus{Tool: tool, Status: status, Path: path})
+				} else {
+					fmt.Printf("%-15s %s\n", tool, status)
+				}
+			}
+			if GetOutputFormat(cmd) == "json" {
+				enc := json.NewEncoder(os.Stdout)
+				enc.SetIndent("", "  ")
+				if err := enc.Encode(statuses); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
 			}
 			return
 		}
@@ -71,6 +96,8 @@ Examples:
 		}
 
 		registry := importer.NewRegistry(GetDB(), extractor.NewEmbeddingsGenerator(GetConfig()))
+
+		cfg := GetConfig()
 
 		// Session importers
 		registry.Register(claudecode.NewClaudeCodeImporter(""))
@@ -87,6 +114,10 @@ Examples:
 		registry.Register(obsidian.NewObsidianImporter("", "", nil, nil, nil))
 		registry.Register(paperless.NewPaperlessImporter("", "", "", "", 0))
 
+		registry.Register(memorytool.NewSessionAdapter(memorytool.NewOpenMemoryImporter(), cfg.Import.Tools["openmemory"].Path))
+		registry.Register(memorytool.NewSessionAdapter(memorytool.NewMem0Importer(), cfg.Import.Tools["mem0"].Path))
+		registry.Register(memorytool.NewSessionAdapter(memorytool.NewChatGPTImporter(), cfg.Import.Tools["chatgpt"].Path))
+
 		var tools []string
 		if importAll {
 			tools = registry.List()
@@ -94,10 +125,24 @@ Examples:
 			tools = []string{importTool}
 		}
 
-		results, err := registry.RunImport(cmd.Context(), tools, importDryRun)
+		ctx := cmd.Context()
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		results, err := registry.RunImport(ctx, tools, importDryRun)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Import failed: %v\n", err)
 			os.Exit(1)
+		}
+
+		if GetOutputFormat(cmd) == "json" {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(results); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
 		}
 
 		for _, result := range results {

@@ -172,6 +172,22 @@ func TestStoreFactsGeneratesEmbedding(t *testing.T) {
 	}
 }
 
+func TestRunImportUnknownToolError(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := helperRegistry(t, database)
+
+	_, err := r.RunImport(t.Context(), []string{"does-not-exist"}, true)
+	if err == nil {
+		t.Fatal("expected error for unknown importer")
+	}
+	if !strings.Contains(err.Error(), "does-not-exist") {
+		t.Errorf("expected error to name unknown importer, got %q", err.Error())
+	}
+	if !strings.Contains(err.Error(), "valid importers") {
+		t.Errorf("expected error to list valid importers, got %q", err.Error())
+	}
+}
+
 func TestImportedMemorySearchable(t *testing.T) {
 	database := helperRegistryDB(t)
 	r := helperRegistry(t, database)
