@@ -1,6 +1,7 @@
 package db
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -19,6 +20,7 @@ type Memory struct {
 	Embedding           []float32         `json:"embedding"` // semantic embedding
 	EmbeddingSource     string            `json:"embedding_source,omitempty"`
 	EmbeddingModel      string            `json:"embedding_model,omitempty"`
+	ContentHash         string            `json:"content_hash,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
 	CreatedBy           string            `json:"created_by,omitempty"`
@@ -48,6 +50,12 @@ type RankingWeights struct {
 	RecencyHalfLife  float64 // days
 }
 
+// ComputeContentHash returns the SHA-256 hex digest of the given content string.
+func ComputeContentHash(content string) string {
+	h := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("%x", h)
+}
+
 // saveMemoryExec is the shared implementation for SaveMemory and SaveMemoryTx.
 func saveMemoryExec(execer SQLExecer, m *Memory) error {
 	metadataJSON, err := json.Marshal(m.Metadata)
@@ -62,6 +70,12 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 
 	embeddingDim := len(m.Embedding)
 	lshHash := ComputeLSH(m.Embedding)
+
+	// Compute content hash if not already set.
+	contentHash := m.ContentHash
+	if contentHash == "" {
+		contentHash = ComputeContentHash(m.Content)
+	}
 
 	status := m.ConsolidationStatus
 	if status == "" {
@@ -91,8 +105,8 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 		supersededBy.Valid = true
 	}
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
@@ -101,6 +115,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 			embedding_dim=excluded.embedding_dim,
 			embedding_source=excluded.embedding_source,
 			embedding_model=excluded.embedding_model,
+			content_hash=excluded.content_hash,
 			lsh_hash=excluded.lsh_hash,
 			updated_at=excluded.updated_at,
 			updated_by=excluded.updated_by,
@@ -118,7 +133,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy)
 	return err
 }
 
@@ -412,6 +427,11 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	embeddingDim := len(m.Embedding)
 	lshHash := ComputeLSH(m.Embedding)
 
+	contentHash := m.ContentHash
+	if contentHash == "" {
+		contentHash = ComputeContentHash(m.Content)
+	}
+
 	status := m.ConsolidationStatus
 	if status == "" {
 		status = "raw"
@@ -430,9 +450,9 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 
 	if err == sql.ErrNoRows {
 		_, err = db.conn.Exec(
-			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy),
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy),
 		)
 		if err != nil {
 			return false, err
@@ -445,8 +465,8 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	}
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, embedding_source=?, embedding_model=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=?, importance=? WHERE id=?`,
-		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ID,
+		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, embedding_source=?, embedding_model=?, content_hash=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=?, importance=? WHERE id=?`,
+		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ID,
 	)
 	if err != nil {
 		return false, err
@@ -666,26 +686,20 @@ func RankSearchResults(results []SearchResult, weights RankingWeights) []SearchR
 	return ranked
 }
 
-// escapeLIKE escapes special LIKE pattern characters (% and _) in a string
-// so they are treated as literal characters rather than wildcards.
-func escapeLIKE(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "_", "\\_")
-	return s
-}
-
-// FactExists checks if a fact with the given content hash exists.
+// FactExists checks if a memory with the given content hash already exists.
 func (db *DB) FactExists(contentHash string) (bool, error) {
 	var count int
 	err := db.conn.QueryRow(
-		"SELECT COUNT(*) FROM memories WHERE metadata LIKE ? ESCAPE '\\'",
-		"%\"content_hash\":\""+escapeLIKE(contentHash)+"\"%",
+		"SELECT 1 FROM memories WHERE content_hash = ? LIMIT 1",
+		contentHash,
 	).Scan(&count)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
-	return count > 0, nil
+	return true, nil
 }
 
 // SetMemoryEmbedding updates only the embedding columns of an existing memory,

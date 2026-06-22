@@ -175,8 +175,8 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 16 {
-		t.Errorf("expected 16 migrations after two opens, got %d", count)
+	if count != 17 {
+		t.Errorf("expected 17 migrations after two opens, got %d", count)
 	}
 }
 
@@ -473,29 +473,6 @@ func TestGetMemoriesSinceFilter(t *testing.T) {
 	}
 }
 
-func TestEscapeLIKE(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"simple", "simple"},
-		{"with%percent", "with\\%percent"},
-		{"with_underscore", "with\\_underscore"},
-		{"with\\backslash", "with\\\\backslash"},
-		{"%_\\all", "\\%\\_\\\\all"},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := escapeLIKE(tt.input)
-			if result != tt.expected {
-				t.Errorf("escapeLIKE(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestFactExistsWithSpecialCharacters(t *testing.T) {
 	tempDir, err := os.MkdirTemp("", "symmemory-fact-test-*")
 	if err != nil {
@@ -514,10 +491,11 @@ func TestFactExistsWithSpecialCharacters(t *testing.T) {
 	defer database.Close()
 
 	m := &Memory{
-		ID:       "fact-test-1",
-		Content:  "Test memory with special chars",
-		Scope:    "global",
-		Metadata: map[string]string{"content_hash": "abc123"},
+		ID:          "fact-test-1",
+		Content:     "Test memory with special chars",
+		Scope:       "global",
+		ContentHash: "abc123",
+		Metadata:    map[string]string{},
 	}
 	if err := database.SaveMemory(m); err != nil {
 		t.Fatalf("failed to save memory: %v", err)
@@ -561,6 +539,52 @@ func TestFactExistsWithSpecialCharacters(t *testing.T) {
 	}
 	if exists {
 		t.Error("expected FactExists to return false for empty hash")
+	}
+}
+
+func TestFactExistsAutoHash(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-autohash-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database, err := Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	content := "Alice prefers dark mode"
+	autoHash := ComputeContentHash(content)
+
+	m := &Memory{
+		ID:      "auto-hash-1",
+		Content: content,
+		Scope:   "global",
+	}
+	if err := database.SaveMemory(m); err != nil {
+		t.Fatalf("failed to save memory: %v", err)
+	}
+
+	exists, err := database.FactExists(autoHash)
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if !exists {
+		t.Error("expected FactExists to find auto-computed hash")
+	}
+
+	exists, err = database.FactExists(ComputeContentHash("different content"))
+	if err != nil {
+		t.Fatalf("FactExists failed: %v", err)
+	}
+	if exists {
+		t.Error("expected FactExists to return false for different content hash")
 	}
 }
 
