@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/db"
 )
 
 // testConfigWithSecret builds a Config whose JWT secret_path points at a
@@ -294,5 +295,183 @@ func TestRotationPurgesExpiredFallbacks(t *testing.T) {
 
 	if len(provider.secrets) > 1 {
 		t.Errorf("expected at most 1 fallback after purge, got %d", len(provider.secrets))
+	}
+}
+
+// openTestDB creates an isolated SQLite database in a temp directory that
+// mirrors the production XDG layout. The caller must defer db.Close().
+func openTestDB(t *testing.T) (*db.DB, string) {
+	t.Helper()
+	tempDir, err := os.MkdirTemp("", "symmemory-jwt-revoke-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	t.Cleanup(func() {
+		os.Setenv("HOME", oldHome)
+		os.RemoveAll(tempDir)
+	})
+
+	database, err := db.Open(config.Defaults())
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	return database, tempDir
+}
+
+// jwtProviderWithStore creates a JWTProvider backed by the given revocation
+// store and a stable secret written to dir.
+func jwtProviderWithStore(t *testing.T, store RevocationStore, dir string) *JWTProvider {
+	t.Helper()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	if err := os.WriteFile(secretPath, []byte("revocation-persistence-secret"), 0600); err != nil {
+		t.Fatalf("failed to write test secret: %v", err)
+	}
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+	provider, err := NewJWTProvider(cfg, store)
+	if err != nil {
+		t.Fatalf("failed to create jwt provider: %v", err)
+	}
+	return provider
+}
+
+func TestRevocationStoreIsTokenRevoked(t *testing.T) {
+	database, _ := openTestDB(t)
+
+	revoked, err := database.IsTokenRevoked("nonexistent-jti")
+	if err != nil {
+		t.Fatalf("IsTokenRevoked failed: %v", err)
+	}
+	if revoked {
+		t.Error("expected IsTokenRevoked to return false for unknown JTI")
+	}
+
+	if err := database.RevokeToken("jti-abc"); err != nil {
+		t.Fatalf("RevokeToken failed: %v", err)
+	}
+
+	revoked, err = database.IsTokenRevoked("jti-abc")
+	if err != nil {
+		t.Fatalf("IsTokenRevoked failed: %v", err)
+	}
+	if !revoked {
+		t.Error("expected IsTokenRevoked to return true after RevokeToken")
+	}
+}
+
+func TestRevocationStoreIdempotent(t *testing.T) {
+	database, _ := openTestDB(t)
+
+	if err := database.RevokeToken("jti-dup"); err != nil {
+		t.Fatalf("first RevokeToken failed: %v", err)
+	}
+	if err := database.RevokeToken("jti-dup"); err != nil {
+		t.Fatalf("second RevokeToken (idempotent) failed: %v", err)
+	}
+
+	revoked, err := database.IsTokenRevoked("jti-dup")
+	if err != nil {
+		t.Fatalf("IsTokenRevoked failed: %v", err)
+	}
+	if !revoked {
+		t.Error("expected JTI to be revoked after double insert")
+	}
+}
+
+func TestRevokedJTIPersistedAcrossFreshProvider(t *testing.T) {
+	database, tempDir := openTestDB(t)
+
+	provider1 := jwtProviderWithStore(t, database, tempDir)
+
+	token, err := provider1.GenerateToken("test-agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	payload, err := provider1.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("token should be valid before revocation: %v", err)
+	}
+
+	provider1.RevokeToken(payload.JWTID)
+
+	_, err = provider1.VerifyToken(token)
+	if err == nil {
+		t.Fatal("provider1 should reject revoked token")
+	}
+
+	provider2 := jwtProviderWithStore(t, database, tempDir)
+
+	_, err = provider2.VerifyToken(token)
+	if err == nil {
+		t.Fatal("fresh provider should reject persisted revoked token")
+	}
+	if !strings.Contains(err.Error(), "revoked") {
+		t.Errorf("expected revocation error, got: %v", err)
+	}
+}
+
+func TestNonRevokedTokenAcceptedByFreshProvider(t *testing.T) {
+	database, tempDir := openTestDB(t)
+
+	provider1 := jwtProviderWithStore(t, database, tempDir)
+
+	token, err := provider1.GenerateToken("test-agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("GenerateToken failed: %v", err)
+	}
+
+	if _, err := provider1.VerifyToken(token); err != nil {
+		t.Fatalf("token should verify on provider1: %v", err)
+	}
+
+	provider2 := jwtProviderWithStore(t, database, tempDir)
+
+	if _, err := provider2.VerifyToken(token); err != nil {
+		t.Errorf("fresh provider should accept non-revoked token: %v", err)
+	}
+}
+
+func TestMultipleRevocationsPersisted(t *testing.T) {
+	database, tempDir := openTestDB(t)
+
+	provider := jwtProviderWithStore(t, database, tempDir)
+
+	tokens := make([]string, 3)
+	jtis := make([]string, 3)
+	for i := 0; i < 3; i++ {
+		tok, err := provider.GenerateToken("agent", 10*time.Minute)
+		if err != nil {
+			t.Fatalf("GenerateToken %d failed: %v", i, err)
+		}
+		tokens[i] = tok
+
+		p, err := provider.VerifyToken(tok)
+		if err != nil {
+			t.Fatalf("VerifyToken %d failed: %v", i, err)
+		}
+		jtis[i] = p.JWTID
+	}
+
+	provider.RevokeToken(jtis[1])
+
+	provider2 := jwtProviderWithStore(t, database, tempDir)
+
+	for i, tok := range tokens {
+		_, err := provider2.VerifyToken(tok)
+		if i == 1 {
+			if err == nil {
+				t.Errorf("token %d should be rejected (revoked)", i)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("token %d should be accepted: %v", i, err)
+			}
+		}
 	}
 }
