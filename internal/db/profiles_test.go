@@ -364,12 +364,12 @@ func TestProfileMetadataRoundTrip(t *testing.T) {
 	db := newTestDB(t)
 
 	meta := map[string]any{
-		"string":  "hello",
-		"number":  float64(42),
-		"bool":    true,
-		"null":    nil,
-		"nested":  map[string]any{"inner": "value"},
-		"array":   []any{float64(1), "two", false},
+		"string": "hello",
+		"number": float64(42),
+		"bool":   true,
+		"null":   nil,
+		"nested": map[string]any{"inner": "value"},
+		"array":  []any{float64(1), "two", false},
 	}
 
 	p := &Profile{

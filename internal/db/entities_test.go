@@ -186,11 +186,11 @@ func TestResolveEntity(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		query       string
-		wantID      string
-		wantNil     bool
-		wantErr     bool
+		name    string
+		query   string
+		wantID  string
+		wantNil bool
+		wantErr bool
 	}{
 		{
 			name:   "resolve by exact name",
