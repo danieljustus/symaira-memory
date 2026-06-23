@@ -1878,3 +1878,210 @@ func TestStartHTTPServerServeError(t *testing.T) {
 		t.Fatal("timeout waiting for server to shut down")
 	}
 }
+
+// --------------------------------------------------------------------------
+// HTTP authentication and role enforcement (table-driven)
+// --------------------------------------------------------------------------
+
+func TestRequireAuthNilJWTProvider(t *testing.T) {
+	// Lines 75-77: when s.jwts is nil, requireAuth returns (nil, true).
+	s := helperServer(t)
+	s.jwts = nil
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("GET", ts.URL+"/api/list", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 when jwts is nil (auth disabled), got %d", resp.StatusCode)
+	}
+}
+
+func TestRequireAuthTableDriven(t *testing.T) {
+	// Lines 79-88: missing/invalid Bearer prefix, invalid token, expired token.
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	validToken := helperAuthToken(t, s)
+
+	// Generate an expired token by creating a provider with negative duration.
+	expiredCfg := config.Defaults()
+	expiredProvider, err := security.NewJWTProvider(expiredCfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create expired JWT provider: %v", err)
+	}
+	expiredToken, err := expiredProvider.GenerateToken("test", -time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate expired token: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		authHeader string
+		wantStatus int
+	}{
+		{"missing auth header", "", http.StatusUnauthorized},
+		{"invalid Bearer prefix", "Basic abc123", http.StatusUnauthorized},
+		{"Bearer with empty token", "Bearer ", http.StatusUnauthorized},
+		{"invalid token garbage", "Bearer not.a.valid-token", http.StatusUnauthorized},
+		{"expired token", "Bearer " + expiredToken, http.StatusUnauthorized},
+		{"valid token", "Bearer " + validToken, http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest("GET", ts.URL+"/api/list", nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
+			}
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatalf("request failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != tt.wantStatus {
+				t.Errorf("expected %d, got %d", tt.wantStatus, resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestRequireRoleDBProfileLookup(t *testing.T) {
+	// Lines 104-111: per-subject profile lookup from DB allows/denies access.
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	// Create a read-only profile matching the token subject "test".
+	readOnlyProfile := &db.Profile{
+		ID:   "profile-ro-1",
+		Name: "test",
+		Type: "agent",
+		Role: "read",
+	}
+	if err := s.db.SaveProfile(readOnlyProfile); err != nil {
+		t.Fatalf("failed to save profile: %v", err)
+	}
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	// Write endpoint should be rejected for read-only DB profile.
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader(`{"content":"test"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for read-only DB profile on write endpoint, got %d", resp.StatusCode)
+	}
+
+	// Read endpoint should succeed for read-only DB profile.
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/list", nil)
+	req2.Header.Set("Authorization", "Bearer "+token)
+
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for read-only DB profile on read endpoint, got %d", resp2.StatusCode)
+	}
+}
+
+func TestRequireRoleDBProfileReadWriteAllowsAccess(t *testing.T) {
+	// Lines 104-111: per-subject profile with readwrite role allows write.
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	rwProfile := &db.Profile{
+		ID:   "profile-rw-1",
+		Name: "test",
+		Type: "agent",
+		Role: "readwrite",
+	}
+	if err := s.db.SaveProfile(rwProfile); err != nil {
+		t.Fatalf("failed to save profile: %v", err)
+	}
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader(`{"content":"allowed"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for readwrite DB profile on write endpoint, got %d", resp.StatusCode)
+	}
+}
+
+func TestMatchOriginTableDriven(t *testing.T) {
+	// Lines 145-152: wildcard "*", scheme wildcard, and exact match.
+	tests := []struct {
+		name    string
+		origin  string
+		pattern string
+		want    bool
+	}{
+		{"wildcard matches anything", "https://evil.com", "*", true},
+		{"wildcard matches empty", "", "*", true},
+		{"scheme wildcard match", "chrome-extension://abc", "chrome-extension://*", true},
+		{"scheme wildcard no match", "https://example.com", "chrome-extension://*", false},
+		{"exact match", "https://example.com", "https://example.com", true},
+		{"exact no match", "https://other.com", "https://example.com", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matchOrigin(tt.origin, tt.pattern)
+			if got != tt.want {
+				t.Errorf("matchOrigin(%q, %q) = %v, want %v", tt.origin, tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCORSPreflightWildcardOrigin(t *testing.T) {
+	// Lines 145-147 via enableCORS: wildcard "*" allows any origin.
+	s := helperServer(t)
+	s.SetAllowedOrigins([]string{"*"})
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("OPTIONS", ts.URL+"/api/status", nil)
+	req.Header.Set("Origin", "https://any-origin.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for wildcard origin preflight, got %d", resp.StatusCode)
+	}
+	if resp.Header.Get("Access-Control-Allow-Origin") != "https://any-origin.example.com" {
+		t.Errorf("expected Access-Control-Allow-Origin header, got %q", resp.Header.Get("Access-Control-Allow-Origin"))
+	}
+}
