@@ -88,9 +88,9 @@ func TestRuleCRUD(t *testing.T) {
 
 	// Update an existing rule via ON CONFLICT
 	updated := &Rule{
-		ID:      "rule-1",
-		Content: "Always respond in French",
-		Scope:   "global",
+		ID:       "rule-1",
+		Content:  "Always respond in French",
+		Scope:    "global",
 		Metadata: map[string]string{"priority": "urgent"},
 	}
 	if err := database.SaveRule(updated); err != nil {
@@ -172,9 +172,9 @@ func TestRuleEmptyScope(t *testing.T) {
 	defer database.Close()
 
 	r := &Rule{
-		ID:      "empty-scope-rule",
-		Content: "Rule with empty scope still saved",
-		Scope:   "",
+		ID:       "empty-scope-rule",
+		Content:  "Rule with empty scope still saved",
+		Scope:    "",
 		Metadata: map[string]string{},
 	}
 	if err := database.SaveRule(r); err != nil {
