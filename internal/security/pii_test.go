@@ -130,6 +130,41 @@ func TestRedactMap(t *testing.T) {
 	}
 }
 
+func TestRedact(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "My OpenAI project key is sk-proj-12345abcde12345abcde12345abcde12345abcde12345 and email is test@domain.com",
+			expected: "My OpenAI project key is [REDACTED_API_KEY] and email is [REDACTED_EMAIL]",
+		},
+		{
+			input:    "Send payment details of card 4111 1111 1111 1111 to help@symaira.com",
+			expected: "Send payment details of card [REDACTED_CARD_NUMBER] to [REDACTED_EMAIL]",
+		},
+		{
+			input:    "GitHub auth token is ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+			expected: "GitHub auth token is [REDACTED_API_KEY]",
+		},
+		{
+			input:    "Clean text with no PII should pass through unchanged",
+			expected: "Clean text with no PII should pass through unchanged",
+		},
+		{
+			input:    "",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		result := Redact(tt.input)
+		if result != tt.expected {
+			t.Errorf("Redact(%q):\n  expected: %q\n  got:      %q", tt.input, tt.expected, result)
+		}
+	}
+}
+
 func TestCreditCardPrefixValidation(t *testing.T) {
 	pg := NewPIIGuard()
 
