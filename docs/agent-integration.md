@@ -107,7 +107,7 @@ The daemon exposes standard REST API routes for database queries and updates. Fo
 
 *   **`GET /api/status`**
     *   *Purpose*: Health check.
-    *   *Response*: `{"status":"healthy","version":"0.7.0","server":"symaira-memory"}`
+    *   *Response*: `{"status":"healthy","version":"0.7.1","server":"symaira-memory"}`
 *   **`POST /api/search`**
     *   *Purpose*: Semantic cosine-similarity search.
     *   *Payload*: `{"query": "database connection settings", "scope": "project", "limit": 3}`
