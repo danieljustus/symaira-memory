@@ -475,3 +475,462 @@ func TestMultipleRevocationsPersisted(t *testing.T) {
 		}
 	}
 }
+
+// TestSecretResolutionFromFile verifies loading secret from cfg.JWT.SecretPath
+func TestSecretResolutionFromFile(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	expectedSecret := "file-loaded-secret-12345"
+	if err := os.WriteFile(secretPath, []byte(expectedSecret+"\n"), 0600); err != nil {
+		t.Fatalf("failed to write secret: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	if string(provider.secret) != expectedSecret {
+		t.Errorf("expected secret %q, got %q", expectedSecret, string(provider.secret))
+	}
+
+	token, err := provider.GenerateToken("test", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	payload, err := provider.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("failed to verify token: %v", err)
+	}
+	if payload.Subject != "test" {
+		t.Errorf("expected subject 'test', got %q", payload.Subject)
+	}
+}
+
+// TestSecretAutoGeneration verifies auto-generating secret when none exists
+func TestSecretAutoGeneration(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "subdir", "jwt.test.secret")
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	if len(provider.secret) == 0 {
+		t.Fatal("expected auto-generated secret, got empty")
+	}
+
+	if len(provider.secret) != 64 {
+		t.Errorf("expected 64-byte hex secret, got %d bytes", len(provider.secret))
+	}
+
+	data, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatalf("failed to read persisted secret: %v", err)
+	}
+
+	if string(data) != string(provider.secret)+"\n" {
+		t.Errorf("persisted secret mismatch: file=%q, memory=%q", string(data), string(provider.secret))
+	}
+
+	token, err := provider.GenerateToken("test", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	_, err = provider.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("failed to verify token with auto-generated secret: %v", err)
+	}
+}
+
+// TestSecretResolutionFromEnv verifies JWT_SECRET_KEY env var resolution
+func TestSecretResolutionFromEnv(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+
+	envSecret := "env-var-secret-67890"
+	t.Setenv("JWT_SECRET_KEY", envSecret)
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	if string(provider.secret) != envSecret {
+		t.Errorf("expected env secret %q, got %q", envSecret, string(provider.secret))
+	}
+
+	if _, err := os.Stat(secretPath); err == nil {
+		t.Error("secret file should not be created when env var is set")
+	}
+
+	token, err := provider.GenerateToken("test", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	_, err = provider.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("failed to verify token: %v", err)
+	}
+}
+
+// TestFallbackSecretPersistenceAcrossRotation verifies fallback secrets persist
+func TestFallbackSecretPersistenceAcrossRotation(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	firstSecret := string(provider.secret)
+	firstToken, err := provider.GenerateToken("agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate first token: %v", err)
+	}
+
+	provider.RotateSecret("second-secret")
+	secondToken, err := provider.GenerateToken("agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate second token: %v", err)
+	}
+
+	provider.RotateSecret("third-secret")
+	thirdToken, err := provider.GenerateToken("agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate third token: %v", err)
+	}
+
+	fallbackPath := strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+	data, err := os.ReadFile(fallbackPath)
+	if err != nil {
+		t.Fatalf("failed to read fallback file: %v", err)
+	}
+
+	if !strings.Contains(string(data), firstSecret) {
+		t.Errorf("fallback file should contain first secret %q", firstSecret)
+	}
+	if !strings.Contains(string(data), "second-secret") {
+		t.Errorf("fallback file should contain second-secret")
+	}
+
+	if _, err := provider.VerifyToken(firstToken); err != nil {
+		t.Errorf("first token should still verify: %v", err)
+	}
+	if _, err := provider.VerifyToken(secondToken); err != nil {
+		t.Errorf("second token should still verify: %v", err)
+	}
+	if _, err := provider.VerifyToken(thirdToken); err != nil {
+		t.Errorf("third token should verify: %v", err)
+	}
+}
+
+// TestPruningExpiredFallbackSecrets verifies expired fallbacks are pruned
+func TestPruningExpiredFallbackSecrets(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	if err := os.WriteFile(secretPath, []byte("primary"), 0600); err != nil {
+		t.Fatalf("failed to write secret: %v", err)
+	}
+
+	fallbackPath := strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+	expiredJSON := `[
+		{"secret":"expired-1","expires_at":"2020-01-01T00:00:00Z"},
+		{"secret":"valid-1","expires_at":"2099-12-31T23:59:59Z"},
+		{"secret":"expired-2","expires_at":"2021-01-01T00:00:00Z"}
+	]`
+	if err := os.WriteFile(fallbackPath, []byte(expiredJSON), 0600); err != nil {
+		t.Fatalf("failed to write fallback: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	if len(provider.secrets) != 1 {
+		t.Errorf("expected 1 valid fallback, got %d", len(provider.secrets))
+	}
+	if string(provider.secrets[0]) != "valid-1" {
+		t.Errorf("expected valid-1, got %q", string(provider.secrets[0]))
+	}
+
+	data, err := os.ReadFile(fallbackPath)
+	if err != nil {
+		t.Fatalf("failed to read fallback file: %v", err)
+	}
+
+	if strings.Contains(string(data), "expired-1") {
+		t.Error("expired-1 should be pruned from disk")
+	}
+	if strings.Contains(string(data), "expired-2") {
+		t.Error("expired-2 should be pruned from disk")
+	}
+	if !strings.Contains(string(data), "valid-1") {
+		t.Error("valid-1 should remain in fallback file")
+	}
+}
+
+// TestMalformedFallbackJSON verifies error handling for malformed JSON
+func TestMalformedFallbackJSON(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	if err := os.WriteFile(secretPath, []byte("primary"), 0600); err != nil {
+		t.Fatalf("failed to write secret: %v", err)
+	}
+
+	fallbackPath := strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+	malformedJSON := `{"secret":"not-an-array","expires_at":"2099-12-31"}`
+	if err := os.WriteFile(fallbackPath, []byte(malformedJSON), 0600); err != nil {
+		t.Fatalf("failed to write malformed fallback: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("provider creation should succeed despite malformed JSON: %v", err)
+	}
+
+	if len(provider.secrets) != 0 {
+		t.Errorf("expected 0 fallbacks after malformed JSON, got %d", len(provider.secrets))
+	}
+
+	token, err := provider.GenerateToken("test", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	_, err = provider.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("token should still verify with primary secret: %v", err)
+	}
+}
+
+// TestAddFallbackSecret verifies AddFallbackSecret behavior
+func TestAddFallbackSecret(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "jwt.test.secret")
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	provider, err := NewJWTProvider(cfg, nil)
+	if err != nil {
+		t.Fatalf("failed to create provider: %v", err)
+	}
+
+	fallbackSecret := "manual-fallback-secret"
+	provider.AddFallbackSecret(fallbackSecret)
+
+	if len(provider.secrets) != 1 {
+		t.Fatalf("expected 1 fallback secret, got %d", len(provider.secrets))
+	}
+	if string(provider.secrets[0]) != fallbackSecret {
+		t.Errorf("expected fallback %q, got %q", fallbackSecret, string(provider.secrets[0]))
+	}
+
+	fallbackProvider := &JWTProvider{secret: []byte(fallbackSecret)}
+	fallbackToken, err := fallbackProvider.GenerateToken("agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate fallback token: %v", err)
+	}
+
+	_, err = provider.VerifyToken(fallbackToken)
+	if err != nil {
+		t.Errorf("token signed with added fallback should verify: %v", err)
+	}
+
+	provider.AddFallbackSecret("another-fallback")
+	if len(provider.secrets) != 2 {
+		t.Errorf("expected 2 fallback secrets, got %d", len(provider.secrets))
+	}
+}
+
+// TestLoadPersistedSecretDefaultPath verifies default path resolution
+func TestLoadPersistedSecretDefaultPath(t *testing.T) {
+	dir := t.TempDir()
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", dir)
+	t.Cleanup(func() {
+		os.Setenv("HOME", oldHome)
+	})
+
+	configDir := filepath.Join(dir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+
+	secretPath := filepath.Join(configDir, "jwt.secret")
+	expectedSecret := "default-path-secret"
+	if err := os.WriteFile(secretPath, []byte(expectedSecret), 0600); err != nil {
+		t.Fatalf("failed to write secret: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{},
+	}
+
+	secret, err := loadPersistedSecret(cfg)
+	if err != nil {
+		t.Fatalf("loadPersistedSecret failed: %v", err)
+	}
+
+	if secret != expectedSecret {
+		t.Errorf("expected %q, got %q", expectedSecret, secret)
+	}
+}
+
+// TestGenerateAndPersistSecretCreatesDirectory verifies directory creation
+func TestGenerateAndPersistSecretCreatesDirectory(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "deep", "nested", "path", "jwt.secret")
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	secret, err := generateAndPersistSecret(cfg)
+	if err != nil {
+		t.Fatalf("generateAndPersistSecret failed: %v", err)
+	}
+
+	if len(secret) != 64 {
+		t.Errorf("expected 64-byte hex secret, got %d bytes", len(secret))
+	}
+
+	data, err := os.ReadFile(secretPath)
+	if err != nil {
+		t.Fatalf("failed to read persisted secret: %v", err)
+	}
+
+	if string(data) != secret+"\n" {
+		t.Errorf("persisted content mismatch")
+	}
+
+	info, err := os.Stat(filepath.Dir(secretPath))
+	if err != nil {
+		t.Fatalf("failed to stat directory: %v", err)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Errorf("expected directory permissions 0700, got %o", info.Mode().Perm())
+	}
+}
+
+// TestFallbackSecretsPathResolution verifies path computation
+func TestFallbackSecretsPathResolution(t *testing.T) {
+	tests := []struct {
+		name       string
+		secretPath string
+		expected   string
+	}{
+		{
+			name:       "with extension",
+			secretPath: "/tmp/jwt.secret",
+			expected:   "/tmp/jwt.secrets",
+		},
+		{
+			name:       "without extension",
+			secretPath: "/tmp/jwt",
+			expected:   "/tmp/jwt.secrets",
+		},
+		{
+			name:       "nested path",
+			secretPath: "/home/user/.config/symmemory/jwt.key",
+			expected:   "/home/user/.config/symmemory/jwt.secrets",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				JWT: config.JWTConfig{SecretPath: tt.secretPath},
+			}
+			result := fallbackSecretsPath(cfg)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestLoadFallbackSecretsFileNotFound verifies handling of missing file
+func TestLoadFallbackSecretsFileNotFound(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "nonexistent.secret")
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	entries, err := loadFallbackSecrets(cfg)
+	if err != nil {
+		t.Fatalf("loadFallbackSecrets should not error on missing file: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries for missing file, got %d", len(entries))
+	}
+}
+
+// TestPersistFallbackSecretsCreatesDirectory verifies directory creation
+func TestPersistFallbackSecretsCreatesDirectory(t *testing.T) {
+	dir := t.TempDir()
+	secretPath := filepath.Join(dir, "deep", "nested", "jwt.secret")
+
+	cfg := &config.Config{
+		JWT: config.JWTConfig{SecretPath: secretPath},
+	}
+
+	entries := []fallbackEntry{
+		{Secret: "test-secret", ExpiresAt: time.Now().Add(24 * time.Hour)},
+	}
+
+	err := persistFallbackSecrets(cfg, entries)
+	if err != nil {
+		t.Fatalf("persistFallbackSecrets failed: %v", err)
+	}
+
+	fallbackPath := strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
+	data, err := os.ReadFile(fallbackPath)
+	if err != nil {
+		t.Fatalf("failed to read fallback file: %v", err)
+	}
+
+	if !strings.Contains(string(data), "test-secret") {
+		t.Error("fallback file should contain test-secret")
+	}
+
+	info, err := os.Stat(filepath.Dir(fallbackPath))
+	if err != nil {
+		t.Fatalf("failed to stat directory: %v", err)
+	}
+	if info.Mode().Perm() != 0700 {
+		t.Errorf("expected directory permissions 0700, got %o", info.Mode().Perm())
+	}
+}
