@@ -16,12 +16,12 @@ import (
 
 // Registry manages multiple session importers and orchestrates import runs.
 type Registry struct {
-	importers      map[string]SessionImporter
-	database       *db.DB
-	embeddings     *extractor.EmbeddingsGenerator
-	state          *ImportState
+	importers       map[string]SessionImporter
+	database        *db.DB
+	embeddings      *extractor.EmbeddingsGenerator
+	state           *ImportState
 	extractOnImport bool
-	stderr         *os.File
+	stderr          *os.File
 }
 
 // NewRegistry creates a new importer registry.
@@ -301,9 +301,9 @@ func (r *Registry) extractFacts(facts []ImportedFact) []ImportedFact {
 			SessionID: first.SessionID,
 			Timestamp: first.Timestamp,
 			Metadata: map[string]string{
-				"method":        "extractive_summarization",
-				"fact_count":    fmt.Sprintf("%d", len(facts)),
-				"distilled_to":  fmt.Sprintf("%d", len(distilled)),
+				"method":       "extractive_summarization",
+				"fact_count":   fmt.Sprintf("%d", len(facts)),
+				"distilled_to": fmt.Sprintf("%d", len(distilled)),
 			},
 		})
 	}

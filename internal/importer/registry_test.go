@@ -38,27 +38,31 @@ func helperRegistry(t *testing.T, database *db.DB) *Registry {
 
 // mockTranscriptImporter implements SessionImporter + TranscriptImporter for testing.
 type mockTranscriptImporter struct {
-	name    string
-	facts   []ImportedFact
+	name     string
+	facts    []ImportedFact
 	sessions []SessionRef
 }
 
-func (m *mockTranscriptImporter) Name() string                                     { return m.name }
-func (m *mockTranscriptImporter) IsTranscript() bool                                { return true }
-func (m *mockTranscriptImporter) DiscoverSessions(since time.Time) ([]SessionRef, error) { return m.sessions, nil }
+func (m *mockTranscriptImporter) Name() string       { return m.name }
+func (m *mockTranscriptImporter) IsTranscript() bool { return true }
+func (m *mockTranscriptImporter) DiscoverSessions(since time.Time) ([]SessionRef, error) {
+	return m.sessions, nil
+}
 func (m *mockTranscriptImporter) ImportSession(ref SessionRef) ([]ImportedFact, error) {
 	return m.facts, nil
 }
 
 // mockCuratedImporter implements SessionImporter but NOT TranscriptImporter.
 type mockCuratedImporter struct {
-	name    string
-	facts   []ImportedFact
+	name     string
+	facts    []ImportedFact
 	sessions []SessionRef
 }
 
-func (m *mockCuratedImporter) Name() string                                        { return m.name }
-func (m *mockCuratedImporter) DiscoverSessions(since time.Time) ([]SessionRef, error) { return m.sessions, nil }
+func (m *mockCuratedImporter) Name() string { return m.name }
+func (m *mockCuratedImporter) DiscoverSessions(since time.Time) ([]SessionRef, error) {
+	return m.sessions, nil
+}
 func (m *mockCuratedImporter) ImportSession(ref SessionRef) ([]ImportedFact, error) {
 	return m.facts, nil
 }
