@@ -198,13 +198,13 @@ func buildJSONConfig(tool, execPath string, serveArgs []string) string {
 func buildCodexToml(execPath string, serveArgs []string) string {
 	var sb strings.Builder
 	sb.WriteString("[mcp_servers.symaira-memory]\n")
-	sb.WriteString(fmt.Sprintf("command = %q\n", execPath))
+	fmt.Fprintf(&sb, "command = %q\n", execPath)
 	if len(serveArgs) > 0 {
 		args := make([]string, len(serveArgs))
 		for i, a := range serveArgs {
 			args[i] = fmt.Sprintf("%q", a)
 		}
-		sb.WriteString(fmt.Sprintf("args = [%s]\n", strings.Join(args, ", ")))
+		fmt.Fprintf(&sb, "args = [%s]\n", strings.Join(args, ", "))
 	}
 	return sb.String()
 }

@@ -295,7 +295,7 @@ func TestMcpConfigCommandOutput(t *testing.T) {
 func TestMcpConfigProfileFlagRegistered(t *testing.T) {
 	flag := configCmd.Flags().Lookup("profile")
 	if flag == nil {
-		t.Error("expected 'profile' flag on mcp-config command")
+		t.Fatal("expected 'profile' flag on mcp-config command")
 	}
 	if flag.DefValue != "" {
 		t.Errorf("expected empty default for profile flag, got %q", flag.DefValue)
@@ -343,7 +343,7 @@ func TestMcpConfigWithProfile(t *testing.T) {
 func TestMcpConfigToolFlagRegistered(t *testing.T) {
 	flag := configCmd.Flags().Lookup("tool")
 	if flag == nil {
-		t.Error("expected 'tool' flag on mcp-config command")
+		t.Fatal("expected 'tool' flag on mcp-config command")
 	}
 	if flag.DefValue != "" {
 		t.Errorf("expected empty default for tool flag, got %q", flag.DefValue)
