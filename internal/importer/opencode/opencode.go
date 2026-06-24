@@ -31,12 +31,12 @@ type sessionRow struct {
 
 // messageData is the JSON structure stored in the message.data column.
 type messageData struct {
-	Role      string       `json:"role"`
-	Time      messageTime  `json:"time"`
-	Tokens    *tokenInfo   `json:"tokens,omitempty"`
-	ModelID   string       `json:"modelID,omitempty"`
+	Role       string      `json:"role"`
+	Time       messageTime `json:"time"`
+	Tokens     *tokenInfo  `json:"tokens,omitempty"`
+	ModelID    string      `json:"modelID,omitempty"`
 	ProviderID string      `json:"providerID,omitempty"`
-	Agent     string       `json:"agent,omitempty"`
+	Agent      string      `json:"agent,omitempty"`
 }
 
 type messageTime struct {
@@ -51,9 +51,9 @@ type tokenInfo struct {
 
 // partData is the JSON structure stored in the part.data column.
 type partData struct {
-	Type string   `json:"type"`
-	Text string   `json:"text,omitempty"`
-	Tool string   `json:"tool,omitempty"`
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+	Tool string `json:"tool,omitempty"`
 }
 
 func NewOpenCodeImporter(customPath string) *OpenCodeImporter {
@@ -224,10 +224,10 @@ func (o *OpenCodeImporter) ImportSession(ref importer.SessionRef) ([]importer.Im
 			SessionID: ref.SessionID,
 			Timestamp: timestamp,
 			Metadata: map[string]string{
-				"title":     title,
-				"directory": directory,
-				"agent":     agent,
-				"model":     model,
+				"title":      title,
+				"directory":  directory,
+				"agent":      agent,
+				"model":      model,
 				"message_id": msgID,
 			},
 		})

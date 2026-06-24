@@ -87,8 +87,8 @@ type HybridSearchConfig struct {
 
 // ImportConfig holds per-tool import settings.
 type ImportConfig struct {
-	Tools            map[string]ImportToolConfig `json:"tools"`
-	ExtractOnImport  bool                        `json:"extract_on_import"` // run extraction/summarization on transcript imports
+	Tools           map[string]ImportToolConfig `json:"tools"`
+	ExtractOnImport bool                        `json:"extract_on_import"` // run extraction/summarization on transcript imports
 }
 
 // ImportToolConfig holds configuration for a single importer.
