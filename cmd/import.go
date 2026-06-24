@@ -12,6 +12,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/importer/calendar"
 	"github.com/danieljustus/symaira-memory/internal/importer/claudecode"
 	"github.com/danieljustus/symaira-memory/internal/importer/codex"
+	"github.com/danieljustus/symaira-memory/internal/importer/curatedmemory"
 	"github.com/danieljustus/symaira-memory/internal/importer/email"
 	"github.com/danieljustus/symaira-memory/internal/importer/git"
 	"github.com/danieljustus/symaira-memory/internal/importer/github"
@@ -44,18 +45,18 @@ var importSessionsCmd = &cobra.Command{
 	Long: `Import session data from external AI coding tools and convert them into
 Symaira Memory facts.
 
-Supported tools: claude-code, codex, hermes, aider, git, github, shell-history,
-calendar, email, obsidian, paperless, openmemory, mem0, chatgpt.
+Supported tools: claude-code, codex, hermes, aider, curated-memory, git, github,
+shell-history, calendar, email, obsidian, paperless, openmemory, mem0, chatgpt.
 
 Examples:
   symmemory import --tool claude-code
-  symmemory import --tool openmemory
+  symmemory import --tool curated-memory
   symmemory import --all
   symmemory import --tool claude-code --dry-run`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if importList {
 			cfg := GetConfig()
-			tools := []string{"claude-code", "codex", "hermes", "aider", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "openmemory", "mem0", "chatgpt"}
+			tools := []string{"claude-code", "codex", "hermes", "aider", "curated-memory", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "openmemory", "mem0", "chatgpt"}
 
 			type toolStatus struct {
 				Tool   string `json:"tool"`
@@ -104,6 +105,7 @@ Examples:
 		registry.Register(codex.NewCodexImporter(""))
 		registry.Register(hermes.NewHermesImporter(""))
 		registry.Register(aider.NewAiderImporter(nil))
+		registry.Register(curatedmemory.NewCuratedMemoryImporter(""))
 
 		// Data source importers
 		registry.Register(git.NewGitImporter("", ""))
