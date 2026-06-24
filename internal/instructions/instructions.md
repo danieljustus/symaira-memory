@@ -58,6 +58,88 @@ Write facts as objective, third-person, declarative statements:
 - **Good**: "Project backend uses SQLite with WAL mode."
 - **Bad**: "We enabled WAL mode."
 
+## Profile & Multi-Agent Setup
+
+Symaira Memory supports role-based access control through **profiles**. Each profile has a name, role (`read`, `readwrite`, `admin`), and type (`agent` or `human`). When a profile is active, the server enforces its role on all operations — read-only profiles cannot write memories.
+
+### Why Profiles Matter
+
+When multiple AI agents share the same Symaira Memory instance, profiles ensure:
+- **Least-privilege access**: A monitoring agent can search without modifying data.
+- **Audit trails**: Each memory can be traced to the agent profile that created it.
+- **Conflict prevention**: Multiple agents writing simultaneously is safe when scoped correctly.
+
+### Creating Profiles
+
+```bash
+# Create a readwrite profile for your primary coding agent
+symmemory profile add claude-code --role readwrite --type agent --description "Claude Code coding agent"
+
+# Create a read-only profile for a monitoring or search-only agent
+symmemory profile add opencode --role read --type agent --description "OpenCode read-only access"
+```
+
+### Using Profiles at Serve Time
+
+Pass the `--profile` flag when starting the server, or set the `SYMMEMORY_PROFILE` environment variable:
+
+```bash
+# Start the MCP server with a specific profile
+symmemory serve --profile claude-code
+
+# Or via environment variable
+SYMMEMORY_PROFILE=opencode symmemory serve
+```
+
+### Complete Examples
+
+**Claude Desktop** — full readwrite access:
+
+```json
+{
+  "mcpServers": {
+    "symaira-memory": {
+      "command": "symmemory",
+      "args": ["serve", "--profile", "claude-code"]
+    }
+  }
+}
+```
+
+**OpenCode** — read-only access (cannot write memories):
+
+```json
+{
+  "mcpServers": {
+    "symaira-memory": {
+      "command": "symmemory",
+      "args": ["serve", "--profile", "opencode"]
+    }
+  }
+}
+```
+
+### Role Summary
+
+| Role | `memory_search` | `memory_set` | `memory_get` | `memory_list` |
+|------|-----------------|--------------|--------------|---------------|
+| `read` | ✅ | ❌ | ✅ | ✅ |
+| `readwrite` | ✅ | ✅ | ✅ | ✅ |
+| `admin` | ✅ | ✅ | ✅ | ✅ |
+
+### Profile Management
+
+```bash
+# List all profiles
+symmemory profile list
+
+# Change a profile's role
+symmemory profile set-role opencode readwrite
+
+# Remove a profile
+symmemory profile remove opencode
+```
+
 ## Memory Consolidation
 
 When the user updates a prior decision (e.g., "Switch from SQLite to PostgreSQL"):

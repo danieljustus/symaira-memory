@@ -9,7 +9,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	configProfile string
+)
+
 func init() {
+	configCmd.Flags().StringVar(&configProfile, "profile", "", "Agent profile name to include in generated config (e.g., claude-code, opencode)")
 	rootCmd.AddCommand(configCmd)
 }
 
@@ -31,12 +36,18 @@ server into major MCP clients like Claude Desktop, Cursor, or VS Code Cline exte
 			execPath = "symmemory" // fallback
 		}
 
+		// Build args: ["serve"] or ["serve", "--profile", "<name>"]
+		serveArgs := []string{"serve"}
+		if configProfile != "" {
+			serveArgs = append(serveArgs, "--profile", configProfile)
+		}
+
 		// Build standard host config object
 		config := map[string]interface{}{
 			"mcpServers": map[string]interface{}{
 				"symaira-memory": map[string]interface{}{
 					"command": execPath,
-					"args":    []string{"serve"},
+					"args":    serveArgs,
 				},
 			},
 		}
@@ -49,6 +60,9 @@ server into major MCP clients like Claude Desktop, Cursor, or VS Code Cline exte
 
 		fmt.Fprintln(os.Stderr, "⚡ Copy and paste this block into your host configuration file:")
 		fmt.Fprintf(os.Stderr, "\n📂 Claude Desktop Config Path:\n  %s\n", filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json"))
+		if configProfile != "" {
+			fmt.Fprintf(os.Stderr, "\n🔐 Active profile: %s\n", configProfile)
+		}
 		fmt.Fprintf(os.Stderr, "\n🛠️ Cursor settings:\n  Cursor -> Settings -> Features -> MCP -> Click '+ Add New MCP Server'\n  Name: symaira-memory\n  Type: stdio\n  Command: %s serve\n", execPath)
 		fmt.Fprintln(os.Stderr, "\n========================= CONFIGURATION BLOCK =========================")
 		fmt.Fprintln(os.Stderr, string(configBytes))

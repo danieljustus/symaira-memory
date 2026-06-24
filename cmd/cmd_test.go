@@ -50,6 +50,21 @@ func captureCmdOutput(fn func()) string {
 	return buf.String()
 }
 
+func captureStderr(fn func()) string {
+	r, w, _ := os.Pipe()
+	old := os.Stderr
+	os.Stderr = w
+
+	fn()
+
+	w.Close()
+	os.Stderr = old
+
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	return buf.String()
+}
+
 // --------------------------------------------------------------------------
 // Version command
 // --------------------------------------------------------------------------
@@ -274,6 +289,50 @@ func TestMcpConfigCommandOutput(t *testing.T) {
 	// The config command prints to stderr, not stdout
 	// So stdout should be empty
 	_ = output
+}
+
+func TestMcpConfigProfileFlagRegistered(t *testing.T) {
+	flag := configCmd.Flags().Lookup("profile")
+	if flag == nil {
+		t.Error("expected 'profile' flag on mcp-config command")
+	}
+	if flag.DefValue != "" {
+		t.Errorf("expected empty default for profile flag, got %q", flag.DefValue)
+	}
+}
+
+func TestMcpConfigDefaultArgsNoProfile(t *testing.T) {
+	configProfile = ""
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	if !strings.Contains(output, `"serve"`) {
+		t.Errorf("expected output to contain 'serve', got %q", output)
+	}
+	if strings.Contains(output, "--profile") {
+		t.Errorf("expected output to NOT contain --profile when no profile set, got %q", output)
+	}
+}
+
+func TestMcpConfigWithProfile(t *testing.T) {
+	configProfile = "claude-code"
+	defer func() { configProfile = "" }()
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	if !strings.Contains(output, "--profile") {
+		t.Errorf("expected output to contain --profile, got %q", output)
+	}
+	if !strings.Contains(output, "claude-code") {
+		t.Errorf("expected output to contain 'claude-code', got %q", output)
+	}
+	if !strings.Contains(output, "Active profile: claude-code") {
+		t.Errorf("expected output to contain 'Active profile: claude-code', got %q", output)
+	}
 }
 
 // --------------------------------------------------------------------------
