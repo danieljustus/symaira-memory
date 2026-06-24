@@ -16,9 +16,10 @@ import (
 )
 
 type checkResult struct {
-	name   string
-	passed bool
-	detail string
+	name    string
+	passed  bool
+	warning bool // non-blocking issue; does not cause exit 1
+	detail  string
 }
 
 var doctorCmd = &cobra.Command{
@@ -30,16 +31,21 @@ Reports pass/fail for database, Ollama, JWT secrets, configuration, and file per
 		var results []checkResult
 
 		results = append(results, checkDatabase())
+		results = append(results, checkDBSize())
 		results = append(results, checkOllama())
 		results = append(results, checkEmbeddingBackend())
+		results = append(results, checkMemoryCount())
 		results = append(results, checkJWTSecret())
 		results = append(results, checkConfig())
 		results = append(results, checkFilePermissions())
+		results = append(results, checkProfiles())
 
 		allPassed := true
 		for _, r := range results {
 			icon := "✅"
-			if !r.passed {
+			if r.warning {
+				icon = "⚠️"
+			} else if !r.passed {
 				icon = "❌"
 				allPassed = false
 			}
@@ -87,6 +93,42 @@ func checkDatabase() checkResult {
 	}
 
 	return checkResult{name: "Database", passed: true, detail: fmt.Sprintf("%d migrations applied", count)}
+}
+
+func checkDBSize() checkResult {
+	cfg := GetConfig()
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+
+	dbPath := db.ResolvePath(cfg)
+	info, err := os.Stat(dbPath)
+	if os.IsNotExist(err) {
+		return checkResult{name: "DB Size", passed: true, detail: "database not yet created"}
+	}
+	if err != nil {
+		return checkResult{name: "DB Size", passed: false, detail: fmt.Sprintf("cannot stat: %v", err)}
+	}
+
+	size := info.Size()
+	const (
+		warnThreshold  int64 = 500 * 1024 * 1024      // 500 MB
+		errorThreshold int64 = 2 * 1024 * 1024 * 1024 // 2 GB
+	)
+
+	switch {
+	case size >= errorThreshold:
+		return checkResult{name: "DB Size", passed: false, detail: fmt.Sprintf("%d MB exceeds 2 GB limit", size/(1024*1024))}
+	case size >= warnThreshold:
+		return checkResult{
+			name:    "DB Size",
+			passed:  true,
+			warning: true,
+			detail:  fmt.Sprintf("%d MB — consider pruning (warns at 500 MB)", size/(1024*1024)),
+		}
+	}
+
+	return checkResult{name: "DB Size", passed: true, detail: fmt.Sprintf("%d MB", size/(1024*1024))}
 }
 
 func checkOllama() checkResult {
@@ -150,10 +192,22 @@ func checkEmbeddingBackend() checkResult {
 	}
 	eg := extractor.NewEmbeddingsGenerator(cfg)
 	backend := eg.ActiveBackend()
+	model := eg.Model
+	dims := eg.Dimensions()
+
 	if backend == "lexical" {
-		return checkResult{name: "Embedding Backend", passed: false, detail: "using lexical fallback (Ollama recently failed)"}
+		return checkResult{
+			name:    "Embedding Backend",
+			passed:  true,
+			warning: true,
+			detail:  fmt.Sprintf("lexical fallback (model: %s, dims: %d)", model, dims),
+		}
 	}
-	return checkResult{name: "Embedding Backend", passed: true, detail: "ollama"}
+	return checkResult{
+		name:   "Embedding Backend",
+		passed: true,
+		detail: fmt.Sprintf("ollama (model: %s, dims: %d)", model, dims),
+	}
 }
 
 func checkJWTSecret() checkResult {
@@ -261,6 +315,92 @@ func checkFilePermissions() checkResult {
 	}
 
 	return checkResult{name: "File Permissions", passed: true, detail: "all checked paths OK"}
+}
+
+var commonAgentProfiles = []string{"claude-code", "opencode", "codex"}
+
+func checkMemoryCount() checkResult {
+	cfg := GetConfig()
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		return checkResult{name: "Memories", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
+	}
+	defer database.Close()
+
+	var count int
+	err = database.Conn().QueryRow("SELECT COUNT(*) FROM memories").Scan(&count)
+	if err != nil {
+		return checkResult{name: "Memories", passed: false, detail: fmt.Sprintf("cannot count memories: %v", err)}
+	}
+
+	return checkResult{name: "Memories", passed: true, detail: fmt.Sprintf("%d memories stored", count)}
+}
+
+func checkProfiles() checkResult {
+	cfg := GetConfig()
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		return checkResult{name: "Profiles", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
+	}
+	defer database.Close()
+
+	profiles, err := database.ListProfiles()
+	if err != nil {
+		return checkResult{name: "Profiles", passed: false, detail: fmt.Sprintf("cannot list profiles: %v", err)}
+	}
+
+	if len(profiles) == 0 {
+		return checkResult{
+			name:    "Profiles",
+			passed:  true,
+			warning: true,
+			detail:  "no profiles configured",
+		}
+	}
+
+	roles := make(map[string]int)
+	for _, p := range profiles {
+		roles[p.Role]++
+	}
+	roleSummary := ""
+	for role, count := range roles {
+		if roleSummary != "" {
+			roleSummary += ", "
+		}
+		roleSummary += fmt.Sprintf("%s=%d", role, count)
+	}
+
+	byName := make(map[string]bool, len(profiles))
+	for _, p := range profiles {
+		byName[p.Name] = true
+	}
+	var missing []string
+	for _, name := range commonAgentProfiles {
+		if !byName[name] {
+			missing = append(missing, name)
+		}
+	}
+
+	detail := fmt.Sprintf("%d profile(s) [%s]", len(profiles), roleSummary)
+	if len(missing) > 0 {
+		detail += fmt.Sprintf("; missing common profiles: %v", missing)
+		return checkResult{
+			name:    "Profiles",
+			passed:  true,
+			warning: true,
+			detail:  detail,
+		}
+	}
+
+	return checkResult{name: "Profiles", passed: true, detail: detail}
 }
 
 func init() {

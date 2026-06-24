@@ -10,26 +10,29 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/danieljustus/symaira-memory/internal/summarizer"
 	"github.com/google/uuid"
 )
 
 // Registry manages multiple session importers and orchestrates import runs.
 type Registry struct {
-	importers  map[string]SessionImporter
-	database   *db.DB
-	embeddings *extractor.EmbeddingsGenerator
-	state      *ImportState
-	stderr     *os.File
+	importers       map[string]SessionImporter
+	database        *db.DB
+	embeddings      *extractor.EmbeddingsGenerator
+	state           *ImportState
+	extractOnImport bool
+	stderr          *os.File
 }
 
 // NewRegistry creates a new importer registry.
-func NewRegistry(database *db.DB, embeddings *extractor.EmbeddingsGenerator) *Registry {
+func NewRegistry(database *db.DB, embeddings *extractor.EmbeddingsGenerator, extractOnImport bool) *Registry {
 	return &Registry{
-		importers:  make(map[string]SessionImporter),
-		database:   database,
-		embeddings: embeddings,
-		state:      NewImportState(database.Conn()),
-		stderr:     os.Stderr,
+		importers:       make(map[string]SessionImporter),
+		database:        database,
+		embeddings:      embeddings,
+		state:           NewImportState(database.Conn()),
+		extractOnImport: extractOnImport,
+		stderr:          os.Stderr,
 	}
 }
 
@@ -177,6 +180,16 @@ func (r *Registry) runToolImport(ctx context.Context, importer SessionImporter, 
 			continue
 		}
 
+		if r.extractOnImport {
+			if _, isTranscript := importer.(TranscriptImporter); isTranscript {
+				facts = r.extractFacts(facts)
+			}
+		} else {
+			if _, isTranscript := importer.(TranscriptImporter); isTranscript {
+				fmt.Fprintf(r.stderr, "Extraction disabled for %s; storing raw facts\n", importer.Name())
+			}
+		}
+
 		result.Sessions++
 		result.Facts += len(facts)
 
@@ -236,4 +249,75 @@ func (r *Registry) storeFacts(facts []ImportedFact) error {
 		}
 	}
 	return nil
+}
+
+// extractFacts runs offline extraction (pattern matching + extractive summarization)
+// on a batch of raw transcript facts, returning distilled ImportedFacts.
+// If extraction produces no results, the original raw facts are returned unchanged.
+func (r *Registry) extractFacts(facts []ImportedFact) []ImportedFact {
+	if len(facts) == 0 {
+		return facts
+	}
+
+	var transcript strings.Builder
+	for _, f := range facts {
+		if f.Content != "" {
+			transcript.WriteString(f.Content)
+			transcript.WriteString("\n")
+		}
+	}
+	combined := strings.TrimSpace(transcript.String())
+	if combined == "" {
+		return facts
+	}
+
+	pe := extractor.NewPatternExtractor()
+	es := summarizer.NewExtractiveSummarizer()
+
+	extracted := pe.ExtractFacts(combined)
+	summary := es.SummarizeSession(combined, 5)
+
+	if len(extracted) == 0 && summary == "" {
+		return facts
+	}
+
+	first := facts[0]
+	var distilled []ImportedFact
+
+	for _, ef := range extracted {
+		distilled = append(distilled, ImportedFact{
+			Content:   ef.Content,
+			Source:    first.Source,
+			SessionID: first.SessionID,
+			Timestamp: first.Timestamp,
+			Metadata:  mergeMetadata(first.Metadata, ef.Metadata),
+		})
+	}
+
+	if summary != "" {
+		distilled = append(distilled, ImportedFact{
+			Content:   summary,
+			Source:    first.Source,
+			SessionID: first.SessionID,
+			Timestamp: first.Timestamp,
+			Metadata: map[string]string{
+				"method":       "extractive_summarization",
+				"fact_count":   fmt.Sprintf("%d", len(facts)),
+				"distilled_to": fmt.Sprintf("%d", len(distilled)),
+			},
+		})
+	}
+
+	return distilled
+}
+
+func mergeMetadata(base, extra map[string]string) map[string]string {
+	merged := make(map[string]string, len(base)+len(extra))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range extra {
+		merged[k] = v
+	}
+	return merged
 }

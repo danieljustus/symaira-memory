@@ -12,12 +12,14 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/importer/calendar"
 	"github.com/danieljustus/symaira-memory/internal/importer/claudecode"
 	"github.com/danieljustus/symaira-memory/internal/importer/codex"
+	"github.com/danieljustus/symaira-memory/internal/importer/curatedmemory"
 	"github.com/danieljustus/symaira-memory/internal/importer/email"
 	"github.com/danieljustus/symaira-memory/internal/importer/git"
 	"github.com/danieljustus/symaira-memory/internal/importer/github"
 	"github.com/danieljustus/symaira-memory/internal/importer/hermes"
 	"github.com/danieljustus/symaira-memory/internal/importer/memorytool"
 	"github.com/danieljustus/symaira-memory/internal/importer/obsidian"
+	"github.com/danieljustus/symaira-memory/internal/importer/opencode"
 	"github.com/danieljustus/symaira-memory/internal/importer/paperless"
 	"github.com/danieljustus/symaira-memory/internal/importer/shellhistory"
 	"github.com/spf13/cobra"
@@ -44,18 +46,19 @@ var importSessionsCmd = &cobra.Command{
 	Long: `Import session data from external AI coding tools and convert them into
 Symaira Memory facts.
 
-Supported tools: claude-code, codex, hermes, aider, git, github, shell-history,
-calendar, email, obsidian, paperless, openmemory, mem0, chatgpt.
+Supported tools: claude-code, codex, hermes, aider, curated-memory, git, github,
+shell-history, calendar, email, obsidian, paperless, opencode, openmemory, mem0,
+chatgpt.
 
 Examples:
   symmemory import --tool claude-code
-  symmemory import --tool openmemory
+  symmemory import --tool curated-memory
   symmemory import --all
   symmemory import --tool claude-code --dry-run`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if importList {
 			cfg := GetConfig()
-			tools := []string{"claude-code", "codex", "hermes", "aider", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "openmemory", "mem0", "chatgpt"}
+			tools := []string{"claude-code", "codex", "hermes", "aider", "curated-memory", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "opencode", "openmemory", "mem0", "chatgpt"}
 
 			type toolStatus struct {
 				Tool   string `json:"tool"`
@@ -95,7 +98,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		registry := importer.NewRegistry(GetDB(), extractor.NewEmbeddingsGenerator(GetConfig()))
+		registry := importer.NewRegistry(GetDB(), extractor.NewEmbeddingsGenerator(GetConfig()), GetConfig().Import.ExtractOnImport)
 
 		cfg := GetConfig()
 
@@ -103,7 +106,9 @@ Examples:
 		registry.Register(claudecode.NewClaudeCodeImporter(""))
 		registry.Register(codex.NewCodexImporter(""))
 		registry.Register(hermes.NewHermesImporter(""))
+		registry.Register(opencode.NewOpenCodeImporter(""))
 		registry.Register(aider.NewAiderImporter(nil))
+		registry.Register(curatedmemory.NewCuratedMemoryImporter(""))
 
 		// Data source importers
 		registry.Register(git.NewGitImporter("", ""))

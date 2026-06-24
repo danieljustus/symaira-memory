@@ -365,6 +365,7 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	return db.GetMemoriesSinceCursor(t, 0)
 }
+
 // GetMemoriesSinceCursor returns memories updated after since, with cursor-based pagination.
 // When includeEmbeddings is true, the full embedding vector is loaded (needed for sync transfer).
 func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddings ...bool) ([]*Memory, error) {

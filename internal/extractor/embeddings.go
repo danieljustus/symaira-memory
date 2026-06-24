@@ -27,8 +27,9 @@ type EmbeddingsGenerator struct {
 }
 
 const (
-	ollamaCacheTTL = 30 * time.Second
-	defaultTimeout = 5 * time.Second
+	DefaultDimensions = 768
+	ollamaCacheTTL    = 30 * time.Second
+	defaultTimeout    = 5 * time.Second
 )
 
 // NewEmbeddingsGenerator configures an embeddings generator from the
@@ -83,7 +84,7 @@ func (eg *EmbeddingsGenerator) GenerateVector(text string) EmbeddingResult {
 		return EmbeddingResult{Vector: cached, Source: "ollama", Model: eg.Model}
 	}
 
-	dims := 768
+	dims := DefaultDimensions
 
 	eg.mu.Lock()
 	skip := time.Since(eg.lastFail) < ollamaCacheTTL
@@ -118,6 +119,11 @@ func (eg *EmbeddingsGenerator) ActiveBackend() string {
 		return "lexical"
 	}
 	return "ollama"
+}
+
+// Dimensions returns the vector dimension count produced by this generator.
+func (eg *EmbeddingsGenerator) Dimensions() int {
+	return DefaultDimensions
 }
 
 // MarkOllamaFailed records an Ollama failure, switching the generator to

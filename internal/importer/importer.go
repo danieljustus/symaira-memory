@@ -65,3 +65,12 @@ type IncrementalImporter interface {
 	LastImportTime() (time.Time, error)
 	MarkImported(ref SessionRef) error
 }
+
+// TranscriptImporter is an optional interface for importers that produce raw
+// conversation transcripts (e.g. JSONL logs, chat databases). When implemented
+// and extract-on-import is enabled, the registry runs extraction/summarization
+// on the raw facts before storing them. Curated-memory sources that are already
+// distilled should NOT implement this interface.
+type TranscriptImporter interface {
+	IsTranscript() bool
+}
