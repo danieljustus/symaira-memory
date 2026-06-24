@@ -42,6 +42,8 @@ func (c *ClaudeCodeImporter) Name() string {
 	return "claude-code"
 }
 
+func (c *ClaudeCodeImporter) IsTranscript() bool { return true }
+
 func (c *ClaudeCodeImporter) DiscoverSessions(since time.Time) ([]importer.SessionRef, error) {
 	basePath := c.customPath
 	if basePath == "" {

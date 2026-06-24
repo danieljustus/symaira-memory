@@ -34,6 +34,8 @@ func (h *HermesImporter) Name() string {
 	return "hermes"
 }
 
+func (h *HermesImporter) IsTranscript() bool { return true }
+
 func (h *HermesImporter) DiscoverSessions(since time.Time) ([]importer.SessionRef, error) {
 	dbPath := h.customPath
 	if dbPath == "" {

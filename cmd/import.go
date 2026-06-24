@@ -96,7 +96,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		registry := importer.NewRegistry(GetDB(), extractor.NewEmbeddingsGenerator(GetConfig()))
+		registry := importer.NewRegistry(GetDB(), extractor.NewEmbeddingsGenerator(GetConfig()), GetConfig().Import.ExtractOnImport)
 
 		cfg := GetConfig()
 

@@ -87,7 +87,8 @@ type HybridSearchConfig struct {
 
 // ImportConfig holds per-tool import settings.
 type ImportConfig struct {
-	Tools map[string]ImportToolConfig `json:"tools"`
+	Tools            map[string]ImportToolConfig `json:"tools"`
+	ExtractOnImport  bool                        `json:"extract_on_import"` // run extraction/summarization on transcript imports
 }
 
 // ImportToolConfig holds configuration for a single importer.
@@ -143,6 +144,9 @@ func Defaults() *Config {
 			VectorWeight: 0.7,
 			MMREnabled:   false,
 			MMRLambda:    0.7,
+		},
+		Import: ImportConfig{
+			ExtractOnImport: true,
 		},
 	}
 }

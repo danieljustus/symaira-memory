@@ -38,6 +38,8 @@ func (c *CodexImporter) Name() string {
 	return "codex"
 }
 
+func (c *CodexImporter) IsTranscript() bool { return true }
+
 func (c *CodexImporter) DiscoverSessions(since time.Time) ([]importer.SessionRef, error) {
 	basePath := c.customPath
 	if basePath == "" {

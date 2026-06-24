@@ -33,7 +33,34 @@ func helperRegistryDB(t *testing.T) *db.DB {
 
 func helperRegistry(t *testing.T, database *db.DB) *Registry {
 	t.Helper()
-	return NewRegistry(database, extractor.NewEmbeddingsGenerator(config.Defaults()))
+	return NewRegistry(database, extractor.NewEmbeddingsGenerator(config.Defaults()), true)
+}
+
+// mockTranscriptImporter implements SessionImporter + TranscriptImporter for testing.
+type mockTranscriptImporter struct {
+	name    string
+	facts   []ImportedFact
+	sessions []SessionRef
+}
+
+func (m *mockTranscriptImporter) Name() string                                     { return m.name }
+func (m *mockTranscriptImporter) IsTranscript() bool                                { return true }
+func (m *mockTranscriptImporter) DiscoverSessions(since time.Time) ([]SessionRef, error) { return m.sessions, nil }
+func (m *mockTranscriptImporter) ImportSession(ref SessionRef) ([]ImportedFact, error) {
+	return m.facts, nil
+}
+
+// mockCuratedImporter implements SessionImporter but NOT TranscriptImporter.
+type mockCuratedImporter struct {
+	name    string
+	facts   []ImportedFact
+	sessions []SessionRef
+}
+
+func (m *mockCuratedImporter) Name() string                                        { return m.name }
+func (m *mockCuratedImporter) DiscoverSessions(since time.Time) ([]SessionRef, error) { return m.sessions, nil }
+func (m *mockCuratedImporter) ImportSession(ref SessionRef) ([]ImportedFact, error) {
+	return m.facts, nil
 }
 
 func TestStoreFactsPIIRedaction(t *testing.T) {
@@ -240,5 +267,165 @@ func TestImportedMemorySearchable(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("imported memory not found via semantic search (LSH may not match for local hash vectors; embedding is %d-dim)", len(m.Embedding))
+	}
+}
+
+func TestExtractFactsDistillsTranscript(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := helperRegistry(t, database)
+
+	raw := []ImportedFact{
+		{Content: "I like dark mode in all my apps. My project is symaira-memory. I use TypeScript for frontend.", Source: "claude-code", SessionID: "s1", Timestamp: time.Now().UTC()},
+		{Content: "I prefer vim as my editor. We are building an agent memory system with golang.", Source: "claude-code", SessionID: "s1", Timestamp: time.Now().UTC()},
+	}
+
+	distilled := r.extractFacts(raw)
+
+	if len(distilled) == 0 {
+		t.Fatal("expected at least one distilled fact")
+	}
+
+	hasPatternFact := false
+	hasSummary := false
+	for _, f := range distilled {
+		if f.Metadata["method"] == "regex_pattern" {
+			hasPatternFact = true
+		}
+		if f.Metadata["method"] == "extractive_summarization" {
+			hasSummary = true
+		}
+		if f.Source != "claude-code" {
+			t.Errorf("expected source 'claude-code', got %q", f.Source)
+		}
+		if f.SessionID != "s1" {
+			t.Errorf("expected session_id 's1', got %q", f.SessionID)
+		}
+	}
+
+	if !hasPatternFact {
+		t.Error("expected at least one regex_pattern fact from extraction")
+	}
+	if !hasSummary {
+		t.Error("expected extractive_summarization summary fact")
+	}
+}
+
+func TestExtractFactsFallsBackOnEmptyContent(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := helperRegistry(t, database)
+
+	raw := []ImportedFact{
+		{Content: "hello", Source: "test", SessionID: "s2", Timestamp: time.Now().UTC()},
+	}
+
+	distilled := r.extractFacts(raw)
+
+	if len(distilled) != 1 {
+		t.Fatalf("expected 1 fact (fallback), got %d", len(distilled))
+	}
+	if distilled[0].Content != "hello" {
+		t.Errorf("expected original content preserved, got %q", distilled[0].Content)
+	}
+}
+
+func TestExtractFactsDisabled(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := NewRegistry(database, extractor.NewEmbeddingsGenerator(config.Defaults()), false)
+
+	mock := &mockTranscriptImporter{
+		name: "test-transcript",
+		facts: []ImportedFact{
+			{Content: "I like dark mode. My project is symaira-memory.", Source: "test", SessionID: "s3", Timestamp: time.Now().UTC()},
+		},
+		sessions: []SessionRef{{Tool: "test-transcript", SessionID: "s3"}},
+	}
+	r.Register(mock)
+
+	results, err := r.RunImport(t.Context(), []string{"test-transcript"}, true)
+	if err != nil {
+		t.Fatalf("RunImport failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Facts != 1 {
+		t.Errorf("expected 1 raw fact (extraction disabled), got %d", results[0].Facts)
+	}
+}
+
+func TestCuratedMemoryBypassesExtraction(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := helperRegistry(t, database)
+
+	mock := &mockCuratedImporter{
+		name: "curated-memory",
+		facts: []ImportedFact{
+			{Content: "I like dark mode. My project is symaira-memory. I use TypeScript.", Source: "curated-memory", SessionID: "s4", Timestamp: time.Now().UTC()},
+		},
+		sessions: []SessionRef{{Tool: "curated-memory", SessionID: "s4"}},
+	}
+	r.Register(mock)
+
+	results, err := r.RunImport(t.Context(), []string{"curated-memory"}, true)
+	if err != nil {
+		t.Fatalf("RunImport failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Facts != 1 {
+		t.Errorf("expected 1 fact preserved (curated-memory bypasses extraction), got %d", results[0].Facts)
+	}
+}
+
+func TestMergeMetadata(t *testing.T) {
+	base := map[string]string{"a": "1", "b": "2"}
+	extra := map[string]string{"b": "overridden", "c": "3"}
+
+	merged := mergeMetadata(base, extra)
+
+	if merged["a"] != "1" {
+		t.Errorf("expected 'a'='1', got %q", merged["a"])
+	}
+	if merged["b"] != "overridden" {
+		t.Errorf("expected 'b'='overridden', got %q", merged["b"])
+	}
+	if merged["c"] != "3" {
+		t.Errorf("expected 'c'='3', got %q", merged["c"])
+	}
+	if len(merged) != 3 {
+		t.Errorf("expected 3 keys, got %d", len(merged))
+	}
+}
+
+func TestExtractFactsPreservesTranscriptInterface(t *testing.T) {
+	var _ TranscriptImporter = (*mockTranscriptImporter)(nil)
+}
+
+func TestNonTranscriptImporterNotExtracted(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := helperRegistry(t, database)
+
+	mock := &mockCuratedImporter{
+		name: "notes",
+		facts: []ImportedFact{
+			{Content: "I like dark mode. My project is symaira-memory.", Source: "notes", SessionID: "s5", Timestamp: time.Now().UTC()},
+		},
+		sessions: []SessionRef{{Tool: "notes", SessionID: "s5"}},
+	}
+	r.Register(mock)
+
+	results, err := r.RunImport(t.Context(), []string{"notes"}, true)
+	if err != nil {
+		t.Fatalf("RunImport failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Facts != 1 {
+		t.Errorf("expected 1 fact (non-transcript bypasses extraction), got %d", results[0].Facts)
 	}
 }
