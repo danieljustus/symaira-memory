@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -333,6 +334,241 @@ func TestMcpConfigWithProfile(t *testing.T) {
 	if !strings.Contains(output, "Active profile: claude-code") {
 		t.Errorf("expected output to contain 'Active profile: claude-code', got %q", output)
 	}
+}
+
+// --------------------------------------------------------------------------
+// MCP Config --tool flag
+// --------------------------------------------------------------------------
+
+func TestMcpConfigToolFlagRegistered(t *testing.T) {
+	flag := configCmd.Flags().Lookup("tool")
+	if flag == nil {
+		t.Error("expected 'tool' flag on mcp-config command")
+	}
+	if flag.DefValue != "" {
+		t.Errorf("expected empty default for tool flag, got %q", flag.DefValue)
+	}
+}
+
+func TestMcpConfigAllPresetsRegistered(t *testing.T) {
+	expected := []string{"claude-code", "opencode", "codex", "kimi", "copilot"}
+	for _, name := range expected {
+		if _, ok := toolPresets[name]; !ok {
+			t.Errorf("expected tool preset %q to be registered", name)
+		}
+	}
+	if len(toolPresets) != len(expected) {
+		t.Errorf("expected %d tool presets, got %d", len(expected), len(toolPresets))
+	}
+}
+
+func TestMcpConfigDefaultToolIsClaudeCode(t *testing.T) {
+	configTool = ""
+	configProfile = ""
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	// Default should produce claude-code format (mcpServers with command/args)
+	if !strings.Contains(output, `"mcpServers"`) {
+		t.Errorf("expected default output to contain mcpServers, got %q", output)
+	}
+	if !strings.Contains(output, `"command"`) {
+		t.Errorf("expected default output to contain command, got %q", output)
+	}
+	if !strings.Contains(output, `"args"`) {
+		t.Errorf("expected default output to contain args, got %q", output)
+	}
+}
+
+func TestMcpConfigClaudeCodePreset(t *testing.T) {
+	configTool = "claude-code"
+	configProfile = ""
+	defer func() { configTool = ""; configProfile = "" }()
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	if !strings.Contains(output, `"mcpServers"`) {
+		t.Errorf("expected claude-code output to contain mcpServers, got %q", output)
+	}
+	if !strings.Contains(output, `"serve"`) {
+		t.Errorf("expected claude-code output to contain serve, got %q", output)
+	}
+}
+
+func TestMcpConfigOpenCodePreset(t *testing.T) {
+	configTool = "opencode"
+	configProfile = ""
+	defer func() { configTool = ""; configProfile = "" }()
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	// OpenCode uses "mcp" root key and "type": "local"
+	if !strings.Contains(output, `"mcp"`) {
+		t.Errorf("expected opencode output to contain mcp root key, got %q", output)
+	}
+	if !strings.Contains(output, `"type": "local"`) {
+		t.Errorf("expected opencode output to contain type: local, got %q", output)
+	}
+	if !strings.Contains(output, `"enabled": true`) {
+		t.Errorf("expected opencode output to contain enabled: true, got %q", output)
+	}
+	// OpenCode command should be an array containing both exec path and "serve"
+	if !strings.Contains(output, `"serve"`) {
+		t.Errorf("expected opencode output to contain serve in command array, got %q", output)
+	}
+}
+
+func TestMcpConfigCodexPreset(t *testing.T) {
+	configTool = "codex"
+	configProfile = ""
+	defer func() { configTool = ""; configProfile = "" }()
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	// Codex produces TOML output
+	if !strings.Contains(output, "[mcp_servers.symaira-memory]") {
+		t.Errorf("expected codex output to contain TOML section header, got %q", output)
+	}
+	if !strings.Contains(output, `command =`) {
+		t.Errorf("expected codex output to contain command =, got %q", output)
+	}
+	if !strings.Contains(output, `args =`) {
+		t.Errorf("expected codex output to contain args =, got %q", output)
+	}
+	if !strings.Contains(output, `"serve"`) {
+		t.Errorf("expected codex output to contain serve arg, got %q", output)
+	}
+}
+
+func TestMcpConfigKimiPreset(t *testing.T) {
+	configTool = "kimi"
+	configProfile = ""
+	defer func() { configTool = ""; configProfile = "" }()
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	// Kimi uses same format as claude-code (mcpServers with command/args)
+	if !strings.Contains(output, `"mcpServers"`) {
+		t.Errorf("expected kimi output to contain mcpServers, got %q", output)
+	}
+	if !strings.Contains(output, `"command"`) {
+		t.Errorf("expected kimi output to contain command, got %q", output)
+	}
+	if !strings.Contains(output, `"args"`) {
+		t.Errorf("expected kimi output to contain args, got %q", output)
+	}
+}
+
+func TestMcpConfigCopilotPreset(t *testing.T) {
+	configTool = "copilot"
+	configProfile = ""
+	defer func() { configTool = ""; configProfile = "" }()
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	// Copilot requires type, env, and tools fields
+	if !strings.Contains(output, `"mcpServers"`) {
+		t.Errorf("expected copilot output to contain mcpServers, got %q", output)
+	}
+	if !strings.Contains(output, `"type": "local"`) {
+		t.Errorf("expected copilot output to contain type: local, got %q", output)
+	}
+	if !strings.Contains(output, `"tools"`) {
+		t.Errorf("expected copilot output to contain tools field, got %q", output)
+	}
+	if !strings.Contains(output, `"*"`) {
+		t.Errorf("expected copilot output to contain tools: [*], got %q", output)
+	}
+	if !strings.Contains(output, `"env"`) {
+		t.Errorf("expected copilot output to contain env field, got %q", output)
+	}
+}
+
+func TestMcpConfigToolWithProfile(t *testing.T) {
+	configTool = "copilot"
+	configProfile = "my-project"
+	defer func() { configTool = ""; configProfile = "" }()
+
+	output := captureStderr(func() {
+		configCmd.Run(configCmd, nil)
+	})
+
+	if !strings.Contains(output, "--profile") {
+		t.Errorf("expected output to contain --profile flag in args, got %q", output)
+	}
+	if !strings.Contains(output, "my-project") {
+		t.Errorf("expected output to contain profile name 'my-project', got %q", output)
+	}
+	if !strings.Contains(output, "Active profile: my-project") {
+		t.Errorf("expected stderr to show active profile, got %q", output)
+	}
+}
+
+func TestMcpConfigInvalidToolExits(t *testing.T) {
+	configTool = "nonexistent"
+	defer func() { configTool = "" }()
+
+	// Invalid tool should cause os.Exit(1), which we can't easily test.
+	// Instead, verify the tool name validation logic via toolPresets map.
+	if _, ok := toolPresets["nonexistent"]; ok {
+		t.Error("expected 'nonexistent' to not be a valid tool preset")
+	}
+}
+
+func TestMcpConfigOutputIsValidJSON(t *testing.T) {
+	jsonTools := []string{"claude-code", "opencode", "copilot", "kimi"}
+	for _, tool := range jsonTools {
+		t.Run(tool, func(t *testing.T) {
+			configTool = tool
+			configProfile = ""
+
+			stderr := captureStderr(func() {
+				configCmd.Run(configCmd, nil)
+			})
+
+			// Extract the JSON block from stderr between the separator lines
+			configBlock := extractConfigBlock(stderr)
+			if configBlock == "" {
+				t.Fatalf("no config block found in stderr output for tool %q", tool)
+			}
+
+			// Validate it's valid JSON
+			var parsed interface{}
+			if err := json.Unmarshal([]byte(configBlock), &parsed); err != nil {
+				t.Errorf("tool %q produced invalid JSON: %v\nBlock:\n%s", tool, err, configBlock)
+			}
+		})
+	}
+	configTool = ""
+}
+
+func extractConfigBlock(output string) string {
+	startMarker := "========================= CONFIGURATION BLOCK ========================="
+	endMarker := "======================================================================="
+
+	startIdx := strings.Index(output, startMarker)
+	if startIdx == -1 {
+		return ""
+	}
+	startIdx += len(startMarker) + 1 // skip marker + newline
+
+	endIdx := strings.Index(output[startIdx:], endMarker)
+	if endIdx == -1 {
+		return output[startIdx:]
+	}
+	return strings.TrimSpace(output[startIdx : startIdx+endIdx])
 }
 
 // --------------------------------------------------------------------------
