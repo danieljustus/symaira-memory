@@ -77,8 +77,17 @@ func TestCheckEmbeddingBackendDefaultOllama(t *testing.T) {
 	if !result.passed {
 		t.Errorf("expected checkEmbeddingBackend to pass on fresh config, got: %s", result.detail)
 	}
-	if result.detail != "ollama" {
-		t.Errorf("expected detail 'ollama', got %q", result.detail)
+	if result.warning {
+		t.Error("expected no warning for ollama backend")
+	}
+	if !strings.Contains(result.detail, "ollama") {
+		t.Errorf("expected 'ollama' in detail, got %q", result.detail)
+	}
+	if !strings.Contains(result.detail, "model: nomic-embed-text") {
+		t.Errorf("expected model name in detail, got %q", result.detail)
+	}
+	if !strings.Contains(result.detail, "dims: 768") {
+		t.Errorf("expected dimensions in detail, got %q", result.detail)
 	}
 }
 
@@ -329,5 +338,200 @@ func TestCheckProfilesCustomNonAgentProfiles(t *testing.T) {
 	}
 	if !strings.Contains(result.detail, "1 profile(s)") {
 		t.Errorf("expected profile count, got: %s", result.detail)
+	}
+}
+
+func TestCheckDBSizeNotCreated(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-doctor-dbsize-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	SetConfig(config.Defaults())
+	result := checkDBSize()
+	if !result.passed {
+		t.Errorf("expected pass for non-existent db, got failed: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "not yet created") {
+		t.Errorf("expected 'not yet created' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckDBSizeSmall(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-doctor-dbsize-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	if err := os.WriteFile(dbPath, make([]byte, 1024), 0600); err != nil {
+		t.Fatalf("failed to create test db file: %v", err)
+	}
+
+	cfg := config.Defaults()
+	cfg.Database.Path = dbPath
+	SetConfig(cfg)
+
+	result := checkDBSize()
+	if !result.passed {
+		t.Errorf("expected pass for small db, got failed: %s", result.detail)
+	}
+	if result.warning {
+		t.Error("expected no warning for small db")
+	}
+	if !strings.Contains(result.detail, "0 MB") {
+		t.Errorf("expected '0 MB' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckDBSizeWarn(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-doctor-dbsize-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	f, err := os.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create test db file: %v", err)
+	}
+	size := int64(600 * 1024 * 1024)
+	if err := f.Truncate(size); err != nil {
+		f.Close()
+		t.Fatalf("failed to truncate: %v", err)
+	}
+	f.Close()
+
+	cfg := config.Defaults()
+	cfg.Database.Path = dbPath
+	SetConfig(cfg)
+
+	result := checkDBSize()
+	if !result.passed {
+		t.Errorf("expected pass (warning only), got failed: %s", result.detail)
+	}
+	if !result.warning {
+		t.Error("expected warning for >500MB db")
+	}
+	if !strings.Contains(result.detail, "600 MB") {
+		t.Errorf("expected '600 MB' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckDBSizeError(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-doctor-dbsize-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "test.db")
+	f, err := os.Create(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create test db file: %v", err)
+	}
+	size := int64(3 * 1024 * 1024 * 1024)
+	if err := f.Truncate(size); err != nil {
+		f.Close()
+		t.Fatalf("failed to truncate: %v", err)
+	}
+	f.Close()
+
+	cfg := config.Defaults()
+	cfg.Database.Path = dbPath
+	SetConfig(cfg)
+
+	result := checkDBSize()
+	if result.passed {
+		t.Error("expected failure for >2GB db")
+	}
+	if result.warning {
+		t.Error("expected error, not warning, for >2GB db")
+	}
+	if !strings.Contains(result.detail, "3072 MB") {
+		t.Errorf("expected '3072 MB' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckEmbeddingBackendLexicalFallback(t *testing.T) {
+	SetConfig(config.Defaults())
+	result := checkEmbeddingBackend()
+
+	if strings.Contains(result.detail, "lexical fallback") {
+		if !result.warning {
+			t.Error("expected warning for lexical fallback")
+		}
+		if !strings.Contains(result.detail, "model: nomic-embed-text") {
+			t.Errorf("expected model name in detail, got %q", result.detail)
+		}
+		if !strings.Contains(result.detail, "dims: 768") {
+			t.Errorf("expected dimensions in detail, got %q", result.detail)
+		}
+		return
+	}
+
+	if strings.Contains(result.detail, "ollama") {
+		if result.warning {
+			t.Error("expected no warning for ollama backend")
+		}
+		if !strings.Contains(result.detail, "model: nomic-embed-text") {
+			t.Errorf("expected model name in detail, got %q", result.detail)
+		}
+		if !strings.Contains(result.detail, "dims: 768") {
+			t.Errorf("expected dimensions in detail, got %q", result.detail)
+		}
+		return
+	}
+
+	t.Errorf("expected 'ollama' or 'lexical fallback' in detail, got %q", result.detail)
+}
+
+func TestCheckMemoryCountEmpty(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	result := checkMemoryCount()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "0 memories stored") {
+		t.Errorf("expected '0 memories stored' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckMemoryCountWithData(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	for i := 0; i < 5; i++ {
+		m := &db.Memory{
+			ID:      fmt.Sprintf("test-mem-%d", i),
+			Content: fmt.Sprintf("test memory %d", i),
+			Scope:   "global",
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("cannot save memory: %v", err)
+		}
+	}
+
+	result := checkMemoryCount()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "5 memories stored") {
+		t.Errorf("expected '5 memories stored' in detail, got %q", result.detail)
 	}
 }

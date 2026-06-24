@@ -63,6 +63,20 @@ func Open(cfg *config.Config) (*DB, error) {
 	return db, nil
 }
 
+// ResolvePath returns the filesystem path to the SQLite database file
+// for the given configuration. When cfg is nil or cfg.Database.Path is
+// empty the standard XDG default is used. The file may or may not exist.
+func ResolvePath(cfg *config.Config) string {
+	if cfg != nil && cfg.Database.Path != "" {
+		return cfg.Database.Path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".local", "share", "symmemory", "default.db")
+}
+
 // Close closes the database connection.
 func (db *DB) Close() error {
 	return db.conn.Close()
