@@ -221,7 +221,8 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 
 	var memories []*db.Memory
 	var err error
-	memories, err = s.db.GetMemoriesSinceCursor(since, limit+1)
+	includeEmb := r.URL.Query().Get("include_embeddings") == "true"
+	memories, err = s.db.GetMemoriesSinceCursor(since, limit+1, includeEmb)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, "Failed to fetch changes", err)
 		return

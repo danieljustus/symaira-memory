@@ -66,6 +66,11 @@ func runSync(database *db.DB, remote, token string) error {
 
 	for {
 		pullURL := remote + "/api/sync/changes" + cursorParam
+		if !strings.Contains(pullURL, "?") {
+			pullURL += "?include_embeddings=true"
+		} else {
+			pullURL += "&include_embeddings=true"
+		}
 
 		pullReq, err := http.NewRequest("GET", pullURL, nil)
 		if err != nil {
@@ -141,7 +146,7 @@ func runSync(database *db.DB, remote, token string) error {
 		}
 	}
 
-	localChanges, err := database.GetMemoriesSince(cursor)
+	localChanges, err := database.GetMemoriesSinceCursor(cursor, 0, true)
 	if err != nil {
 		return fmt.Errorf("reading local changes: %w", err)
 	}

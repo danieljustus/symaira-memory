@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/spf13/cobra"
 )
@@ -39,10 +40,6 @@ var searchCmd = &cobra.Command{
 		query := args[0]
 		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
 		emb := embeddings.GenerateVector(query)
-		if emb.Source == "hash-fallback" {
-			fmt.Fprintf(os.Stderr, "Warning: using lexical fallback (Ollama unavailable); results may be less relevant.\n")
-		}
-		queryVector := emb.Vector
 
 		var entityID string
 		if searchEntity != "" {
@@ -58,7 +55,15 @@ var searchCmd = &cobra.Command{
 			entityID = entity.ID
 		}
 
-		results, err := GetDB().SearchMemoriesFiltered(queryVector, emb.Source, searchScope, searchLimit, entityID)
+		var results []db.SearchResult
+		var err error
+
+		if emb.Source == "hash-fallback" {
+			// No Ollama available: use BM25/FTS5 keyword search instead of broken vector search
+			results, err = GetDB().SearchMemoriesBM25(query, searchScope, searchLimit)
+		} else {
+			results, err = GetDB().SearchMemoriesFiltered(emb.Vector, emb.Source, searchScope, searchLimit, entityID)
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Semantic search failure: %v\n", err)
 			os.Exit(1)

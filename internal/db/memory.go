@@ -365,23 +365,34 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
 	return db.GetMemoriesSinceCursor(t, 0)
 }
-
-func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int) ([]*Memory, error) {
+// GetMemoriesSinceCursor returns memories updated after since, with cursor-based pagination.
+// When includeEmbeddings is true, the full embedding vector is loaded (needed for sync transfer).
+func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddings ...bool) ([]*Memory, error) {
 	if limit <= 0 {
 		limit = 50000
 	}
-	rows, err := db.conn.Query(
-		"SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?",
-		since, limit,
-	)
+	includeEmb := len(includeEmbeddings) > 0 && includeEmbeddings[0]
+
+	var query string
+	if includeEmb {
+		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?"
+	} else {
+		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?"
+	}
+
+	rows, err := db.conn.Query(query, since, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	var memories []*Memory
 	for rows.Next() {
-		m, err := scanMemoryLite(rows)
+		var m *Memory
+		if includeEmb {
+			m, err = scanMemory(rows)
+		} else {
+			m, err = scanMemoryLite(rows)
+		}
 		if err != nil {
 			return nil, err
 		}
