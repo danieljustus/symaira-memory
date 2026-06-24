@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,15 +17,17 @@ type CodexImporter struct {
 	customPath string
 }
 
-// CodexSession represents a Codex CLI session JSON file.
-type CodexSession struct {
-	Messages []CodexMessage `json:"messages"`
+// CodexEntry represents a single line in a Codex rollout JSONL file.
+type CodexEntry struct {
+	Timestamp string     `json:"timestamp"`
+	Type      string     `json:"type"`
+	Payload   CodexPayload `json:"payload"`
 }
 
-type CodexMessage struct {
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
+// CodexPayload is the message payload inside a Codex entry.
+type CodexPayload struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 func NewCodexImporter(customPath string) *CodexImporter {
@@ -45,13 +48,27 @@ func (c *CodexImporter) DiscoverSessions(since time.Time) ([]importer.SessionRef
 		basePath = filepath.Join(home, ".codex")
 	}
 
+	archivedDir := filepath.Join(basePath, "archived_sessions")
+
 	var sessions []importer.SessionRef
 
-	err := filepath.Walk(basePath, func(path string, info os.FileInfo, err error) error {
+	// Discover rollout-*.jsonl files in archived_sessions/.
+	err := filepath.Walk(archivedDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
-		if info.IsDir() || !strings.HasSuffix(path, ".json") {
+		if info.IsDir() {
+			return nil
+		}
+		base := filepath.Base(path)
+		if !strings.HasSuffix(path, ".jsonl") {
+			return nil
+		}
+		// Skip the index file; only import actual rollout files.
+		if base == "session_index.jsonl" {
+			return nil
+		}
+		if !strings.HasPrefix(base, "rollout-") {
 			return nil
 		}
 		if info.ModTime().Before(since) {
@@ -60,7 +77,7 @@ func (c *CodexImporter) DiscoverSessions(since time.Time) ([]importer.SessionRef
 
 		sessions = append(sessions, importer.SessionRef{
 			Tool:       "codex",
-			SessionID:  filepath.Base(path),
+			SessionID:  strings.TrimSuffix(base, ".jsonl"),
 			Path:       path,
 			ModifiedAt: info.ModTime(),
 			Metadata:   map[string]string{},
@@ -72,29 +89,58 @@ func (c *CodexImporter) DiscoverSessions(since time.Time) ([]importer.SessionRef
 }
 
 func (c *CodexImporter) ImportSession(ref importer.SessionRef) ([]importer.ImportedFact, error) {
-	data, err := os.ReadFile(ref.Path)
+	file, err := os.Open(ref.Path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}
-
-	var session CodexSession
-	if err := json.Unmarshal(data, &session); err != nil {
-		return nil, fmt.Errorf("failed to parse session JSON: %w", err)
-	}
+	defer file.Close()
 
 	var facts []importer.ImportedFact
 
-	for _, msg := range session.Messages {
-		if msg.Role == "assistant" && len(msg.Content) > 50 {
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		var entry CodexEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue // skip malformed lines
+		}
+
+		// We only care about assistant messages longer than 50 chars.
+		if entry.Payload.Role == "assistant" && len(entry.Payload.Content) > 50 {
+			ts := parseTimestamp(entry.Timestamp)
+
 			facts = append(facts, importer.ImportedFact{
-				Content:   msg.Content,
+				Content:   entry.Payload.Content,
 				Source:    "codex",
 				SessionID: ref.SessionID,
-				Timestamp: msg.Timestamp,
+				Timestamp: ts,
 				Metadata:  map[string]string{},
 			})
 		}
 	}
 
-	return facts, nil
+	return facts, scanner.Err()
+}
+
+// parseTimestamp attempts to parse a timestamp string in common formats.
+func parseTimestamp(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05Z07:00",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }
