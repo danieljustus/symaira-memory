@@ -18,7 +18,7 @@ import (
 type checkResult struct {
 	name    string
 	passed  bool
-	warning bool   // non-blocking issue; does not cause exit 1
+	warning bool // non-blocking issue; does not cause exit 1
 	detail  string
 }
 
