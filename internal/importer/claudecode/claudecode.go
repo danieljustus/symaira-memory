@@ -19,13 +19,13 @@ type ClaudeCodeImporter struct {
 
 // ClaudeCodeEntry represents a single line in a Claude Code JSONL transcript.
 type ClaudeCodeEntry struct {
-	UUID      string              `json:"uuid"`
-	Type      string              `json:"type"`
-	Message   ClaudeCodeMessage   `json:"message"`
-	Timestamp string              `json:"timestamp"`
-	Project   string              `json:"project"`
-	Model     string              `json:"model"`
-	Metadata  map[string]string   `json:"metadata"`
+	UUID      string            `json:"uuid"`
+	Type      string            `json:"type"`
+	Message   ClaudeCodeMessage `json:"message"`
+	Timestamp string            `json:"timestamp"`
+	Project   string            `json:"project"`
+	Model     string            `json:"model"`
+	Metadata  map[string]string `json:"metadata"`
 }
 
 // ClaudeCodeMessage represents the message payload within an entry.

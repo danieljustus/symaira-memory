@@ -19,10 +19,8 @@ type HermesImporter struct {
 
 // schemaInfo holds discovered table and column names from the database.
 type schemaInfo struct {
-	sessionsTable string
 	sessionIDCol  string
 	messagesTable string
-	sessionFKCol  string
 	roleCol       string
 	contentCol    string
 	timestampCol  string
@@ -248,12 +246,12 @@ func (h *HermesImporter) listColumns(db *sql.DB, table string) ([]string, error)
 	var columns []string
 	for rows.Next() {
 		var (
-			cid    int
-			name   string
-			ctype  string
+			cid     int
+			name    string
+			ctype   string
 			notnull int
-			dflt   sql.NullString
-			pk     int
+			dflt    sql.NullString
+			pk      int
 		)
 		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
 			continue

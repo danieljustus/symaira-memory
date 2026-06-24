@@ -19,8 +19,8 @@ type CodexImporter struct {
 
 // CodexEntry represents a single line in a Codex rollout JSONL file.
 type CodexEntry struct {
-	Timestamp string     `json:"timestamp"`
-	Type      string     `json:"type"`
+	Timestamp string       `json:"timestamp"`
+	Type      string       `json:"type"`
 	Payload   CodexPayload `json:"payload"`
 }
 

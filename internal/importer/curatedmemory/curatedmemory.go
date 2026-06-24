@@ -22,8 +22,8 @@ type CuratedMemoryImporter struct {
 // CuratedMemoryFile represents a parsed curated memory file.
 type CuratedMemoryFile struct {
 	Path        string
-	Source      string            // "claude-code" or "hermes"
-	Project     string            // project name (claude-code only)
+	Source      string // "claude-code" or "hermes"
+	Project     string // project name (claude-code only)
 	Content     string
 	Frontmatter map[string]interface{}
 	Links       []string
@@ -40,8 +40,8 @@ func NewCuratedMemoryImporter(homeDir string) *CuratedMemoryImporter {
 	return &CuratedMemoryImporter{homeDir: homeDir}
 }
 
-func (c *CuratedMemoryImporter) Name() string       { return "curated-memory" }
-func (c *CuratedMemoryImporter) Category() string    { return "notes" }
+func (c *CuratedMemoryImporter) Name() string     { return "curated-memory" }
+func (c *CuratedMemoryImporter) Category() string { return "notes" }
 func (c *CuratedMemoryImporter) PrivacyLevel() importer.PrivacyLevel {
 	return importer.PrivacyConfidential
 }
@@ -104,10 +104,10 @@ func (c *CuratedMemoryImporter) ImportSession(ref importer.SessionRef) ([]import
 	}
 
 	metadata := map[string]string{
-		"source":      ref.Tool,
-		"file_path":   ref.SessionID,
-		"word_count":  fmt.Sprintf("%d", memFile.WordCount),
-		"modified":    memFile.ModifiedAt.Format(time.RFC3339),
+		"source":     ref.Tool,
+		"file_path":  ref.SessionID,
+		"word_count": fmt.Sprintf("%d", memFile.WordCount),
+		"modified":   memFile.ModifiedAt.Format(time.RFC3339),
 	}
 
 	if memFile.Project != "" {
