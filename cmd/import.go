@@ -19,6 +19,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/importer/hermes"
 	"github.com/danieljustus/symaira-memory/internal/importer/memorytool"
 	"github.com/danieljustus/symaira-memory/internal/importer/obsidian"
+	"github.com/danieljustus/symaira-memory/internal/importer/opencode"
 	"github.com/danieljustus/symaira-memory/internal/importer/paperless"
 	"github.com/danieljustus/symaira-memory/internal/importer/shellhistory"
 	"github.com/spf13/cobra"
@@ -46,7 +47,8 @@ var importSessionsCmd = &cobra.Command{
 Symaira Memory facts.
 
 Supported tools: claude-code, codex, hermes, aider, curated-memory, git, github,
-shell-history, calendar, email, obsidian, paperless, openmemory, mem0, chatgpt.
+shell-history, calendar, email, obsidian, paperless, opencode, openmemory, mem0,
+chatgpt.
 
 Examples:
   symmemory import --tool claude-code
@@ -56,7 +58,7 @@ Examples:
 	Run: func(cmd *cobra.Command, args []string) {
 		if importList {
 			cfg := GetConfig()
-			tools := []string{"claude-code", "codex", "hermes", "aider", "curated-memory", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "openmemory", "mem0", "chatgpt"}
+			tools := []string{"claude-code", "codex", "hermes", "aider", "curated-memory", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "opencode", "openmemory", "mem0", "chatgpt"}
 
 			type toolStatus struct {
 				Tool   string `json:"tool"`
@@ -104,6 +106,7 @@ Examples:
 		registry.Register(claudecode.NewClaudeCodeImporter(""))
 		registry.Register(codex.NewCodexImporter(""))
 		registry.Register(hermes.NewHermesImporter(""))
+		registry.Register(opencode.NewOpenCodeImporter(""))
 		registry.Register(aider.NewAiderImporter(nil))
 		registry.Register(curatedmemory.NewCuratedMemoryImporter(""))
 
