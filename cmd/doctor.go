@@ -112,7 +112,7 @@ func checkDBSize() checkResult {
 
 	size := info.Size()
 	const (
-		warnThreshold int64 = 500 * 1024 * 1024  // 500 MB
+		warnThreshold  int64 = 500 * 1024 * 1024      // 500 MB
 		errorThreshold int64 = 2 * 1024 * 1024 * 1024 // 2 GB
 	)
 
