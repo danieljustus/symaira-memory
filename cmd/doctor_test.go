@@ -6,9 +6,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/google/uuid"
 )
 
 func TestDoctorCommandExists(t *testing.T) {
@@ -169,5 +172,162 @@ func TestCheckOllamaEndpointEmptyEmbedding(t *testing.T) {
 	result := checkOllamaEndpoint(server.URL, "nomic-embed-text")
 	if result.passed {
 		t.Fatal("expected check to fail for empty embedding")
+	}
+}
+
+func newTestDB(t *testing.T) (string, *config.Config) {
+	t.Helper()
+	tempDir, err := os.MkdirTemp("", "symmemory-doctor-profiles-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tempDir) })
+
+	cfg := config.Defaults()
+	cfg.Database.Path = filepath.Join(tempDir, "test.db")
+	return tempDir, cfg
+}
+
+func TestCheckProfilesEmpty(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	result := checkProfiles()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if !result.warning {
+		t.Error("expected warning for empty profiles")
+	}
+	if result.detail != "no profiles configured" {
+		t.Errorf("unexpected detail: %s", result.detail)
+	}
+}
+
+func TestCheckProfilesAllCommonPresent(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	for _, name := range commonAgentProfiles {
+		p := &db.Profile{
+			ID:   uuid.New().String(),
+			Name: name,
+			Type: "agent",
+			Role: "readwrite",
+		}
+		if err := database.SaveProfile(p); err != nil {
+			t.Fatalf("cannot save profile %s: %v", name, err)
+		}
+	}
+
+	result := checkProfiles()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if result.warning {
+		t.Error("expected no warning when all common profiles present")
+	}
+	if !strings.Contains(result.detail, fmt.Sprintf("%d profile(s)", len(commonAgentProfiles))) {
+		t.Errorf("expected profile count in detail, got: %s", result.detail)
+	}
+}
+
+func TestCheckProfilesSomeMissing(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	p := &db.Profile{
+		ID:   uuid.New().String(),
+		Name: "claude-code",
+		Type: "agent",
+		Role: "readwrite",
+	}
+	if err := database.SaveProfile(p); err != nil {
+		t.Fatalf("cannot save profile: %v", err)
+	}
+
+	result := checkProfiles()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if !result.warning {
+		t.Error("expected warning when common profiles are missing")
+	}
+	if !strings.Contains(result.detail, "missing common profiles") {
+		t.Errorf("expected missing-common-profiles note, got: %s", result.detail)
+	}
+}
+
+func TestCheckProfilesRolesSummary(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	profiles := []db.Profile{
+		{ID: uuid.New().String(), Name: "agent-a", Type: "agent", Role: "read"},
+		{ID: uuid.New().String(), Name: "agent-b", Type: "agent", Role: "readwrite"},
+		{ID: uuid.New().String(), Name: "agent-c", Type: "agent", Role: "read"},
+	}
+	for i := range profiles {
+		if err := database.SaveProfile(&profiles[i]); err != nil {
+			t.Fatalf("cannot save profile: %v", err)
+		}
+	}
+
+	result := checkProfiles()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "read=2") || !strings.Contains(result.detail, "readwrite=1") {
+		t.Errorf("expected role summary in detail, got: %s", result.detail)
+	}
+}
+
+func TestCheckProfilesCustomNonAgentProfiles(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	p := &db.Profile{
+		ID:   uuid.New().String(),
+		Name: "my-custom-agent",
+		Type: "agent",
+		Role: "admin",
+	}
+	if err := database.SaveProfile(p); err != nil {
+		t.Fatalf("cannot save profile: %v", err)
+	}
+
+	result := checkProfiles()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if !result.warning {
+		t.Error("expected warning when common profiles missing")
+	}
+	if !strings.Contains(result.detail, "1 profile(s)") {
+		t.Errorf("expected profile count, got: %s", result.detail)
 	}
 }

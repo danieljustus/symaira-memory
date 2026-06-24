@@ -16,9 +16,10 @@ import (
 )
 
 type checkResult struct {
-	name   string
-	passed bool
-	detail string
+	name    string
+	passed  bool
+	warning bool   // non-blocking issue; does not cause exit 1
+	detail  string
 }
 
 var doctorCmd = &cobra.Command{
@@ -35,11 +36,14 @@ Reports pass/fail for database, Ollama, JWT secrets, configuration, and file per
 		results = append(results, checkJWTSecret())
 		results = append(results, checkConfig())
 		results = append(results, checkFilePermissions())
+		results = append(results, checkProfiles())
 
 		allPassed := true
 		for _, r := range results {
 			icon := "✅"
-			if !r.passed {
+			if r.warning {
+				icon = "⚠️"
+			} else if !r.passed {
 				icon = "❌"
 				allPassed = false
 			}
@@ -261,6 +265,71 @@ func checkFilePermissions() checkResult {
 	}
 
 	return checkResult{name: "File Permissions", passed: true, detail: "all checked paths OK"}
+}
+
+var commonAgentProfiles = []string{"claude-code", "opencode", "codex"}
+
+func checkProfiles() checkResult {
+	cfg := GetConfig()
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		return checkResult{name: "Profiles", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
+	}
+	defer database.Close()
+
+	profiles, err := database.ListProfiles()
+	if err != nil {
+		return checkResult{name: "Profiles", passed: false, detail: fmt.Sprintf("cannot list profiles: %v", err)}
+	}
+
+	if len(profiles) == 0 {
+		return checkResult{
+			name:    "Profiles",
+			passed:  true,
+			warning: true,
+			detail:  "no profiles configured",
+		}
+	}
+
+	roles := make(map[string]int)
+	for _, p := range profiles {
+		roles[p.Role]++
+	}
+	roleSummary := ""
+	for role, count := range roles {
+		if roleSummary != "" {
+			roleSummary += ", "
+		}
+		roleSummary += fmt.Sprintf("%s=%d", role, count)
+	}
+
+	byName := make(map[string]bool, len(profiles))
+	for _, p := range profiles {
+		byName[p.Name] = true
+	}
+	var missing []string
+	for _, name := range commonAgentProfiles {
+		if !byName[name] {
+			missing = append(missing, name)
+		}
+	}
+
+	detail := fmt.Sprintf("%d profile(s) [%s]", len(profiles), roleSummary)
+	if len(missing) > 0 {
+		detail += fmt.Sprintf("; missing common profiles: %v", missing)
+		return checkResult{
+			name:    "Profiles",
+			passed:  true,
+			warning: true,
+			detail:  detail,
+		}
+	}
+
+	return checkResult{name: "Profiles", passed: true, detail: detail}
 }
 
 func init() {
