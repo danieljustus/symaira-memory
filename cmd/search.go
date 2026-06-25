@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/spf13/cobra"
@@ -36,7 +34,7 @@ var searchCmd = &cobra.Command{
   # Filter by scope and entity
   symmemory search "API design decisions" -s project --entity "BackendAPI"`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		query := args[0]
 		embeddings := extractor.NewEmbeddingsGenerator(GetConfig())
 		emb := embeddings.GenerateVector(query)
@@ -45,12 +43,10 @@ var searchCmd = &cobra.Command{
 		if searchEntity != "" {
 			entity, err := GetDB().ResolveEntity(searchEntity)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Entity lookup error: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "entity lookup error")
 			}
 			if entity == nil {
-				fmt.Fprintf(os.Stderr, "Entity not found: %s\n", searchEntity)
-				os.Exit(1)
+				return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", searchEntity)
 			}
 			entityID = entity.ID
 		}
@@ -65,14 +61,13 @@ var searchCmd = &cobra.Command{
 			results, err = GetDB().SearchMemoriesFiltered(emb.Vector, emb.Source, searchScope, searchLimit, entityID)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Semantic search failure: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "semantic search failure")
 		}
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		if err := formatter.Output(results, "search"); err != nil {
-			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}
+		return nil
 	},
 }
