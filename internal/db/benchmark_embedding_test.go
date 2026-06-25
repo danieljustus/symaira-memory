@@ -478,16 +478,16 @@ func BenchmarkEmbeddingBLOB_Search(b *testing.B) { benchSearch(b, true) }
 // Scales for size / quality / backup tests
 // ---------------------------------------------------------------------------
 
-var benchScales = []int{100, 1_000, 10_000, 100_000}
+var benchScales = []int{100, 1_000, 10_000}
+
+// benchScalesFull includes the 100K scale for explicit benchmark runs only.
+// It is NOT used in normal test runs because 100K memories takes ~20 minutes.
+var benchScalesFull = []int{100, 1_000, 10_000, 100_000}
 
 // TestEmbeddingStorageSize measures the database file size for each scale.
 func TestEmbeddingStorageSize(t *testing.T) {
 	for _, scale := range benchScales {
 		t.Run(fmt.Sprintf("scale_%d", scale), func(t *testing.T) {
-			if testing.Short() && scale >= 10_000 {
-				t.Skip("skipping 10K+ in short mode")
-			}
-
 			// JSON path
 			jsonDB, jsonCleanup := benchOpenTempDB(t)
 			t.Cleanup(jsonCleanup)
