@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/danieljustus/symaira-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/danieljustus/symaira-memory/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 > **Symaira Memory** is a next-generation persistent memory layer, context synchronization engine, and semantic knowledge base built for the **Human-AI Symbiosis Era**.
 >
@@ -221,4 +221,4 @@ For a deep dive into the data pipeline, component design, and scope isolation mo
 
 ---
 
-Copyright &copy; 2026 Daniel Justus. All rights reserved. Licensed under the MIT License.
+Copyright &copy; 2026 Daniel Justus. All rights reserved. Licensed under the Apache-2.0 License.

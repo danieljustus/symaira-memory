@@ -22,7 +22,15 @@ var (
 	rootDB       *db.DB
 	rootCfg      *config.Config
 	outputFormat string // global --output flag: "table" or "json"
+	noColor      bool   // global --no-color flag
 )
+
+// GetNoColor reports whether ANSI color output is disabled.
+// Returns true when either the --no-color flag is set or the
+// NO_COLOR environment variable is present (per https://no-color.org/).
+func GetNoColor() bool {
+	return noColor || os.Getenv("NO_COLOR") != ""
+}
 
 func GetDB() *db.DB {
 	return rootDB
@@ -97,6 +105,7 @@ func GetOutputFormat(cmd *cobra.Command) string {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&outputFormat, "output", "table", "Output format: table or json")
+	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable ANSI color codes in output (also respects NO_COLOR env var)")
 	rootCmd.AddCommand(versionCmd)
 }
 

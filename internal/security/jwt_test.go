@@ -181,8 +181,25 @@ func TestRotateSecretPersistsFallbackToDisk(t *testing.T) {
 		t.Fatalf("fallback secrets file not created: %v", err)
 	}
 
-	if !strings.Contains(string(data), oldSecret) {
-		t.Errorf("fallback file should contain old secret %q, got: %s", oldSecret, string(data))
+	// Data should be encrypted (not plaintext JSON)
+	if strings.Contains(string(data), oldSecret) {
+		t.Error("fallback file should be encrypted, not contain plaintext secret")
+	}
+
+	// Verify we can decrypt and the old secret is present
+	loaded, loadErr := loadFallbackSecrets(cfg, provider.secret)
+	if loadErr != nil {
+		t.Fatalf("failed to load fallback secrets: %v", loadErr)
+	}
+	found := false
+	for _, e := range loaded {
+		if e.Secret == oldSecret {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("fallback secrets should contain old secret %q, loaded: %+v", oldSecret, loaded)
 	}
 
 	_, err = provider.VerifyToken(oldToken)
@@ -627,11 +644,25 @@ func TestFallbackSecretPersistenceAcrossRotation(t *testing.T) {
 		t.Fatalf("failed to read fallback file: %v", err)
 	}
 
-	if !strings.Contains(string(data), firstSecret) {
-		t.Errorf("fallback file should contain first secret %q", firstSecret)
+	// Data should be encrypted (not plaintext JSON)
+	if strings.Contains(string(data), firstSecret) {
+		t.Error("fallback file should be encrypted, not contain plaintext secret")
 	}
-	if !strings.Contains(string(data), "second-secret") {
-		t.Errorf("fallback file should contain second-secret")
+
+	// Verify decrypted content has both rotated secrets
+	loaded, loadErr := loadFallbackSecrets(cfg, provider.secret)
+	if loadErr != nil {
+		t.Fatalf("failed to load fallback secrets: %v", loadErr)
+	}
+	secretsFound := make(map[string]bool)
+	for _, e := range loaded {
+		secretsFound[e.Secret] = true
+	}
+	if !secretsFound[firstSecret] {
+		t.Errorf("fallback should contain first secret %q, loaded: %+v", firstSecret, loaded)
+	}
+	if !secretsFound["second-secret"] {
+		t.Errorf("fallback should contain second-secret, loaded: %+v", loaded)
 	}
 
 	if _, err := provider.VerifyToken(firstToken); err != nil {
@@ -684,14 +715,18 @@ func TestPruningExpiredFallbackSecrets(t *testing.T) {
 		t.Fatalf("failed to read fallback file: %v", err)
 	}
 
-	if strings.Contains(string(data), "expired-1") {
-		t.Error("expired-1 should be pruned from disk")
+	// Raw file should be encrypted after migration
+	if strings.Contains(string(data), "expired-1") || strings.Contains(string(data), "valid-1") {
+		t.Error("fallback file should be encrypted, not contain plaintext entries")
 	}
-	if strings.Contains(string(data), "expired-2") {
-		t.Error("expired-2 should be pruned from disk")
+
+	// Verify via decryption that expired entries are pruned
+	loaded, loadErr := loadFallbackSecrets(cfg, provider.secret)
+	if loadErr != nil {
+		t.Fatalf("failed to load fallback secrets: %v", loadErr)
 	}
-	if !strings.Contains(string(data), "valid-1") {
-		t.Error("valid-1 should remain in fallback file")
+	if len(loaded) != 1 || loaded[0].Secret != "valid-1" {
+		t.Errorf("expected only valid-1 after pruning, got %+v", loaded)
 	}
 }
 
@@ -889,7 +924,7 @@ func TestLoadFallbackSecretsFileNotFound(t *testing.T) {
 		JWT: config.JWTConfig{SecretPath: secretPath},
 	}
 
-	entries, err := loadFallbackSecrets(cfg)
+	entries, err := loadFallbackSecrets(cfg, []byte("test-primary-secret"))
 	if err != nil {
 		t.Fatalf("loadFallbackSecrets should not error on missing file: %v", err)
 	}
@@ -911,7 +946,8 @@ func TestPersistFallbackSecretsCreatesDirectory(t *testing.T) {
 		{Secret: "test-secret", ExpiresAt: time.Now().Add(24 * time.Hour)},
 	}
 
-	err := persistFallbackSecrets(cfg, entries)
+	primarySecret := []byte("test-primary-secret")
+	err := persistFallbackSecrets(cfg, entries, primarySecret)
 	if err != nil {
 		t.Fatalf("persistFallbackSecrets failed: %v", err)
 	}
@@ -922,8 +958,18 @@ func TestPersistFallbackSecretsCreatesDirectory(t *testing.T) {
 		t.Fatalf("failed to read fallback file: %v", err)
 	}
 
-	if !strings.Contains(string(data), "test-secret") {
-		t.Error("fallback file should contain test-secret")
+	// Verify the data is encrypted (not plaintext JSON)
+	if strings.Contains(string(data), "test-secret") {
+		t.Error("fallback file should be encrypted, not contain plaintext secret")
+	}
+
+	// Verify we can decrypt and read back
+	loaded, err := loadFallbackSecrets(cfg, primarySecret)
+	if err != nil {
+		t.Fatalf("loadFallbackSecrets failed: %v", err)
+	}
+	if len(loaded) != 1 || loaded[0].Secret != "test-secret" {
+		t.Errorf("expected 1 entry with secret 'test-secret', got %+v", loaded)
 	}
 
 	info, err := os.Stat(filepath.Dir(fallbackPath))

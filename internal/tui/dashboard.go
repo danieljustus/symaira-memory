@@ -14,7 +14,43 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/db"
 )
 
-// Styling tokens
+// noStyle returns a styled lipgloss value when colors are enabled, or an empty
+// string when no-color mode is active.
+type noColorFlag struct{ enabled bool }
+
+func (n noColorFlag) styled(style lipgloss.Style, text string) string {
+	if n.enabled {
+		return text
+	}
+	return style.Render(text)
+}
+
+func (n noColorFlag) scopeBadge(scope string) string {
+	if n.enabled {
+		return " " + strings.ToUpper(scope) + " "
+	}
+	color := "#89B4FA"
+	switch scope {
+	case "global":
+		color = "#A6E3A1"
+	case "project":
+		color = "#F9E2AF"
+	case "agent":
+		color = "#CBA6F7"
+	case "user":
+		color = "#F38BA8"
+	case "session":
+		color = "#94E2D5"
+	}
+	return lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#1E1E2E")).
+		Background(lipgloss.Color(color)).
+		Padding(0, 1).
+		Render(" " + strings.ToUpper(scope) + " ")
+}
+
+// Styling tokens (only used when colors are enabled)
 var (
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -22,10 +58,6 @@ var (
 			Background(lipgloss.Color("#1E1E2E")).
 			Padding(1, 2).
 			MarginBottom(1)
-
-	subtitleStyle = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(lipgloss.Color("#BAC2DE"))
 
 	selectedStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -49,28 +81,6 @@ var (
 	footerStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#585B70")).
 			MarginTop(1)
-
-	scopeBadge = func(scope string) string {
-		color := "#89B4FA"
-		switch scope {
-		case "global":
-			color = "#A6E3A1"
-		case "project":
-			color = "#F9E2AF"
-		case "agent":
-			color = "#CBA6F7"
-		case "user":
-			color = "#F38BA8"
-		case "session":
-			color = "#94E2D5"
-		}
-		return lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#1E1E2E")).
-			Background(lipgloss.Color(color)).
-			Padding(0, 1).
-			Render(" " + strings.ToUpper(scope) + " ")
-	}
 )
 
 type model struct {
@@ -87,10 +97,13 @@ type model struct {
 	ollamaModel     string
 	ollamaReachable bool
 	httpPort        int
+
+	noColorFlag
 }
 
-// InitialModel configures state.
-func InitialModel(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPort int) model {
+// InitialModel configures state. The noColor parameter disables lipgloss styling
+// when true (used when --no-color flag or NO_COLOR env var is set).
+func InitialModel(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPort int, noColor bool) model {
 	ollamaReachable := checkOllamaReachable(ollamaURL, ollamaModel)
 	m := model{
 		db:              database,
@@ -100,6 +113,7 @@ func InitialModel(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPo
 		ollamaModel:     ollamaModel,
 		ollamaReachable: ollamaReachable,
 		httpPort:        httpPort,
+		noColorFlag:     noColorFlag{enabled: noColor},
 	}
 	m.loadMemories()
 	return m
@@ -256,8 +270,7 @@ func (m model) View() string {
 	var s strings.Builder
 
 	// Top banner
-	s.WriteString(titleStyle.Render("⚡ SYMAIRA MEMORY (symmemory) — CONSOLE"))
-	s.WriteString("\n" + subtitleStyle.Render("  The Semantic Memory Layer for the Human-AI Symbiosis Era") + "\n\n")
+	s.WriteString(m.styled(titleStyle, "⚡ SYMAIRA MEMORY (symmemory) — CONSOLE") + "\n")
 
 	if m.err != nil {
 		return fmt.Sprintf("Error loading memory console: %v\n", m.err)
@@ -282,38 +295,41 @@ func (m model) View() string {
 		m.ollamaModel, ollamaStatus, m.ollamaURL,
 		httpStatus)
 
-	s.WriteString(statsStyle.Render(statsText) + "\n\n")
+	s.WriteString(m.styled(statsStyle, statsText) + "\n\n")
 
 	// Search Indicator
 	if m.searching {
-		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF")).Render("🔍 Search Keyword: "+m.search+"_") + "\n\n")
+		searchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F9E2AF"))
+		s.WriteString(m.styled(searchStyle, "🔍 Search Keyword: "+m.search+"_") + "\n\n")
 	} else if m.search != "" {
-		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).Render("🔍 Active Search: "+m.search+" (Press '/' to edit, 'esc' to clear)") + "\n\n")
+		searchStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1"))
+		s.WriteString(m.styled(searchStyle, "🔍 Active Search: "+m.search+" (Press '/' to edit, 'esc' to clear)") + "\n\n")
 	}
 
 	// Main scrollable memory list
 	s.WriteString("Persistent Memory Elements:\n")
-	s.WriteString("==========================================\n")
+	s.WriteString("========================================\n")
 
 	if len(m.memories) == 0 {
-		s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).PaddingLeft(4).Render("No memories match current scope filters.") + "\n")
+		emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F38BA8")).PaddingLeft(4)
+		s.WriteString(m.styled(emptyStyle, "No memories match current scope filters.") + "\n")
 	} else {
 		for i, mem := range m.memories {
-			badge := scopeBadge(mem.Scope)
+			badge := m.scopeBadge(mem.Scope)
 
 			// Highlight selected memory
 			if i == m.selected {
-				s.WriteString(selectedStyle.Render(fmt.Sprintf("👉 %s  %s", badge, mem.Content)) + "\n")
-				s.WriteString(metaStyle.PaddingLeft(6).Render(fmt.Sprintf("ID: %s | Saved: %s", mem.ID, mem.CreatedAt.Format("2006-01-02 15:04"))) + "\n")
+				s.WriteString(m.styled(selectedStyle, fmt.Sprintf("👉 %s  %s", badge, mem.Content)) + "\n")
+				s.WriteString(m.styled(metaStyle.PaddingLeft(6), fmt.Sprintf("ID: %s | Saved: %s", mem.ID, mem.CreatedAt.Format("2006-01-02 15:04"))) + "\n")
 			} else {
-				s.WriteString(normalStyle.Render(fmt.Sprintf("   %s  %s", badge, mem.Content)) + "\n")
+				s.WriteString(m.styled(normalStyle, fmt.Sprintf("   %s  %s", badge, mem.Content)) + "\n")
 			}
 			s.WriteString("\n")
 		}
 	}
 
 	// Keyboard Controls Footer
-	s.WriteString(footerStyle.Render(
+	s.WriteString(m.styled(footerStyle,
 		"Controls: [j/k/↑/↓] Navigate | [d/backspace] Delete | [/] Filter Keyword | [g] Global | [p] Project | [a] Agent | [u] User | [s] Session | [*] All Scopes | [q] Exit",
 	) + "\n")
 
@@ -321,13 +337,13 @@ func (m model) View() string {
 }
 
 // RunDashboard launches the Bubble Tea console.
-func RunDashboard(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPort int) error {
+func RunDashboard(database *db.DB, dbPath, ollamaURL, ollamaModel string, httpPort int, noColor bool) error {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintf(os.Stderr, "TUI panic recovered: %v\n", r)
 		}
 	}()
-	p := tea.NewProgram(InitialModel(database, dbPath, ollamaURL, ollamaModel, httpPort), tea.WithAltScreen())
+	p := tea.NewProgram(InitialModel(database, dbPath, ollamaURL, ollamaModel, httpPort, noColor), tea.WithAltScreen())
 	_, err := p.Run()
 	return err
 }

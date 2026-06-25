@@ -32,7 +32,7 @@ to curate, browse, filter, search, and delete persistent memory elements in real
 			ollamaModel = cfg.Ollama.Model
 			httpPort = cfg.Server.HTTPPort
 		}
-		if err := tui.RunDashboard(GetDB(), dbPath, ollamaURL, ollamaModel, httpPort); err != nil {
+		if err := tui.RunDashboard(GetDB(), dbPath, ollamaURL, ollamaModel, httpPort, GetNoColor()); err != nil {
 			fmt.Fprintf(os.Stderr, "TUI runtime error: %v\n", err)
 			os.Exit(1)
 		}
