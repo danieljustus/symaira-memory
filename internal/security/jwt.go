@@ -1,6 +1,8 @@
 package security
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -109,7 +111,7 @@ func NewJWTProvider(cfg *config.Config, store RevocationStore) (*JWTProvider, er
 		gracePeriod: DefaultRotationGracePeriod,
 	}
 
-	entries, err := loadFallbackSecrets(cfg)
+	entries, err := loadFallbackSecrets(cfg, []byte(secret))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: failed to load fallback JWT secrets: %v\n", err)
 	}
@@ -123,7 +125,7 @@ func NewJWTProvider(cfg *config.Config, store RevocationStore) (*JWTProvider, er
 		}
 	}
 	if len(validEntries) != len(entries) {
-		if persistErr := persistFallbackSecrets(cfg, validEntries); persistErr != nil {
+		if persistErr := persistFallbackSecrets(cfg, validEntries, []byte(secret)); persistErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to purge expired fallback secrets: %v\n", persistErr)
 		}
 	}
@@ -195,7 +197,89 @@ func fallbackSecretsPath(cfg *config.Config) string {
 	return strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
 }
 
-func loadFallbackSecrets(cfg *config.Config) ([]fallbackEntry, error) {
+// deriveFallbackKey derives an AES-256 key from the primary JWT secret and a salt.
+// The primary secret already provides high entropy, so we use SHA-256 with domain
+// separation via the salt rather than expensive PBKDF2 iterations.
+func deriveFallbackKey(primarySecret []byte, salt []byte) []byte {
+	h := sha256.New()
+	h.Write(primarySecret)
+	h.Write(salt)
+	return h.Sum(nil)
+}
+
+// Output format: [salt(16)][nonce(12)][ciphertext+tag(16)].
+func encryptFallbackSecrets(entries []fallbackEntry, primarySecret []byte) ([]byte, error) {
+	plaintext, err := json.Marshal(entries)
+	if err != nil {
+		return nil, fmt.Errorf("marshal fallback entries: %w", err)
+	}
+
+	salt := make([]byte, 16)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, fmt.Errorf("generate salt: %w", err)
+	}
+
+	key := deriveFallbackKey(primarySecret, salt)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("new cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("new GCM: %w", err)
+	}
+
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("generate nonce: %w", err)
+	}
+
+	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+
+	payload := make([]byte, len(salt)+len(nonce)+len(ciphertext))
+	copy(payload, salt)
+	copy(payload[len(salt):], nonce)
+	copy(payload[len(salt)+len(nonce):], ciphertext)
+
+	return payload, nil
+}
+
+func decryptFallbackSecrets(payload, primarySecret []byte) ([]fallbackEntry, error) {
+	if len(payload) < 16+12+16 {
+		return nil, errors.New("encrypted payload too short")
+	}
+
+	salt := payload[:16]
+	nonce := payload[16:28]
+	ciphertext := payload[28:]
+
+	key := deriveFallbackKey(primarySecret, salt)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("new cipher: %w", err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("new GCM: %w", err)
+	}
+
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, errors.New("fallback secrets decryption failed: invalid primary secret or corrupted data")
+	}
+
+	var entries []fallbackEntry
+	if err := json.Unmarshal(plaintext, &entries); err != nil {
+		return nil, fmt.Errorf("unmarshal fallback entries: %w", err)
+	}
+	return entries, nil
+}
+
+// loadFallbackSecrets reads fallback secrets and transparently migrates
+// any existing plaintext JSON file to the encrypted format.
+func loadFallbackSecrets(cfg *config.Config, primarySecret []byte) ([]fallbackEntry, error) {
 	path := fallbackSecretsPath(cfg)
 	if path == "" {
 		return nil, nil
@@ -207,14 +291,28 @@ func loadFallbackSecrets(cfg *config.Config) ([]fallbackEntry, error) {
 		}
 		return nil, err
 	}
-	var entries []fallbackEntry
-	if err := json.Unmarshal(data, &entries); err != nil {
-		return nil, err
+
+	// Attempt decryption first (new encrypted format).
+	entries, decryptErr := decryptFallbackSecrets(data, primarySecret)
+	if decryptErr == nil {
+		return entries, nil
 	}
-	return entries, nil
+
+	// Fallback to plaintext JSON (legacy format) for transparent migration.
+	var legacyEntries []fallbackEntry
+	if err := json.Unmarshal(data, &legacyEntries); err != nil {
+		return nil, decryptErr // return the original decryption error
+	}
+
+	// Migrate: encrypt and re-write.
+	if err := persistFallbackSecrets(cfg, legacyEntries, primarySecret); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: failed to migrate plaintext fallback secrets to encrypted: %v\n", err)
+	}
+
+	return legacyEntries, nil
 }
 
-func persistFallbackSecrets(cfg *config.Config, entries []fallbackEntry) error {
+func persistFallbackSecrets(cfg *config.Config, entries []fallbackEntry, primarySecret []byte) error {
 	path := fallbackSecretsPath(cfg)
 	if path == "" {
 		return fmt.Errorf("cannot determine fallback secrets path")
@@ -223,11 +321,11 @@ func persistFallbackSecrets(cfg *config.Config, entries []fallbackEntry) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(entries, "", "  ")
+	data, err := encryptFallbackSecrets(entries, primarySecret)
 	if err != nil {
-		return err
+		return fmt.Errorf("encrypt fallback secrets: %w", err)
 	}
-	return os.WriteFile(path, append(data, '\n'), 0600)
+	return os.WriteFile(path, data, 0600)
 }
 
 // GenerateToken issues a valid signed JWT token for the specified subject (e.g. "extension" or "gpt").
@@ -376,7 +474,7 @@ func (jp *JWTProvider) RotateSecret(newSecret string) {
 	jp.secretExpiries = keptExpiries
 
 	if jp.cfg != nil {
-		if err := persistFallbackSecrets(jp.cfg, keptEntries); err != nil {
+		if err := persistFallbackSecrets(jp.cfg, keptEntries, jp.secret); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to persist fallback JWT secrets: %v\n", err)
 		}
 	}
