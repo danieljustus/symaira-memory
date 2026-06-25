@@ -480,10 +480,6 @@ func BenchmarkEmbeddingBLOB_Search(b *testing.B) { benchSearch(b, true) }
 
 var benchScales = []int{100, 1_000, 10_000}
 
-// benchScalesFull includes the 100K scale for explicit benchmark runs only.
-// It is NOT used in normal test runs because 100K memories takes ~20 minutes.
-var benchScalesFull = []int{100, 1_000, 10_000, 100_000}
-
 // TestEmbeddingStorageSize measures the database file size for each scale.
 func TestEmbeddingStorageSize(t *testing.T) {
 	for _, scale := range benchScales {
