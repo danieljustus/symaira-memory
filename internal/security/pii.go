@@ -16,19 +16,19 @@ type PIIGuard struct {
 func NewPIIGuard() *PIIGuard {
 	patterns := []*regexp.Regexp{
 		// API Keys & Tokens
-		regexp.MustCompile(`(?i)(?:sk-proj-[a-zA-Z0-9]{32,})`),                                     // OpenAI Project Key
-		regexp.MustCompile(`(?i)(?:ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36})`),                      // GitHub Token
-		regexp.MustCompile(`(?i)(?:AIzaSy[a-zA-Z0-9-_]{33})`),                                      // Google API Key
-		regexp.MustCompile(`(?i)(?:bearer\s+[a-zA-Z0-9-_\.]{20,})`),                                // General Bearer Token
-		regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16}:[A-Za-z0-9/+=]{40})`),                          // AWS Access Key + Secret combo
-		regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16})`),                                             // AWS Access Key ID
-		regexp.MustCompile(`(?i)(?:xox[abposr]-[a-zA-Z0-9-]{10,60})`),                              // Slack Token
-		regexp.MustCompile(`(?i)(?:sk_live_[a-zA-Z0-9]{24,})`),                                     // Stripe Live Key
+		regexp.MustCompile(`(?i)(?:sk-proj-[a-zA-Z0-9]{32,})`),                // OpenAI Project Key
+		regexp.MustCompile(`(?i)(?:ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36})`), // GitHub Token
+		regexp.MustCompile(`(?i)(?:AIzaSy[a-zA-Z0-9-_]{33})`),                 // Google API Key
+		regexp.MustCompile(`(?i)(?:bearer\s+[a-zA-Z0-9-_\.]{20,})`),           // General Bearer Token
+		regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16}:[A-Za-z0-9/+=]{40})`),     // AWS Access Key + Secret combo
+		regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16})`),                        // AWS Access Key ID
+		regexp.MustCompile(`(?i)(?:xox[abposr]-[a-zA-Z0-9-]{10,60})`),         // Slack Token
+		regexp.MustCompile(`(?i)(?:sk_live_[a-zA-Z0-9]{24,})`),                // Stripe Live Key
 		regexp.MustCompile(`(?i)(?:-----BEGIN\s(?:RSA\s|EC\s|DSA\s|OPENSSH\s)?PRIVATE\sKEY-----[A-Za-z0-9+/=\n\s]+-----END\s(?:RSA\s|EC\s|DSA\s|OPENSSH\s)?PRIVATE\sKEY-----)`), // Full PEM private key block
-		regexp.MustCompile(`(?i)(?:sk-[a-zA-Z0-9]{20,})`),                                          // Generic sk- key (OpenAI, etc.)
-		regexp.MustCompile(`(?i)(?:eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,})`),                 // Raw JWT token
-		regexp.MustCompile(`(?i)(?:ssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{40,})`),                // SSH public key
-		regexp.MustCompile(`(?i)(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis|amqp)://[^\s]+`),  // Connection strings
+		regexp.MustCompile(`(?i)(?:sk-[a-zA-Z0-9]{20,})`),                                         // Generic sk- key (OpenAI, etc.)
+		regexp.MustCompile(`(?i)(?:eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,})`),                // Raw JWT token
+		regexp.MustCompile(`(?i)(?:ssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{40,})`),               // SSH public key
+		regexp.MustCompile(`(?i)(?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|redis|amqp)://[^\s]+`), // Connection strings
 
 		// Azure Storage account keys (connection string pattern)
 		regexp.MustCompile(`(?i)(?:AccountKey=[A-Za-z0-9+/]{86}[AEIMQUYcgkosw048]=)`),

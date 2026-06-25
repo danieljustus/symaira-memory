@@ -59,10 +59,6 @@ var (
 			Padding(1, 2).
 			MarginBottom(1)
 
-	subtitleStyle = lipgloss.NewStyle().
-			Italic(true).
-			Foreground(lipgloss.Color("#BAC2DE"))
-
 	selectedStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#A2EEEF")).

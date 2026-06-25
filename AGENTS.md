@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This repository is the public MIT-licensed Symaira Memory self-hosted foundation.
+This repository is the public Apache-2.0 licensed Symaira Memory self-hosted foundation.
 
 ## Ecosystem Guidance
 
@@ -12,7 +12,7 @@ This repository is the public MIT-licensed Symaira Memory self-hosted foundation
 ## Repository Role
 
 - Keep this repository buildable, testable, and runnable without any private commercial code.
-- Self-hosted Symaira Memory remains free and open source under the MIT License.
+- Self-hosted Symaira Memory remains free and open source under the Apache-2.0 License.
 - Do not add Cloud Pro, hosted-service, tenant-management, billing, subscription, customer-support, or commercial deployment code here.
 - Do not add paid feature gates to the public self-hosted product.
 
