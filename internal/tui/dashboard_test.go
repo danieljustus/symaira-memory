@@ -36,7 +36,7 @@ func helperDB(t *testing.T) *db.DB {
 // --------------------------------------------------------------------------
 
 func newTestModel(database *db.DB) model {
-	return InitialModel(database, ":memory:", "http://localhost:11434/api/embeddings", "nomic-embed-text", 0)
+	return InitialModel(database, ":memory:", "http://localhost:11434/api/embeddings", "nomic-embed-text", 0, false)
 }
 
 func TestInitialModel(t *testing.T) {
