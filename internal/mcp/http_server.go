@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -25,7 +26,7 @@ func (s *Server) StartHTTPServer(port int) error {
 	if err != nil {
 		return fmt.Errorf("failed to bind to %s: %w", addr, err)
 	}
-	fmt.Fprintf(os.Stderr, "⚡ Symaira Memory API Listening on http://%s\n", addr)
+	slog.Info("Symaira Memory API listening", "addr", addr, "url", fmt.Sprintf("http://%s", addr))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -139,7 +140,8 @@ func (s *Server) httpMux() http.Handler {
 	var handler http.Handler = mux
 	handler = csrfProtectionHandler(handler)
 	handler = securityHeadersHandler(handler)
-	return RateLimitMiddleware(s.rateLimiter, handler)
+	handler = RateLimitMiddleware(s.rateLimiter, handler)
+	return requestLoggingMiddleware(handler)
 }
 
 func csrfProtectionHandler(next http.Handler) http.Handler {
@@ -167,8 +169,7 @@ func csrfProtectionHandler(next http.Handler) http.Handler {
 			return
 		}
 
-		fmt.Fprintf(os.Stderr, "CSRF: blocked %s %s from origin %q (no Bearer token, no valid Origin/X-Requested-With)\n",
-			r.Method, r.URL.Path, r.Header.Get("Origin"))
+		slog.Warn("CSRF blocked request", "method", r.Method, "path", r.URL.Path, "origin", r.Header.Get("Origin"))
 		writeJSONError(w, http.StatusForbidden, "CSRF validation failed", nil)
 	})
 }
@@ -209,5 +210,29 @@ func securityHeadersHandler(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		next.ServeHTTP(w, r)
+	})
+}
+
+type responseCapture struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rc *responseCapture) WriteHeader(code int) {
+	rc.statusCode = code
+	rc.ResponseWriter.WriteHeader(code)
+}
+
+func requestLoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rc := &responseCapture{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(rc, r)
+		slog.Info("HTTP request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", rc.statusCode,
+			"duration", time.Since(start).String(),
+		)
 	})
 }
