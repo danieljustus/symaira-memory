@@ -616,8 +616,9 @@ func TestSyncApplyUnauthenticated(t *testing.T) {
 		t.Fatalf("request failed: %v", err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", res.StatusCode)
+	// CSRF blocks unauthenticated state-changing requests before the auth check.
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 (CSRF), got %d", res.StatusCode)
 	}
 }
 
@@ -1291,8 +1292,9 @@ func TestApiDeleteUnauthenticated(t *testing.T) {
 		t.Fatalf("request failed: %v", err)
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Errorf("expected 401, got %d", res.StatusCode)
+	// CSRF blocks unauthenticated state-changing requests before the auth check.
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 (CSRF), got %d", res.StatusCode)
 	}
 }
 

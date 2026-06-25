@@ -137,8 +137,59 @@ func (s *Server) httpMux() http.Handler {
 	}
 
 	var handler http.Handler = mux
+	handler = csrfProtectionHandler(handler)
 	handler = securityHeadersHandler(handler)
 	return RateLimitMiddleware(s.rateLimiter, handler)
+}
+
+func csrfProtectionHandler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "POST", "DELETE", "PUT", "PATCH":
+		default:
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		origin := r.Header.Get("Origin")
+		if origin != "" && isLocalOrigin(origin) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if strings.EqualFold(r.Header.Get("X-Requested-With"), "XMLHttpRequest") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		fmt.Fprintf(os.Stderr, "CSRF: blocked %s %s from origin %q (no Bearer token, no valid Origin/X-Requested-With)\n",
+			r.Method, r.URL.Path, r.Header.Get("Origin"))
+		writeJSONError(w, http.StatusForbidden, "CSRF validation failed", nil)
+	})
+}
+
+func isLocalOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+	rest := origin
+	if strings.HasPrefix(rest, "http://") {
+		rest = rest[7:]
+	} else if strings.HasPrefix(rest, "https://") {
+		rest = rest[8:]
+	} else {
+		return false
+	}
+	host := rest
+	if idx := strings.LastIndex(host, ":"); idx >= 0 {
+		host = host[:idx]
+	}
+	return host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "0.0.0.0"
 }
 
 func matchOrigin(origin, pattern string) bool {
