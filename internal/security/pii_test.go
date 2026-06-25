@@ -33,7 +33,19 @@ func TestPIIGuardRedaction(t *testing.T) {
 		},
 		{
 			input:    "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
-			expected: "[REDACTED_API_KEY]\nsecret\n-----END PRIVATE KEY-----",
+			expected: "[REDACTED_API_KEY]",
+		},
+		{
+			input:    "AWS key pair: AKIA1234567890ABCDEF:wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+			expected: "AWS key pair: [REDACTED_API_KEY]",
+		},
+		{
+			input:    "Azure connection: DefaultEndpointsProtocol=https;AccountName=mystore;AccountKey=abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefgh0=",
+			expected: "Azure connection: DefaultEndpointsProtocol=https;AccountName=mystore;[REDACTED_API_KEY]",
+		},
+		{
+			input:    "UnionPay card: 6222725413964173",
+			expected: "UnionPay card: [REDACTED_CARD_NUMBER]",
 		},
 	}
 
