@@ -22,13 +22,13 @@ const (
 )
 
 type Server struct {
-	service    *MemoryService
-	auth       *AuthMiddleware
-	cors       *CORSMiddleware
-	jwts       *security.JWTProvider
-	version    string
-	cfg        *config.Config
-	profile    *db.Profile
+	service     *MemoryService
+	auth        *AuthMiddleware
+	cors        *CORSMiddleware
+	jwts        *security.JWTProvider
+	version     string
+	cfg         *config.Config
+	profile     *db.Profile
 	rateLimiter *RateLimiter
 }
 

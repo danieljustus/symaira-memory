@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	appName     = "symmemory"
-	configDir   = ".config"
-	dataDir     = ".local/share"
-	jwtSecret   = "jwt.secret"
+	appName      = "symmemory"
+	configDir    = ".config"
+	dataDir      = ".local/share"
+	jwtSecret    = "jwt.secret"
 	databaseFile = "default.db"
 )
 
