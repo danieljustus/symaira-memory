@@ -139,7 +139,7 @@ func TestEstimateContextTokens(t *testing.T) {
 		expected int
 	}{
 		{"", 0},
-		{"hello", 1},        // 1 word * 4 / 3 = 1
+		{"hello", 1},         // 1 word * 4 / 3 = 1
 		{"one two three", 4}, // 3 words * 4 / 3 = 4
 		{"a b c d e f", 8},   // 6 words * 4 / 3 = 8
 	}
