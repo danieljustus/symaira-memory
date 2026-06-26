@@ -7,6 +7,7 @@ import (
 	"os/user"
 	"strings"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/spf13/cobra"
@@ -43,7 +44,7 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 
   # Save a user-scoped memory with custom author
   symmemory set -v "Prefers concise commit messages" -s user --author "team-lead"`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		author := setAuthor
 		if author == "" {
 			if u, err := user.Current(); err == nil && u.Username != "" {
@@ -73,8 +74,7 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 
 		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, setValue, setScope, meta, true, attr, entities)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to store memory")
 		}
 
 		if GetOutputFormat(cmd) == "json" {
@@ -100,10 +100,9 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			if err := enc.Encode(out); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to encode JSON output")
 			}
-			return
+			return nil
 		}
 
 		fmt.Printf("⚡ Memory saved successfully!\n")
@@ -122,5 +121,6 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 		if len(m.Entities) > 0 {
 			fmt.Printf("  Entities: %s\n", strings.Join(m.Entities, ", "))
 		}
+		return nil
 	},
 }

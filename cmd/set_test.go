@@ -43,7 +43,9 @@ func TestSetCommandOutputsJSON(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	setCmd.Run(setCmd, nil)
+	if err := setCmd.RunE(setCmd, nil); err != nil {
+		t.Fatalf("setCmd.RunE returned error: %v", err)
+	}
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -99,7 +101,9 @@ func TestSetCommandOutputsHumanTextByDefault(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	setCmd.Run(setCmd, nil)
+	if err := setCmd.RunE(setCmd, nil); err != nil {
+		t.Fatalf("setCmd.RunE returned error: %v", err)
+	}
 
 	w.Close()
 	os.Stdout = oldStdout
