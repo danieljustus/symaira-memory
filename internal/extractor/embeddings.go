@@ -37,9 +37,9 @@ type EmbeddingsGenerator struct {
 }
 
 const (
-	DefaultDimensions = 768
-	ollamaCacheTTL    = 30 * time.Second
-	defaultTimeout    = 5 * time.Second
+	DefaultDimensions    = 768
+	ollamaCacheTTL       = 30 * time.Second
+	defaultTimeout       = 5 * time.Second
 	defaultOllamaTimeout = 2 * time.Second
 )
 
