@@ -203,18 +203,6 @@ secret = "vault://symaira/memory/jwt"
 
 ---
 
-## Roadmap
-
-1. **Phase 1**: Repository setup and architecture layout
-2. **Phase 2**: Local memory core and SQLite/Vector storage implementation
-3. **Phase 3**: Model Context Protocol (MCP) Server support and HTTP REST API
-4. **Phase 4**: Multi-device sync and encrypted cloud backup (Symaira Memory Pro) *Next*
-5. **Phase 5**: Web-based Memory Console (Dashboard)
-
-Phases 1 through 3 and Phase 5 are implemented and shipped. Phase 4 is in planning.
-
----
-
 ## Architecture
 
 For a deep dive into the data pipeline, component design, and scope isolation model, see [docs/architecture.md](docs/architecture.md).

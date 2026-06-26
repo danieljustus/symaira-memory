@@ -49,6 +49,10 @@ Thumbs.db
 dist/
 build/
 coverage/
+# Internal docs (architecture decisions, research notes)
+docs/architecture.md
+docs/embedding-storage-decision.md
+docs/research/
 *.html
 !internal/web/static/index.html
 
