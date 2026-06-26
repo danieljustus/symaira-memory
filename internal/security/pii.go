@@ -33,6 +33,9 @@ func NewPIIGuard() *PIIGuard {
 		// Azure Storage account keys (connection string pattern)
 		regexp.MustCompile(`(?i)(?:AccountKey=[A-Za-z0-9+/]{86}[AEIMQUYcgkosw048]=)`),
 
+		// GCP service account private key (JSON "private_key" field with PEM block)
+		regexp.MustCompile(`(?i)"private_key"\s*:\s*"-----BEGIN\s(?:RSA\s|EC\s|DSA\s|OPENSSH\s)?PRIVATE\sKEY-----[^"]*"`),
+
 		// E-mail Addresses
 		regexp.MustCompile(`(?i)[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}`),
 
