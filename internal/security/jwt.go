@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/paths"
 	"github.com/danieljustus/symaira-memory/internal/secrets"
 )
 
@@ -141,11 +142,11 @@ func loadPersistedSecret(cfg *config.Config) (string, error) {
 	}
 	secretPath := cfg.JWT.SecretPath
 	if secretPath == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		secretPath, err = paths.SecretPath("jwt.secret")
 		if err != nil {
 			return "", err
 		}
-		secretPath = filepath.Join(home, ".config", "symmemory", "jwt.secret")
 	}
 
 	data, err := os.ReadFile(secretPath)
@@ -165,11 +166,11 @@ func generateAndPersistSecret(cfg *config.Config) (string, error) {
 
 	secretPath := cfg.JWT.SecretPath
 	if secretPath == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		secretPath, err = paths.SecretPath("jwt.secret")
 		if err != nil {
 			return "", err
 		}
-		secretPath = filepath.Join(home, ".config", "symmemory", "jwt.secret")
 	}
 
 	dir := filepath.Dir(secretPath)
@@ -188,11 +189,11 @@ func fallbackSecretsPath(cfg *config.Config) string {
 	}
 	secretPath := cfg.JWT.SecretPath
 	if secretPath == "" {
-		home, err := os.UserHomeDir()
+		var err error
+		secretPath, err = paths.SecretPath("jwt.secret")
 		if err != nil {
 			return ""
 		}
-		secretPath = filepath.Join(home, ".config", "symmemory", "jwt.secret")
 	}
 	return strings.TrimSuffix(secretPath, filepath.Ext(secretPath)) + ".secrets"
 }
