@@ -4,10 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/danieljustus/symaira-corekit/sqlitekit"
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/paths"
 	_ "modernc.org/sqlite"
 )
 
@@ -29,11 +29,11 @@ func Open(cfg *config.Config) (*DB, error) {
 	if cfg.Database.Path != "" {
 		dbPath = cfg.Database.Path
 	} else {
-		home, err := os.UserHomeDir()
+		var err error
+		dbPath, err = paths.DatabasePath()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get user home dir: %w", err)
+			return nil, fmt.Errorf("failed to resolve database path: %w", err)
 		}
-		dbPath = filepath.Join(home, ".local", "share", "symmemory", "default.db")
 	}
 
 	conn, err := sqlitekit.Open(dbPath)
@@ -70,11 +70,11 @@ func ResolvePath(cfg *config.Config) string {
 	if cfg != nil && cfg.Database.Path != "" {
 		return cfg.Database.Path
 	}
-	home, err := os.UserHomeDir()
+	path, err := paths.DatabasePath()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".local", "share", "symmemory", "default.db")
+	return path
 }
 
 // Close closes the database connection.

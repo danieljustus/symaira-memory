@@ -817,6 +817,13 @@ func TestLoadPersistedSecretDefaultPath(t *testing.T) {
 		os.Setenv("HOME", oldHome)
 	})
 
+	// Clear XDG_CONFIG_HOME to test default behavior
+	oldXDG := os.Getenv("XDG_CONFIG_HOME")
+	os.Setenv("XDG_CONFIG_HOME", "")
+	t.Cleanup(func() {
+		os.Setenv("XDG_CONFIG_HOME", oldXDG)
+	})
+
 	configDir := filepath.Join(dir, ".config", "symmemory")
 	if err := os.MkdirAll(configDir, 0700); err != nil {
 		t.Fatalf("failed to create config dir: %v", err)
