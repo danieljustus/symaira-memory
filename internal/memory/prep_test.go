@@ -12,7 +12,7 @@ import (
 )
 
 func TestPrepareEmptyScopeDefaultsToGlobal(t *testing.T) {
-	mem, err := Prepare("test content", "", nil, false, Attribution{})
+	mem, err := Prepare("test content", "", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestPrepareEmptyScopeDefaultsToGlobal(t *testing.T) {
 }
 
 func TestPrepareInvalidScopeReturnsError(t *testing.T) {
-	mem, err := Prepare("test content", "banana", nil, false, Attribution{})
+	mem, err := Prepare("test content", "banana", nil, false, Attribution{}, "test")
 	if err == nil {
 		t.Fatal("expected error for invalid scope, got nil")
 	}
@@ -33,7 +33,7 @@ func TestPrepareInvalidScopeReturnsError(t *testing.T) {
 
 func TestPreparePIIRedaction(t *testing.T) {
 	content := "contact me at john@example.com for details"
-	mem, err := Prepare(content, "global", nil, true, Attribution{})
+	mem, err := Prepare(content, "global", nil, true, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestPreparePIIMetadataRedaction(t *testing.T) {
 		"contact": "alice@example.com",
 		"token":   "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
 	}
-	mem, err := Prepare("clean content", "global", meta, true, Attribution{})
+	mem, err := Prepare("clean content", "global", meta, true, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestPreparePIIMetadataRedaction(t *testing.T) {
 
 func TestPreparePIIMetadataDisabled(t *testing.T) {
 	meta := map[string]string{"contact": "alice@example.com"}
-	mem, err := Prepare("clean content", "global", meta, false, Attribution{})
+	mem, err := Prepare("clean content", "global", meta, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestPreparePIIMetadataDisabled(t *testing.T) {
 
 func TestPreparePIIDisabled(t *testing.T) {
 	content := "contact me at john@example.com for details"
-	mem, err := Prepare(content, "global", nil, false, Attribution{})
+	mem, err := Prepare(content, "global", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -86,15 +86,15 @@ func TestPreparePIIDisabled(t *testing.T) {
 }
 
 func TestPrepareNilMetaBecomesEmptyMap(t *testing.T) {
-	mem, err := Prepare("test content", "global", nil, false, Attribution{})
+	mem, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if mem.Metadata == nil {
 		t.Error("expected non-nil metadata map, got nil")
 	}
-	if len(mem.Metadata) != 0 {
-		t.Errorf("expected empty metadata map, got %d entries", len(mem.Metadata))
+	if len(mem.Metadata) != 4 {
+		t.Errorf("expected 4 metadata entries (provenance defaults), got %d", len(mem.Metadata))
 	}
 }
 
@@ -121,7 +121,7 @@ func TestPrepareProjectScopeSetsProjectName(t *testing.T) {
 	}
 	defer os.Chdir(oldCwd)
 
-	mem, err := Prepare("test content", "project", nil, false, Attribution{})
+	mem, err := Prepare("test content", "project", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestPrepareProjectScopeSetsProjectName(t *testing.T) {
 
 func TestPrepareAttribution(t *testing.T) {
 	attr := Attribution{Author: "cli:daniel", SessionID: "sess-123"}
-	mem, err := Prepare("test content", "global", nil, false, attr)
+	mem, err := Prepare("test content", "global", nil, false, attr, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestStoreWithEntityLinking(t *testing.T) {
 	attr := Attribution{Author: "test-user", SessionID: "sess-1"}
 	entities := []string{"Alice", "Bob"}
 
-	m, extractedStr, err := Store(database, embeddings, patternExtractor, "Alice and Bob discussed the project", "global", nil, false, attr, entities)
+	m, extractedStr, err := Store(database, embeddings, patternExtractor, "Alice and Bob discussed the project", "global", nil, false, attr, entities, "test")
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -229,7 +229,7 @@ func TestStoreCreatesEntityIfNew(t *testing.T) {
 	attr := Attribution{Author: "test"}
 	entities := []string{"NewEntity"}
 
-	m, _, err := Store(database, embeddings, patternExtractor, "Test with new entity", "global", nil, false, attr, entities)
+	m, _, err := Store(database, embeddings, patternExtractor, "Test with new entity", "global", nil, false, attr, entities, "test")
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestStoreSkipsEmptyEntityNames(t *testing.T) {
 	attr := Attribution{Author: "test"}
 	entities := []string{"", "  ", "ValidEntity"}
 
-	_, _, err := Store(database, embeddings, patternExtractor, "Test entity skipping", "global", nil, false, attr, entities)
+	_, _, err := Store(database, embeddings, patternExtractor, "Test entity skipping", "global", nil, false, attr, entities, "test")
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestStoreWithPIIRedaction(t *testing.T) {
 
 	attr := Attribution{Author: "test"}
 
-	m, _, err := Store(database, embeddings, patternExtractor, "Contact alice@example.com for info", "global", nil, true, attr, nil)
+	m, _, err := Store(database, embeddings, patternExtractor, "Contact alice@example.com for info", "global", nil, true, attr, nil, "test")
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestStoreWithPIIMetadataRedaction(t *testing.T) {
 		"contact": "bob@example.com",
 	}
 
-	m, _, err := Store(database, embeddings, patternExtractor, "clean content", "global", meta, true, attr, nil)
+	m, _, err := Store(database, embeddings, patternExtractor, "clean content", "global", meta, true, attr, nil, "test")
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestStoreDeduplicatesSecondaryFacts(t *testing.T) {
 	attr := Attribution{Author: "test"}
 	content := "I prefer Go for backend"
 
-	m, extractedStr, err := Store(database, embeddings, patternExtractor, content, "global", nil, false, attr, nil)
+	m, extractedStr, err := Store(database, embeddings, patternExtractor, content, "global", nil, false, attr, nil, "test")
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}

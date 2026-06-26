@@ -161,7 +161,7 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 		}
 	}
 
-	id, err := s.service.Set(args.Content, args.Scope, meta, args.SessionID, "mcp", entityNames)
+	id, err := s.service.Set(args.Content, args.Scope, meta, args.SessionID, "mcp", entityNames, "mcp")
 	if err != nil {
 		return nil, fmt.Errorf("%s", err.Error())
 	}
@@ -188,7 +188,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		limit = 5
 	}
 
-	results, err := s.service.Search(args.Query, args.Scope, limit, args.Entity)
+	results, err := s.service.Search(args.Query, args.Scope, limit, args.Entity, db.TrustFilter{}, db.PolicyFilter{})
 	if err != nil {
 		if nf, ok := err.(*NotFoundError); ok {
 			return nil, fmt.Errorf("%s", nf.Error())

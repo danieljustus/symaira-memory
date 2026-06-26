@@ -37,7 +37,7 @@ func (s *MemoryService) ActiveBackend() string {
 	return s.embeddings.ActiveBackend()
 }
 
-func (s *MemoryService) Search(query, scope string, limit int, entityName string) ([]db.SearchResult, error) {
+func (s *MemoryService) Search(query, scope string, limit int, entityName string, trustFilter db.TrustFilter, policyFilter db.PolicyFilter) ([]db.SearchResult, error) {
 	var entityID string
 	if entityName != "" {
 		entity, err := s.db.ResolveEntity(entityName)
@@ -51,15 +51,15 @@ func (s *MemoryService) Search(query, scope string, limit int, entityName string
 	}
 
 	emb := s.embeddings.GenerateVector(query)
-	return s.db.SearchMemoriesFiltered(emb.Vector, emb.Source, scope, limit, entityID)
+	return s.db.SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, scope, limit, entityID, trustFilter, policyFilter)
 }
 
-func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string) (string, error) {
+func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string) (string, error) {
 	attr := memory.Attribution{
 		Author:    author,
 		SessionID: sessionID,
 	}
-	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, content, scope, metadata, s.piiEnabled, attr, entities)
+	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, content, scope, metadata, s.piiEnabled, attr, entities, sourceTool)
 	if err != nil {
 		return "", err
 	}

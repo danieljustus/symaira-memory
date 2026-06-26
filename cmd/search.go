@@ -1,6 +1,10 @@
 package cmd
 
 import (
+	"fmt"
+	"strconv"
+	"time"
+
 	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
@@ -8,10 +12,17 @@ import (
 )
 
 var (
-	searchScope  string
-	searchLimit  int
-	searchEntity string
-	searchFormat string
+	searchScope           string
+	searchLimit           int
+	searchEntity          string
+	searchFormat          string
+	searchMinConfidence   string
+	searchVerification    string
+	searchExcludeSuperseded bool
+	searchMaxAge          string
+	searchMaxSensitivity  string
+	searchMinSharingLevel string
+	searchClientID        string
 )
 
 func init() {
@@ -19,6 +30,13 @@ func init() {
 	searchCmd.Flags().IntVarP(&searchLimit, "limit", "l", 5, "Maximum number of search results to return")
 	searchCmd.Flags().StringVar(&searchEntity, "entity", "", "Filter search by entity name")
 	searchCmd.Flags().StringVar(&searchFormat, "format", "text", "Output format: json or text")
+	searchCmd.Flags().StringVar(&searchMinConfidence, "min-confidence", "", "Minimum confidence level: low, medium, high")
+	searchCmd.Flags().StringVar(&searchVerification, "verification", "", "Filter by verification status: verified, unverified, stale")
+	searchCmd.Flags().BoolVar(&searchExcludeSuperseded, "exclude-superseded", false, "Exclude memories that have been superseded")
+	searchCmd.Flags().StringVar(&searchMaxAge, "max-age", "", "Maximum memory age (e.g. 7d, 30d, 1y)")
+	searchCmd.Flags().StringVar(&searchMaxSensitivity, "max-sensitivity", "", "Maximum sensitivity level: public, internal, confidential, secret")
+	searchCmd.Flags().StringVar(&searchMinSharingLevel, "min-sharing-level", "", "Minimum sharing level: private, team, org, public")
+	searchCmd.Flags().StringVar(&searchClientID, "client-id", "", "Client ID for access control filtering")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -51,14 +69,32 @@ var searchCmd = &cobra.Command{
 			entityID = entity.ID
 		}
 
+		trustFilter := db.TrustFilter{
+			MinConfidence:      searchMinConfidence,
+			VerificationStatus: searchVerification,
+			ExcludeSuperseded:  searchExcludeSuperseded,
+		}
+		if searchMaxAge != "" {
+			dur, err := parseDuration(searchMaxAge)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "invalid max-age value")
+			}
+			trustFilter.MaxAge = dur
+		}
+
+		policyFilter := db.PolicyFilter{
+			MaxSensitivity:  searchMaxSensitivity,
+			MinSharingLevel: searchMinSharingLevel,
+			ClientID:        searchClientID,
+		}
+
 		var results []db.SearchResult
 		var err error
 
 		if emb.Source == "hash-fallback" {
-			// No Ollama available: use BM25/FTS5 keyword search instead of broken vector search
 			results, err = GetDB().SearchMemoriesBM25(query, searchScope, searchLimit)
 		} else {
-			results, err = GetDB().SearchMemoriesFiltered(emb.Vector, emb.Source, searchScope, searchLimit, entityID)
+			results, err = GetDB().SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, searchScope, searchLimit, entityID, trustFilter, policyFilter)
 		}
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "semantic search failure")
@@ -70,4 +106,30 @@ var searchCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+func parseDuration(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if len(s) < 2 {
+		return 0, fmt.Errorf("invalid duration: %s", s)
+	}
+	suffix := s[len(s)-1]
+	switch suffix {
+	case 'd':
+		n, err := strconv.Atoi(s[:len(s)-1])
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	case 'h':
+		return time.ParseDuration(s)
+	case 'm':
+		return time.ParseDuration(s)
+	case 's':
+		return time.ParseDuration(s)
+	default:
+		return time.ParseDuration(s)
+	}
 }
