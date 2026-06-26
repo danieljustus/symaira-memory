@@ -46,74 +46,6 @@ func (s *Server) StartHTTPServer(port int) error {
 	}
 }
 
-func (s *Server) enableCORS(w http.ResponseWriter, r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	allowed := false
-	for _, o := range s.allowedOrigins {
-		if matchOrigin(origin, o) {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		if origin != "" {
-			writeJSONError(w, http.StatusForbidden, CodeForbidden, "origin not allowed", nil)
-			return true
-		}
-	} else {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-	}
-	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
-		return true
-	}
-	return false
-}
-
-func (s *Server) requireAuth(w http.ResponseWriter, r *http.Request) (*security.JWTPayload, bool) {
-	if s.jwts == nil {
-		return nil, true
-	}
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "missing or invalid Authorization header", nil)
-		return nil, false
-	}
-	token := strings.TrimPrefix(auth, "Bearer ")
-	payload, err := s.jwts.VerifyToken(token)
-	if err != nil {
-		writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "invalid or expired token", err)
-		return nil, false
-	}
-	return payload, true
-}
-
-func (s *Server) requireRole(w http.ResponseWriter, r *http.Request, minRole security.Role) (*security.JWTPayload, bool) {
-	payload, ok := s.requireAuth(w, r)
-	if !ok {
-		return nil, false
-	}
-	if s.profile != nil {
-		if !security.ParseRole(s.profile.Role).CanWrite() && minRole == security.RoleReadWrite {
-			writeJSONError(w, http.StatusForbidden, CodeForbidden, "insufficient permissions: read-only profile", nil)
-			return nil, false
-		}
-		return payload, true
-	}
-	if payload != nil && payload.Subject != "" && s.db != nil {
-		p, err := s.db.GetProfileByName(payload.Subject)
-		if err == nil && p != nil {
-			if !security.ParseRole(p.Role).CanWrite() && minRole == security.RoleReadWrite {
-				writeJSONError(w, http.StatusForbidden, CodeForbidden, "insufficient permissions: read-only profile", nil)
-				return nil, false
-			}
-		}
-	}
-	return payload, true
-}
-
 func (s *Server) httpMux() http.Handler {
 	mux := http.NewServeMux()
 
@@ -140,8 +72,72 @@ func (s *Server) httpMux() http.Handler {
 	var handler http.Handler = mux
 	handler = csrfProtectionHandler(handler)
 	handler = securityHeadersHandler(handler)
-	handler = RateLimitMiddleware(s.rateLimiter, handler)
 	return requestLoggingMiddleware(handler)
+}
+
+func (s *Server) enableCORS(w http.ResponseWriter, r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	allowed := false
+	for _, o := range s.cors.allowedOrigins {
+		if matchOrigin(origin, o) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		if origin != "" {
+			writeJSONError(w, http.StatusForbidden, CodeForbidden, "origin not allowed", nil)
+			return true
+		}
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	}
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return true
+	}
+	return false
+}
+
+func (s *Server) requireAuth(w http.ResponseWriter, r *http.Request) (*security.JWTPayload, bool) {
+	if s.auth.jwts == nil {
+		return nil, true
+	}
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "missing or invalid Authorization header", nil)
+		return nil, false
+	}
+	token := strings.TrimPrefix(auth, "Bearer ")
+	payload, err := s.auth.jwts.VerifyToken(token)
+	if err != nil {
+		writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "invalid or expired token", err)
+		return nil, false
+	}
+	return payload, true
+}
+
+func (s *Server) requireRole(w http.ResponseWriter, r *http.Request, minRole security.Role) (*security.JWTPayload, bool) {
+	payload, ok := s.requireAuth(w, r)
+	if !ok {
+		return nil, false
+	}
+	profile := s.auth.profile
+	if profile == nil && payload != nil && payload.Subject != "" && s.auth.db != nil {
+		p, err := s.auth.db.GetProfileByName(payload.Subject)
+		if err == nil {
+			profile = p
+		}
+	}
+	if profile != nil {
+		if !security.ParseRole(profile.Role).CanWrite() && minRole == security.RoleReadWrite {
+			writeJSONError(w, http.StatusForbidden, CodeForbidden, "insufficient permissions: read-only profile", nil)
+			return nil, false
+		}
+	}
+	return payload, true
 }
 
 func csrfProtectionHandler(next http.Handler) http.Handler {

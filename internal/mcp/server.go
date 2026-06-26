@@ -14,54 +14,58 @@ import (
 
 // Standard HTTP error codes for API responses.
 const (
-	CodeInvalidRequest = "INVALID_REQUEST"
-	CodeNotFound       = "NOT_FOUND"
-	CodeForbidden      = "FORBIDDEN"
-	CodeInternal       = "INTERNAL_ERROR"
+	CodeInvalidRequest   = "INVALID_REQUEST"
+	CodeNotFound         = "NOT_FOUND"
+	CodeForbidden        = "FORBIDDEN"
+	CodeInternal         = "INTERNAL_ERROR"
 	CodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
 )
 
 type Server struct {
-	db             *db.DB
-	extractor      *extractor.PatternExtractor
-	embeddings     *extractor.EmbeddingsGenerator
-	jwts           *security.JWTProvider
-	allowedOrigins []string
-	piiEnabled     bool
-	version        string
-	cfg            *config.Config
-	profile        *db.Profile
-	rateLimiter    *RateLimiter
+	service    *MemoryService
+	auth       *AuthMiddleware
+	cors       *CORSMiddleware
+	jwts       *security.JWTProvider
+	version    string
+	cfg        *config.Config
+	profile    *db.Profile
+	rateLimiter *RateLimiter
 }
 
 func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version string, cfg *config.Config) *Server {
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	service := NewMemoryService(database, embeddings, true)
+	auth := NewAuthMiddleware(jwtProvider, database)
+	cors := NewCORSMiddleware([]string{"chrome-extension://*", "moz-extension://*"})
+
 	return &Server{
-		db:             database,
-		extractor:      extractor.NewPatternExtractor(),
-		embeddings:     extractor.NewEmbeddingsGenerator(cfg),
-		jwts:           jwtProvider,
-		allowedOrigins: []string{"chrome-extension://*", "moz-extension://*"},
-		piiEnabled:     true,
-		version:        version,
-		cfg:            cfg,
-		rateLimiter:    NewRateLimiter(DefaultRateLimitConfig(), cfg.Security.TrustedProxies...),
+		service:     service,
+		auth:        auth,
+		cors:        cors,
+		jwts:        jwtProvider,
+		version:     version,
+		cfg:         cfg,
+		rateLimiter: NewRateLimiter(DefaultRateLimitConfig(), cfg.Security.TrustedProxies...),
 	}
 }
 
 func (s *Server) SetPIIEnabled(enabled bool) {
-	s.piiEnabled = enabled
+	s.service.SetPIIEnabled(enabled)
 }
 
 func (s *Server) SetAllowedOrigins(origins []string) {
-	s.allowedOrigins = origins
+	s.cors = NewCORSMiddleware(origins)
 }
 
 func (s *Server) SetProfile(p *db.Profile) {
 	s.profile = p
+	s.auth.SetProfile(p)
 }
 
-// writeJSONError sends a standardized JSON error response with an error code.
-// The safeMsg is safe for client exposure; internal is logged to stderr only.
+func (s *Server) DB() *db.DB {
+	return s.service.db
+}
+
 func writeJSONError(w http.ResponseWriter, status int, code string, safeMsg string, internal error) {
 	if internal != nil {
 		slog.Error("HTTP error", "code", code, "msg", safeMsg, "err", internal)

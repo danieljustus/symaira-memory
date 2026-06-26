@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
-	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/danieljustus/symaira-memory/internal/web"
 	"github.com/google/uuid"
@@ -24,7 +23,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"status":            "healthy",
 		"version":           s.version,
 		"server":            "symaira-memory",
-		"embedding_backend": s.embeddings.ActiveBackend(),
+		"embedding_backend": s.service.ActiveBackend(),
 	})
 }
 
@@ -55,24 +54,12 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		args.Limit = 5
 	}
 
-	var entityID string
-	if args.Entity != "" {
-		entity, err := s.db.ResolveEntity(args.Entity)
-		if err != nil {
-			writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to resolve entity", err)
-			return
-		}
-		if entity == nil {
-			writeJSONError(w, http.StatusNotFound, CodeNotFound, fmt.Sprintf("entity not found: %s", args.Entity), nil)
-			return
-		}
-		entityID = entity.ID
-	}
-
-	emb := s.embeddings.GenerateVector(args.Query)
-	queryVector := emb.Vector
-	results, err := s.db.SearchMemoriesFiltered(queryVector, emb.Source, args.Scope, args.Limit, entityID)
+	results, err := s.service.Search(args.Query, args.Scope, args.Limit, args.Entity)
 	if err != nil {
+		if nf, ok := err.(*NotFoundError); ok {
+			writeJSONError(w, http.StatusNotFound, CodeNotFound, nf.Error(), nil)
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Search failed", err)
 		return
 	}
@@ -110,12 +97,8 @@ func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 	if payload != nil && payload.Subject != "" {
 		author = payload.Subject
 	}
-	attr := memory.Attribution{
-		Author:    author,
-		SessionID: args.SessionID,
-	}
 
-	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, args.Metadata, s.piiEnabled, attr, args.Entities)
+	id, err := s.service.Set(args.Content, args.Scope, args.Metadata, args.SessionID, author, args.Entities)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to save memory", err)
 		return
@@ -124,7 +107,7 @@ func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
-		"id":     m.ID,
+		"id":     id,
 	})
 }
 
@@ -150,7 +133,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		limit = 1000
 	}
 
-	memories, err := s.db.ListMemoriesLite(scope, 0, limit)
+	memories, err := s.service.List(scope, limit)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to list memories", err)
 		return
@@ -211,10 +194,8 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 		limit = 10000
 	}
 
-	var memories []*db.Memory
-	var err error
 	includeEmb := r.URL.Query().Get("include_embeddings") == "true"
-	memories, err = s.db.GetMemoriesSinceCursor(since, limit+1, includeEmb)
+	memories, err := s.service.GetMemoriesSinceCursor(since, limit+1, includeEmb)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to fetch changes", err)
 		return
@@ -278,11 +259,7 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 			skippedInvalidScope++
 			continue
 		}
-		if s.piiEnabled {
-			m.Content = security.Redact(m.Content)
-			m.Metadata = security.RedactMap(m.Metadata)
-		}
-		isNew, err := s.db.UpsertMemoryIfNewer(m)
+		isNew, err := s.service.UpsertMemoryIfNewer(m)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to apply memory", err)
 			return
@@ -294,7 +271,7 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_ = s.db.LogAudit("sync.apply", "", "", "", actor,
+	_ = s.service.LogAudit("sync.apply", "", "", "", actor,
 		fmt.Sprintf("applied=%d skipped=%d invalidScope=%d invalidID=%d", applied, skipped, skippedInvalidScope, skippedInvalidID))
 
 	w.Header().Set("Content-Type", "application/json")
@@ -324,13 +301,13 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, err := s.db.GetMemory(id)
+	m, err := s.service.Get(id)
 	if err != nil {
+		if nf, ok := err.(*NotFoundError); ok {
+			writeJSONError(w, http.StatusNotFound, CodeNotFound, nf.Error(), nil)
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "failed to fetch memory", err)
-		return
-	}
-	if m == nil {
-		writeJSONError(w, http.StatusNotFound, CodeNotFound, "not found", nil)
 		return
 	}
 
@@ -356,17 +333,12 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, err := s.db.GetMemory(id)
+	err := s.service.Delete(id)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "failed to fetch memory", err)
-		return
-	}
-	if m == nil {
-		writeJSONError(w, http.StatusNotFound, CodeNotFound, "not found", nil)
-		return
-	}
-
-	if err := s.db.DeleteMemory(id); err != nil {
+		if nf, ok := err.(*NotFoundError); ok {
+			writeJSONError(w, http.StatusNotFound, CodeNotFound, nf.Error(), nil)
+			return
+		}
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "failed to delete memory", err)
 		return
 	}
@@ -388,7 +360,7 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 	}
 
 	scope := r.URL.Query().Get("scope")
-	rules, err := s.db.ListRules(scope)
+	rules, err := s.service.ListRules(scope)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "failed to list rules", err)
 		return
@@ -410,7 +382,7 @@ func (s *Server) handleEntities(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entities, err := s.db.ListEntities()
+	entities, err := s.service.ListEntities()
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "failed to list entities", err)
 		return

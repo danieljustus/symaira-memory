@@ -243,8 +243,8 @@ func TestToolMemoryGetNotFound(t *testing.T) {
 	res := callTool(s, "memory_get", map[string]interface{}{"id": "nonexistent"})
 
 	text := getToolText(res)
-	if !strings.Contains(text, "Memory not found") {
-		t.Errorf("expected 'Memory not found', got text=%q full=%v", text, res)
+	if !strings.Contains(text, "memory not found") {
+		t.Errorf("expected 'memory not found', got text=%q full=%v", text, res)
 	}
 }
 
@@ -257,7 +257,7 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 		Metadata:  map[string]string{"source": "test"},
 		Embedding: []float32{0.1, 0.2, 0.3},
 	}
-	if err := s.db.SaveMemory(m); err != nil {
+	if err := s.DB().SaveMemory(m); err != nil {
 		t.Fatalf("failed to save test memory: %v", err)
 	}
 
@@ -290,7 +290,7 @@ func TestToolMemoryGetOmitsEmbedding(t *testing.T) {
 		Scope:     "global",
 		Embedding: []float32{0.9, 0.8, 0.7},
 	}
-	if err := s.db.SaveMemory(m); err != nil {
+	if err := s.DB().SaveMemory(m); err != nil {
 		t.Fatalf("failed to save test memory: %v", err)
 	}
 
@@ -371,7 +371,7 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 		"metadata": `{"source":"test"}`,
 	})
 	text := getToolText(setRes)
-	if !strings.Contains(text, "Successfully saved memory") {
+	if !strings.Contains(text, "Memory saved successfully") {
 		t.Errorf("expected success message, got %q", text)
 	}
 
@@ -458,8 +458,8 @@ func TestToolMemoryListWithMemories(t *testing.T) {
 	s := helperServer(t)
 	m1 := &db.Memory{ID: "list-1", Content: "Memory A", Scope: "global", Embedding: []float32{1.0}}
 	m2 := &db.Memory{ID: "list-2", Content: "Memory B", Scope: "project", Embedding: []float32{2.0}}
-	s.db.SaveMemory(m1)
-	s.db.SaveMemory(m2)
+	s.DB().SaveMemory(m1)
+	s.DB().SaveMemory(m2)
 
 	res := callTool(s, "memory_list", map[string]interface{}{})
 
@@ -482,7 +482,7 @@ func TestToolMemoryListWithLimit(t *testing.T) {
 			Scope:     "global",
 			Embedding: []float32{float32(i) * 0.1},
 		}
-		s.db.SaveMemory(m)
+		s.DB().SaveMemory(m)
 	}
 
 	res := callTool(s, "memory_list", map[string]interface{}{"limit": 2})
@@ -506,7 +506,7 @@ func TestToolMemoryListLimitClampedToMax(t *testing.T) {
 			Scope:     "global",
 			Embedding: []float32{float32(i) * 0.1},
 		}
-		s.db.SaveMemory(m)
+		s.DB().SaveMemory(m)
 	}
 
 	res := callTool(s, "memory_list", map[string]interface{}{"limit": 5000})
@@ -530,7 +530,7 @@ func TestToolMemoryListInvalidLimitFallsBackToDefault(t *testing.T) {
 			Scope:     "global",
 			Embedding: []float32{float32(i) * 0.1},
 		}
-		s.db.SaveMemory(m)
+		s.DB().SaveMemory(m)
 	}
 
 	res := callTool(s, "memory_list", map[string]interface{}{"limit": "not-a-number"})
@@ -637,9 +637,9 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: []float32{0.1},
 	}
-	s.db.SaveMemory(old)
+	s.DB().SaveMemory(old)
 
-	got, _ := s.db.GetMemory("sync-old")
+	got, _ := s.DB().GetMemory("sync-old")
 	cutoff := got.UpdatedAt
 	time.Sleep(50 * time.Millisecond)
 
@@ -650,7 +650,7 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: []float32{0.2},
 	}
-	s.db.SaveMemory(new)
+	s.DB().SaveMemory(new)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -699,7 +699,7 @@ func TestSyncChangesCursorPagination(t *testing.T) {
 			Metadata:  map[string]string{},
 			Embedding: []float32{float32(i) * 0.1},
 		}
-		s.db.SaveMemory(m)
+		s.DB().SaveMemory(m)
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -848,9 +848,9 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: []float32{0.1},
 	}
-	s.db.SaveMemory(existing)
+	s.DB().SaveMemory(existing)
 
-	got, _ := s.db.GetMemory("110e8400-e29b-41d4-a716-446655440001")
+	got, _ := s.DB().GetMemory("110e8400-e29b-41d4-a716-446655440001")
 	existingTime := got.UpdatedAt
 
 	older := &db.Memory{
@@ -917,7 +917,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		t.Errorf("expected 1 skipped (older), got %d", result.Skipped)
 	}
 
-	updated, _ := s.db.GetMemory("110e8400-e29b-41d4-a716-446655440001")
+	updated, _ := s.DB().GetMemory("110e8400-e29b-41d4-a716-446655440001")
 	if updated.Content != "should overwrite" {
 		t.Errorf("expected content 'should overwrite', got %q", updated.Content)
 	}
@@ -995,7 +995,7 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 		t.Errorf("expected 1 skippedInvalidScope, got %d", result.SkippedInvalidScope)
 	}
 
-	stored, _ := s.db.GetMemory("210e8400-e29b-41d4-a716-446655440010")
+	stored, _ := s.DB().GetMemory("210e8400-e29b-41d4-a716-446655440010")
 	if stored.Content == "Contact alice@example.com for details" {
 		t.Error("expected PII to be redacted in stored content")
 	}
@@ -1036,7 +1036,7 @@ func TestSyncApplyMetadataPIIRedaction(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	stored, _ := s.db.GetMemory("310e8400-e29b-41d4-a716-446655440020")
+	stored, _ := s.DB().GetMemory("310e8400-e29b-41d4-a716-446655440020")
 	if stored == nil {
 		t.Fatal("expected memory to be stored")
 	}
@@ -1121,7 +1121,7 @@ func TestSyncApplyInvalidUUIDSkipped(t *testing.T) {
 		t.Errorf("expected 2 skippedInvalidID (non-UUID + truncated), got %d", result.SkippedInvalidID)
 	}
 
-	stored, err := s.db.GetMemory("550e8400-e29b-41d4-a716-446655440000")
+	stored, err := s.DB().GetMemory("550e8400-e29b-41d4-a716-446655440000")
 	if err != nil || stored == nil {
 		t.Error("expected valid UUID memory to be stored")
 	}
@@ -1162,7 +1162,7 @@ func TestSyncApplyAuditLogCreated(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	events, err := s.db.GetAuditLogs("sync.apply", 10)
+	events, err := s.DB().GetAuditLogs("sync.apply", 10)
 	if err != nil {
 		t.Fatalf("failed to fetch audit logs: %v", err)
 	}
@@ -1232,8 +1232,8 @@ func TestApiGetNotFound(t *testing.T) {
 
 	var body map[string]string
 	json.NewDecoder(resp.Body).Decode(&body)
-	if body["error"] != "not found" {
-		t.Errorf("expected error 'not found', got %q", body["error"])
+	if !strings.Contains(body["error"], "not found") {
+		t.Errorf("expected error containing 'not found', got %q", body["error"])
 	}
 }
 
@@ -1248,7 +1248,7 @@ func TestApiGetSuccess(t *testing.T) {
 		Metadata:  map[string]string{"source": "test"},
 		Embedding: []float32{0.1, 0.2},
 	}
-	s.db.SaveMemory(m)
+	s.DB().SaveMemory(m)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1347,7 +1347,7 @@ func TestApiDeleteSuccess(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: []float32{0.1},
 	}
-	s.db.SaveMemory(m)
+	s.DB().SaveMemory(m)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1370,7 +1370,7 @@ func TestApiDeleteSuccess(t *testing.T) {
 		t.Error("expected deleted: true")
 	}
 
-	got, _ := s.db.GetMemory("del-test-1")
+	got, _ := s.DB().GetMemory("del-test-1")
 	if got != nil {
 		t.Error("expected memory to be deleted from database")
 	}
@@ -1387,7 +1387,7 @@ func TestApiDeleteViaPost(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: []float32{0.1},
 	}
-	s.db.SaveMemory(m)
+	s.DB().SaveMemory(m)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1404,7 +1404,7 @@ func TestApiDeleteViaPost(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	got, _ := s.db.GetMemory("del-post-1")
+	got, _ := s.DB().GetMemory("del-post-1")
 	if got != nil {
 		t.Error("expected memory to be deleted from database")
 	}
@@ -1466,7 +1466,7 @@ func TestApiRulesWithData(t *testing.T) {
 		Scope:    "global",
 		Metadata: map[string]string{"source": "test"},
 	}
-	s.db.SaveRule(r)
+	s.DB().SaveRule(r)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1687,7 +1687,7 @@ func TestSearchMethodNotAllowed(t *testing.T) {
 
 func TestRequireRoleReadOnlyProfile(t *testing.T) {
 	s := helperServer(t)
-	s.profile = &db.Profile{Role: "read-only"}
+	s.SetProfile(&db.Profile{Role: "read-only"})
 	token := helperAuthToken(t, s)
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1734,7 +1734,7 @@ func TestStatusIncludesEmbeddingBackend(t *testing.T) {
 
 func TestStatusEmbeddingBackendLexicalAfterFailure(t *testing.T) {
 	s := helperServer(t)
-	s.embeddings.MarkOllamaFailed()
+	s.service.embeddings.MarkOllamaFailed()
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
 
@@ -1886,9 +1886,9 @@ func TestStartHTTPServerServeError(t *testing.T) {
 // --------------------------------------------------------------------------
 
 func TestRequireAuthNilJWTProvider(t *testing.T) {
-	// Lines 75-77: when s.jwts is nil, requireAuth returns (nil, true).
+	// When auth.jwts is nil, requireAuth returns (nil, true).
 	s := helperServer(t)
-	s.jwts = nil
+	s.auth.jwts = nil
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1967,7 +1967,7 @@ func TestRequireRoleDBProfileLookup(t *testing.T) {
 		Type: "agent",
 		Role: "read",
 	}
-	if err := s.db.SaveProfile(readOnlyProfile); err != nil {
+	if err := s.DB().SaveProfile(readOnlyProfile); err != nil {
 		t.Fatalf("failed to save profile: %v", err)
 	}
 
@@ -2015,7 +2015,7 @@ func TestRequireRoleDBProfileReadWriteAllowsAccess(t *testing.T) {
 		Type: "agent",
 		Role: "readwrite",
 	}
-	if err := s.db.SaveProfile(rwProfile); err != nil {
+	if err := s.DB().SaveProfile(rwProfile); err != nil {
 		t.Fatalf("failed to save profile: %v", err)
 	}
 

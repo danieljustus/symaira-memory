@@ -9,7 +9,6 @@ import (
 
 	"github.com/danieljustus/symaira-corekit/mcpserver"
 	"github.com/danieljustus/symaira-memory/internal/db"
-	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 )
 
@@ -114,13 +113,12 @@ func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (an
 		return nil, fmt.Errorf("invalid arguments for 'memory_get': 'id' is required")
 	}
 
-	m, err := s.db.GetMemory(args.ID)
+	m, err := s.service.Get(args.ID)
 	if err != nil {
+		if nf, ok := err.(*NotFoundError); ok {
+			return nf.Error(), nil
+		}
 		return mcpError("Failed to fetch memory", err)
-	}
-
-	if m == nil {
-		return "Memory not found", nil
 	}
 
 	data, _ := json.MarshalIndent(memoryResponse(m), "", "  ")
@@ -163,17 +161,12 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 		}
 	}
 
-	attr := memory.Attribution{
-		Author:    "mcp",
-		SessionID: args.SessionID,
-	}
-
-	m, extractedStr, err := memory.Store(s.db, s.embeddings, s.extractor, args.Content, args.Scope, meta, s.piiEnabled, attr, entityNames)
+	id, err := s.service.Set(args.Content, args.Scope, meta, args.SessionID, "mcp", entityNames)
 	if err != nil {
 		return nil, fmt.Errorf("%s", err.Error())
 	}
 
-	return memory.FormatStoreSuccess(m, extractedStr), nil
+	return fmt.Sprintf("Memory saved successfully with ID: %s", id), nil
 }
 
 func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) (any, error) {
@@ -195,22 +188,11 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		limit = 5
 	}
 
-	var entityID string
-	if args.Entity != "" {
-		entity, err := s.db.ResolveEntity(args.Entity)
-		if err != nil {
-			return mcpError("Failed to resolve entity", err)
-		}
-		if entity == nil {
-			return nil, fmt.Errorf("entity not found: %s", args.Entity)
-		}
-		entityID = entity.ID
-	}
-
-	emb := s.embeddings.GenerateVector(args.Query)
-	queryVector := emb.Vector
-	results, err := s.db.SearchMemoriesFiltered(queryVector, emb.Source, args.Scope, limit, entityID)
+	results, err := s.service.Search(args.Query, args.Scope, limit, args.Entity)
 	if err != nil {
+		if nf, ok := err.(*NotFoundError); ok {
+			return nil, fmt.Errorf("%s", nf.Error())
+		}
 		return mcpError("Failed to search memories", err)
 	}
 
@@ -244,7 +226,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 		limit = 1000
 	}
 
-	memories, err := s.db.ListMemoriesLite(args.Scope, 0, limit)
+	memories, err := s.service.List(args.Scope, limit)
 	if err != nil {
 		return mcpError("Failed to list memories", err)
 	}
@@ -258,7 +240,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 }
 
 func (s *Server) handleEntityList(ctx context.Context, input json.RawMessage) (any, error) {
-	entities, err := s.db.ListEntities()
+	entities, err := s.service.ListEntities()
 	if err != nil {
 		return mcpError("Failed to list entities", err)
 	}

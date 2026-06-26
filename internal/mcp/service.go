@@ -1,0 +1,131 @@
+package mcp
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/memory"
+	"github.com/danieljustus/symaira-memory/internal/security"
+)
+
+// MemoryService encapsulates all business logic for memory operations,
+// decoupling HTTP handlers from database and extraction internals.
+type MemoryService struct {
+	db         *db.DB
+	extractor  *extractor.PatternExtractor
+	embeddings *extractor.EmbeddingsGenerator
+	piiEnabled bool
+}
+
+// NewMemoryService creates a service with the given dependencies.
+func NewMemoryService(database *db.DB, embeddings *extractor.EmbeddingsGenerator, piiEnabled bool) *MemoryService {
+	return &MemoryService{
+		db:         database,
+		extractor:  extractor.NewPatternExtractor(),
+		embeddings: embeddings,
+		piiEnabled: piiEnabled,
+	}
+}
+
+func (s *MemoryService) SetPIIEnabled(enabled bool) {
+	s.piiEnabled = enabled
+}
+
+func (s *MemoryService) ActiveBackend() string {
+	return s.embeddings.ActiveBackend()
+}
+
+func (s *MemoryService) Search(query, scope string, limit int, entityName string) ([]db.SearchResult, error) {
+	var entityID string
+	if entityName != "" {
+		entity, err := s.db.ResolveEntity(entityName)
+		if err != nil {
+			return nil, fmt.Errorf("resolve entity: %w", err)
+		}
+		if entity == nil {
+			return nil, &NotFoundError{Resource: "entity", Identifier: entityName}
+		}
+		entityID = entity.ID
+	}
+
+	emb := s.embeddings.GenerateVector(query)
+	return s.db.SearchMemoriesFiltered(emb.Vector, emb.Source, scope, limit, entityID)
+}
+
+func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string) (string, error) {
+	attr := memory.Attribution{
+		Author:    author,
+		SessionID: sessionID,
+	}
+	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, content, scope, metadata, s.piiEnabled, attr, entities)
+	if err != nil {
+		return "", err
+	}
+	return m.ID, nil
+}
+
+func (s *MemoryService) Get(id string) (*db.Memory, error) {
+	m, err := s.db.GetMemory(id)
+	if err != nil {
+		return nil, err
+	}
+	if m == nil {
+		return nil, &NotFoundError{Resource: "memory", Identifier: id}
+	}
+	return m, nil
+}
+
+func (s *MemoryService) Delete(id string) error {
+	m, err := s.db.GetMemory(id)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return &NotFoundError{Resource: "memory", Identifier: id}
+	}
+	return s.db.DeleteMemory(id)
+}
+
+func (s *MemoryService) List(scope string, limit int) ([]*db.Memory, error) {
+	return s.db.ListMemoriesLite(scope, 0, limit)
+}
+
+func (s *MemoryService) ListRules(scope string) ([]*db.Rule, error) {
+	return s.db.ListRules(scope)
+}
+
+func (s *MemoryService) ListEntities() ([]*db.Entity, error) {
+	return s.db.ListEntities()
+}
+
+func (s *MemoryService) GetMemory(id string) (*db.Memory, error) {
+	return s.db.GetMemory(id)
+}
+
+func (s *MemoryService) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddings ...bool) ([]*db.Memory, error) {
+	return s.db.GetMemoriesSinceCursor(since, limit, includeEmbeddings...)
+}
+
+func (s *MemoryService) UpsertMemoryIfNewer(m *db.Memory) (bool, error) {
+	if s.piiEnabled {
+		m.Content = security.Redact(m.Content)
+		m.Metadata = security.RedactMap(m.Metadata)
+	}
+	return s.db.UpsertMemoryIfNewer(m)
+}
+
+func (s *MemoryService) LogAudit(action, entityID, memoryID, diff, actor, detail string) error {
+	return s.db.LogAudit(action, entityID, memoryID, diff, actor, detail)
+}
+
+// NotFoundError indicates a requested resource does not exist.
+type NotFoundError struct {
+	Resource   string
+	Identifier string
+}
+
+func (e *NotFoundError) Error() string {
+	return fmt.Sprintf("%s not found: %s", e.Resource, e.Identifier)
+}
