@@ -57,7 +57,7 @@ func (s *Server) enableCORS(w http.ResponseWriter, r *http.Request) bool {
 	}
 	if !allowed {
 		if origin != "" {
-			http.Error(w, `{"error":"origin not allowed"}`, http.StatusForbidden)
+			writeJSONError(w, http.StatusForbidden, CodeForbidden, "origin not allowed", nil)
 			return true
 		}
 	} else {
@@ -78,13 +78,13 @@ func (s *Server) requireAuth(w http.ResponseWriter, r *http.Request) (*security.
 	}
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(auth, "Bearer ") {
-		http.Error(w, `{"error":"missing or invalid Authorization header"}`, http.StatusUnauthorized)
+		writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "missing or invalid Authorization header", nil)
 		return nil, false
 	}
 	token := strings.TrimPrefix(auth, "Bearer ")
 	payload, err := s.jwts.VerifyToken(token)
 	if err != nil {
-		writeJSONError(w, http.StatusUnauthorized, "invalid or expired token", err)
+		writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "invalid or expired token", err)
 		return nil, false
 	}
 	return payload, true
@@ -97,7 +97,7 @@ func (s *Server) requireRole(w http.ResponseWriter, r *http.Request, minRole sec
 	}
 	if s.profile != nil {
 		if !security.ParseRole(s.profile.Role).CanWrite() && minRole == security.RoleReadWrite {
-			writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
+			writeJSONError(w, http.StatusForbidden, CodeForbidden, "insufficient permissions: read-only profile", nil)
 			return nil, false
 		}
 		return payload, true
@@ -106,7 +106,7 @@ func (s *Server) requireRole(w http.ResponseWriter, r *http.Request, minRole sec
 		p, err := s.db.GetProfileByName(payload.Subject)
 		if err == nil && p != nil {
 			if !security.ParseRole(p.Role).CanWrite() && minRole == security.RoleReadWrite {
-				writeJSONError(w, http.StatusForbidden, "insufficient permissions: read-only profile", nil)
+				writeJSONError(w, http.StatusForbidden, CodeForbidden, "insufficient permissions: read-only profile", nil)
 				return nil, false
 			}
 		}
@@ -170,7 +170,7 @@ func csrfProtectionHandler(next http.Handler) http.Handler {
 		}
 
 		slog.Warn("CSRF blocked request", "method", r.Method, "path", r.URL.Path, "origin", r.Header.Get("Origin"))
-		writeJSONError(w, http.StatusForbidden, "CSRF validation failed", nil)
+		writeJSONError(w, http.StatusForbidden, CodeForbidden, "CSRF validation failed", nil)
 	})
 }
 

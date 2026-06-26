@@ -3,13 +3,22 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
-	"os"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/security"
+)
+
+// Standard HTTP error codes for API responses.
+const (
+	CodeInvalidRequest = "INVALID_REQUEST"
+	CodeNotFound       = "NOT_FOUND"
+	CodeForbidden      = "FORBIDDEN"
+	CodeInternal       = "INTERNAL_ERROR"
+	CodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
 )
 
 type Server struct {
@@ -51,18 +60,23 @@ func (s *Server) SetProfile(p *db.Profile) {
 	s.profile = p
 }
 
-func writeJSONError(w http.ResponseWriter, status int, safeMsg string, internal error) {
+// writeJSONError sends a standardized JSON error response with an error code.
+// The safeMsg is safe for client exposure; internal is logged to stderr only.
+func writeJSONError(w http.ResponseWriter, status int, code string, safeMsg string, internal error) {
 	if internal != nil {
-		fmt.Fprintf(os.Stderr, "[HTTP ERROR] %s: %v\n", safeMsg, internal)
+		slog.Error("HTTP error", "code", code, "msg", safeMsg, "err", internal)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": safeMsg})
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"error": safeMsg,
+		"code":  code,
+	})
 }
 
 func mcpError(safeMsg string, internal error) (any, error) {
 	if internal != nil {
-		fmt.Fprintf(os.Stderr, "[MCP ERROR] %s: %v\n", safeMsg, internal)
+		slog.Error("MCP error", "msg", safeMsg, "err", internal)
 	}
 	return nil, fmt.Errorf("%s", safeMsg)
 }
