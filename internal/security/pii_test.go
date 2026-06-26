@@ -255,6 +255,16 @@ func TestCreditCardPrefixValidation(t *testing.T) {
 			input:    "Card: 4111-1111-1111-1111",
 			expected: "Card: [REDACTED_CARD_NUMBER]",
 		},
+		{
+			name:     "GCP service account private_key field",
+			input:    `"private_key": "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy5AH...-----END RSA PRIVATE KEY-----\n"`,
+			expected: "[REDACTED_API_KEY]",
+		},
+		{
+			name:     "GCP service account without key type prefix",
+			input:    `"private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASC...-----END PRIVATE KEY-----\n"`,
+			expected: "[REDACTED_API_KEY]",
+		},
 	}
 
 	for _, tt := range tests {
