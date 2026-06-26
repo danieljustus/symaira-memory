@@ -53,9 +53,9 @@ type RankingWeights struct {
 // TrustFilter defines retrieval filters for trust-aware memory search.
 // Empty fields are ignored (no filtering on that dimension).
 type TrustFilter struct {
-	MinConfidence      string // "low", "medium", "high" — skip memories below this
-	VerificationStatus string // "verified", "unverified", "stale" — filter by verification
-	ExcludeSuperseded  bool   // when true, skip memories with non-empty superseded_by
+	MinConfidence      string        // "low", "medium", "high" — skip memories below this
+	VerificationStatus string        // "verified", "unverified", "stale" — filter by verification
+	ExcludeSuperseded  bool          // when true, skip memories with non-empty superseded_by
 	MaxAge             time.Duration // when non-zero, skip memories older than this
 }
 

@@ -45,18 +45,18 @@ const (
 // Missing keys imply safe defaults: authority="unverified", confidence="medium",
 // verification_status="unverified".
 const (
-	MetaAuthority           = "authority"
-	MetaConfidence          = "confidence"
-	MetaVerificationStatus  = "verification_status"
-	MetaVerifiedAt          = "verified_at"
-	MetaSupersededBy        = "superseded_by"
+	MetaAuthority          = "authority"
+	MetaConfidence         = "confidence"
+	MetaVerificationStatus = "verification_status"
+	MetaVerifiedAt         = "verified_at"
+	MetaSupersededBy       = "superseded_by"
 )
 
 // Trust filter values.
 const (
-	AuthorityDirect    = "direct"
-	AuthorityVerified  = "verified"
-	AuthorityInferred  = "inferred"
+	AuthorityDirect     = "direct"
+	AuthorityVerified   = "verified"
+	AuthorityInferred   = "inferred"
 	AuthorityUnverified = "unverified"
 
 	ConfidenceHigh   = "high"
@@ -77,18 +77,18 @@ const (
 
 // Sensitivity levels (ascending sensitivity).
 const (
-	SensitivityPublic     = "public"
-	SensitivityInternal   = "internal"
+	SensitivityPublic       = "public"
+	SensitivityInternal     = "internal"
 	SensitivityConfidential = "confidential"
-	SensitivitySecret     = "secret"
+	SensitivitySecret       = "secret"
 )
 
 // Sharing levels (ascending visibility).
 const (
-	SharingPrivate   = "private"
-	SharingTeam      = "team"
-	SharingOrg       = "org"
-	SharingPublic    = "public"
+	SharingPrivate = "private"
+	SharingTeam    = "team"
+	SharingOrg     = "org"
+	SharingPublic  = "public"
 )
 
 // DefaultProvenance returns the standard provenance metadata for a direct memory

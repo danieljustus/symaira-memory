@@ -12,17 +12,17 @@ import (
 )
 
 var (
-	searchScope           string
-	searchLimit           int
-	searchEntity          string
-	searchFormat          string
-	searchMinConfidence   string
-	searchVerification    string
+	searchScope             string
+	searchLimit             int
+	searchEntity            string
+	searchFormat            string
+	searchMinConfidence     string
+	searchVerification      string
 	searchExcludeSuperseded bool
-	searchMaxAge          string
-	searchMaxSensitivity  string
-	searchMinSharingLevel string
-	searchClientID        string
+	searchMaxAge            string
+	searchMaxSensitivity    string
+	searchMinSharingLevel   string
+	searchClientID          string
 )
 
 func init() {
