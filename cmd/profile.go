@@ -3,8 +3,8 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/google/uuid"
@@ -40,7 +40,7 @@ var profileAddCmd = &cobra.Command{
 	Use:   "add [name]",
 	Short: "Create a new agent profile",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		role := string(security.ParseRole(profileRole))
 
@@ -54,35 +54,34 @@ var profileAddCmd = &cobra.Command{
 		}
 
 		if err := GetDB().SaveProfile(p); err != nil {
-			fmt.Fprintf(os.Stderr, "Error saving profile: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to save profile")
 		}
 
 		fmt.Printf("Profile created: %s (role=%s, type=%s)\n", p.Name, p.Role, p.Type)
+		return nil
 	},
 }
 
 var profileListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all agent profiles",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		profiles, err := GetDB().ListProfiles()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing profiles: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to list profiles")
 		}
 
 		if len(profiles) == 0 {
 			fmt.Println("No profiles configured.")
-			return
+			return nil
 		}
 
 		bytes, err := json.MarshalIndent(profiles, "", "  ")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error encoding profiles: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error encoding profiles")
 		}
 		fmt.Println(string(bytes))
+		return nil
 	},
 }
 
@@ -90,27 +89,25 @@ var profileSetRoleCmd = &cobra.Command{
 	Use:   "set-role [name] [role]",
 	Short: "Update the role of an existing profile",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		newRole := string(security.ParseRole(args[1]))
 
 		p, err := GetDB().GetProfileByName(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching profile: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to fetch profile")
 		}
 		if p == nil {
-			fmt.Fprintf(os.Stderr, "Profile not found: %s\n", name)
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "profile not found: %s", name)
 		}
 
 		p.Role = newRole
 		if err := GetDB().SaveProfile(p); err != nil {
-			fmt.Fprintf(os.Stderr, "Error updating profile: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to update profile")
 		}
 
 		fmt.Printf("Profile %q role updated to %s\n", p.Name, p.Role)
+		return nil
 	},
 }
 
@@ -118,12 +115,12 @@ var profileRemoveCmd = &cobra.Command{
 	Use:   "remove [name]",
 	Short: "Delete an agent profile",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		if err := GetDB().DeleteProfile(name); err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting profile: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to delete profile")
 		}
 		fmt.Printf("Profile %q removed.\n", name)
+		return nil
 	},
 }

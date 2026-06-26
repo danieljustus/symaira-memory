@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 	"os/user"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/google/uuid"
@@ -36,7 +36,7 @@ var ruleAddCmd = &cobra.Command{
 	Use:   "add [instruction]",
 	Short: "Add a new behavioral rule",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		instruction := args[0]
 		id := uuid.New().String()
 
@@ -65,8 +65,7 @@ var ruleAddCmd = &cobra.Command{
 		}
 
 		if err := GetDB().SaveRule(r); err != nil {
-			fmt.Fprintf(os.Stderr, "Error saving rule: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to save rule")
 		}
 
 		fmt.Printf("⚡ Procedural rule saved successfully!\n")
@@ -76,24 +75,24 @@ var ruleAddCmd = &cobra.Command{
 		if ruleScope == "project" {
 			fmt.Printf("  Project:     %s\n", meta["project_name"])
 		}
+		return nil
 	},
 }
 
 var ruleListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all behavioral rules",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		rules, err := GetDB().ListRules(ruleScope)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Database read failure: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "database read failure")
 		}
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		if err := formatter.Output(rules, "rule-list"); err != nil {
-			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}
+		return nil
 	},
 }
 
@@ -101,12 +100,12 @@ var ruleDeleteCmd = &cobra.Command{
 	Use:   "delete [id]",
 	Short: "Delete a behavioral rule by ID",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
 		if err := GetDB().DeleteRule(id); err != nil {
-			fmt.Fprintf(os.Stderr, "Delete error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to delete rule")
 		}
 		fmt.Printf("⚡ Rule successfully deleted: %s\n", id)
+		return nil
 	},
 }

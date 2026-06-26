@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/spf13/cobra"
 )
 
@@ -31,31 +29,28 @@ var listCmd = &cobra.Command{
 
   # Filter by entity and output as JSON
   symmemory list --entity "BackendAPI" --format json`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		var entityID string
 		if listEntity != "" {
 			entity, err := GetDB().ResolveEntity(listEntity)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Entity lookup error: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "entity lookup error")
 			}
 			if entity == nil {
-				fmt.Fprintf(os.Stderr, "Entity not found: %s\n", listEntity)
-				os.Exit(1)
+				return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", listEntity)
 			}
 			entityID = entity.ID
 		}
 
 		mems, err := GetDB().ListMemoriesFiltered(listScope, entityID, 0, 1000)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Database read failure: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "database read failure")
 		}
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		if err := formatter.Output(mems, "list"); err != nil {
-			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}
+		return nil
 	},
 }

@@ -73,7 +73,7 @@ func captureStderr(fn func()) string {
 func TestVersionCommand(t *testing.T) {
 	helperSetup()
 	output := captureCmdOutput(func() {
-		versionCmd.Run(versionCmd, nil)
+		versionCmd.RunE(versionCmd, nil)
 	})
 
 	if !strings.Contains(output, "symmemory version 0.1.0") {
@@ -283,7 +283,7 @@ func TestPersistentPreRunBypassesDatabase(t *testing.T) {
 
 func TestMcpConfigCommandOutput(t *testing.T) {
 	output := captureCmdOutput(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 	fmt.Println(output) // consume stdout (stderr is used by mcp-config)
 
@@ -306,7 +306,7 @@ func TestMcpConfigDefaultArgsNoProfile(t *testing.T) {
 	configProfile = ""
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	if !strings.Contains(output, `"serve"`) {
@@ -322,7 +322,7 @@ func TestMcpConfigWithProfile(t *testing.T) {
 	defer func() { configProfile = "" }()
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	if !strings.Contains(output, "--profile") {
@@ -367,7 +367,7 @@ func TestMcpConfigDefaultToolIsClaudeCode(t *testing.T) {
 	configProfile = ""
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	// Default should produce claude-code format (mcpServers with command/args)
@@ -388,7 +388,7 @@ func TestMcpConfigClaudeCodePreset(t *testing.T) {
 	defer func() { configTool = ""; configProfile = "" }()
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	if !strings.Contains(output, `"mcpServers"`) {
@@ -405,7 +405,7 @@ func TestMcpConfigOpenCodePreset(t *testing.T) {
 	defer func() { configTool = ""; configProfile = "" }()
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	// OpenCode uses "mcp" root key and "type": "local"
@@ -430,7 +430,7 @@ func TestMcpConfigCodexPreset(t *testing.T) {
 	defer func() { configTool = ""; configProfile = "" }()
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	// Codex produces TOML output
@@ -454,7 +454,7 @@ func TestMcpConfigKimiPreset(t *testing.T) {
 	defer func() { configTool = ""; configProfile = "" }()
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	// Kimi uses same format as claude-code (mcpServers with command/args)
@@ -475,7 +475,7 @@ func TestMcpConfigCopilotPreset(t *testing.T) {
 	defer func() { configTool = ""; configProfile = "" }()
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	// Copilot requires type, env, and tools fields
@@ -502,7 +502,7 @@ func TestMcpConfigToolWithProfile(t *testing.T) {
 	defer func() { configTool = ""; configProfile = "" }()
 
 	output := captureStderr(func() {
-		configCmd.Run(configCmd, nil)
+		configCmd.RunE(configCmd, nil)
 	})
 
 	if !strings.Contains(output, "--profile") {
@@ -535,7 +535,7 @@ func TestMcpConfigOutputIsValidJSON(t *testing.T) {
 			configProfile = ""
 
 			stderr := captureStderr(func() {
-				configCmd.Run(configCmd, nil)
+				configCmd.RunE(configCmd, nil)
 			})
 
 			// Extract the JSON block from stderr between the separator lines

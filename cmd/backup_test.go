@@ -582,7 +582,7 @@ func TestExportCreatesEncryptedArchive(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	exportCmd.Run(exportCmd, []string{backupPath})
+	exportCmd.RunE(exportCmd, []string{backupPath})
 
 	w.Close()
 	os.Stdout = oldStdout

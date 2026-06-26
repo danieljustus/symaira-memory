@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/spf13/cobra"
 )
@@ -33,19 +34,17 @@ var tokenCmd = &cobra.Command{
 var tokenGenCmd = &cobra.Command{
 	Use:   "generate",
 	Short: "Generate a new signed JWT authorization token",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		provider, err := security.NewJWTProvider(GetConfig(), nil)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to initialize JWT provider: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to initialize JWT provider")
 		}
 		duration := time.Duration(tokenDuration) * time.Hour
 
 		var token string
 		token, err = provider.GenerateToken(tokenSubject, duration)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to generate token: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to generate token")
 		}
 
 		fmt.Fprintf(os.Stderr, "⚡ JWT Token generated successfully for '%s'!\n", tokenSubject)
@@ -55,6 +54,7 @@ var tokenGenCmd = &cobra.Command{
 		fmt.Fprintln(os.Stderr, "==========================================================================")
 		fmt.Fprintln(os.Stderr, "\nAdd this token to your client headers:")
 		fmt.Fprintln(os.Stderr, "  Authorization: Bearer <token>")
+		return nil
 	},
 }
 
@@ -62,18 +62,16 @@ var tokenVerifyCmd = &cobra.Command{
 	Use:   "verify [token]",
 	Short: "Verify the validity and integrity of a JWT token",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		token := args[0]
 		provider, err := security.NewJWTProvider(GetConfig(), nil)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to initialize JWT provider: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to initialize JWT provider")
 		}
 
 		payload, err := provider.VerifyToken(token)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "❌ Token verification failed: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitNoAuth, exitcodes.KindAuth, "token verification failed")
 		}
 
 		fmt.Println("✅ Token is VALID!")
@@ -91,5 +89,6 @@ var tokenVerifyCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "  ⚠ No profile found for subject %q — default role applies\n", payload.Subject)
 			}
 		}
+		return nil
 	},
 }

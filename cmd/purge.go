@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/spf13/cobra"
 )
 
@@ -41,14 +42,13 @@ Examples:
   # Preview what would be purged
   symmemory purge --session-ttl 24h --dry-run`,
 	Args: cobra.NoArgs,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		db := GetDB()
 
 		if purgeID != "" {
 			exists, err := db.PurgeByID(purgeID)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error purging memory: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error purging memory")
 			}
 			if purgeDryRun {
 				if exists {
@@ -61,26 +61,24 @@ Examples:
 			} else {
 				fmt.Fprintf(os.Stderr, "Memory %s not found\n", purgeID)
 			}
-			return
+			return nil
 		}
 
 		if purgeSessionTTL != "" {
 			ttl, err := time.ParseDuration(purgeSessionTTL)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Invalid TTL duration: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitNoInput, exitcodes.KindValidation, "invalid TTL duration")
 			}
 			if purgeDryRun {
 				fmt.Fprintf(os.Stderr, "[dry-run] Would purge session memories older than %s\n", ttl)
 			} else {
 				n, err := db.PurgeExpiredMemories(ttl)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error purging expired memories: %v\n", err)
-					os.Exit(1)
+					return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error purging expired memories")
 				}
 				fmt.Fprintf(os.Stderr, "Purged %d expired session memories\n", n)
 			}
-			return
+			return nil
 		}
 
 		if purgeScope != "" {
@@ -89,15 +87,13 @@ Examples:
 			} else {
 				n, err := db.PurgeByScope(purgeScope)
 				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error purging scope: %v\n", err)
-					os.Exit(1)
+					return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error purging scope")
 				}
 				fmt.Fprintf(os.Stderr, "Purged %d memories in scope %q\n", n, purgeScope)
 			}
-			return
+			return nil
 		}
 
-		fmt.Fprintf(os.Stderr, "No purge target specified. Use --session-ttl, --scope, or --id.\n")
-		os.Exit(1)
+		return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "no purge target specified; use --session-ttl, --scope, or --id")
 	},
 }

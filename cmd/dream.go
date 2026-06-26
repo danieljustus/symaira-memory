@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/consolidation"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/spf13/cobra"
@@ -42,7 +43,7 @@ Examples:
   symmemory dream --dry-run
   symmemory dream --scope agent
   symmemory dream --format json`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := GetConfig()
 		db := GetDB()
 
@@ -70,13 +71,12 @@ Examples:
 
 		summaries, err := engine.RunConsolidation(cmd.Context(), dreamScope, dreamDryRun)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Consolidation failed: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "consolidation failed")
 		}
 
 		if len(summaries) == 0 {
 			fmt.Fprintln(os.Stderr, "No raw memories to consolidate")
-			return
+			return nil
 		}
 
 		if dreamFormat == "json" {
@@ -92,8 +92,7 @@ Examples:
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			if err := enc.Encode(output); err != nil {
-				fmt.Fprintf(os.Stderr, "JSON encode failed: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "JSON encode failed")
 			}
 		} else {
 			for _, s := range summaries {
@@ -106,5 +105,6 @@ Examples:
 				fmt.Fprintln(os.Stdout)
 			}
 		}
+		return nil
 	},
 }

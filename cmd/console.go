@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -17,7 +15,7 @@ var consoleCmd = &cobra.Command{
 	Short: "Launch the interactive local memory dashboard (TUI)",
 	Long: `Starts the high-performance local console UI (built using Bubble Tea and Lip Gloss) 
 to curate, browse, filter, search, and delete persistent memory elements in real time.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := GetConfig()
 		dbPath := ""
 		if cfg != nil && cfg.Database.Path != "" {
@@ -33,8 +31,8 @@ to curate, browse, filter, search, and delete persistent memory elements in real
 			httpPort = cfg.Server.HTTPPort
 		}
 		if err := tui.RunDashboard(GetDB(), dbPath, ollamaURL, ollamaModel, httpPort, GetNoColor()); err != nil {
-			fmt.Fprintf(os.Stderr, "TUI runtime error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "TUI runtime error")
 		}
+		return nil
 	},
 }

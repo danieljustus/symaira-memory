@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
@@ -64,7 +65,7 @@ Reports pass/fail for database, Ollama, JWT secrets, configuration, and file per
 		}
 
 		if !allPassed {
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitSoftware, exitcodes.KindInternal, "some health checks failed")
 		}
 		return nil
 	},
