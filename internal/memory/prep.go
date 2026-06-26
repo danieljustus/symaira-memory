@@ -18,6 +18,39 @@ type Attribution struct {
 	SessionID string // e.g. Hermes session ID, empty if unknown
 }
 
+// Metadata Contract
+//
+// Every memory MUST carry these metadata keys in Memory.Metadata.
+// The three layers are merged in order: provenance → trust → policy.
+// Explicit values set by callers are never overwritten by defaults.
+//
+// Provenance (source tracking):
+//   - source_type: "direct", "imported", or "extracted"
+//   - source_tool: Client identifier ("cli", "mcp", "http", "import:<name>")
+//   - source_uri: Origin URI when available (file path, session ID, URL)
+//   - observed_at: When the source event occurred (RFC3339)
+//   - extraction_method: For extracted facts ("pattern", "extractive_summary")
+//   - evidence_snippet: Short quote from source that triggered the memory
+//   - evidence_hash: SHA-256 of evidence_snippet for dedup
+//
+// Trust (retrieval filtering):
+//   - authority: "direct", "inferred", "verified", "unverified"
+//   - confidence: "high", "medium", "low" (direct=high, imported/inferred=medium)
+//   - verification_status: "verified", "unverified", "stale"
+//   - verified_at: When verification occurred (RFC3339)
+//   - superseded_by: ID of the memory that replaced this one
+//
+// Policy (sensitivity and sharing):
+//   - sensitivity: "public", "internal", "confidential", "secret"
+//   - sharing_level: "private", "team", "org", "public"
+//   - allowed_clients: CSV of client IDs allowed to read (empty = unrestricted)
+//   - denied_clients: CSV of client IDs denied from reading
+//
+// Defaults applied by Prepare():
+//   - Direct memories: authority=direct, confidence=high, sensitivity=internal, sharing_level=private
+//   - Imported memories: authority=inferred, confidence=medium, sensitivity from importer, sharing_level=private
+//   - Extracted memories: authority=inferred, confidence from parent, sensitivity/sharing from parent
+
 // Standard provenance metadata keys stored in Memory.Metadata.
 // Every memory MUST carry these fields; missing keys imply safe defaults.
 //
@@ -91,6 +124,54 @@ const (
 	SharingPublic  = "public"
 )
 
+// DefaultTrustMetadata returns standard trust metadata for a new memory.
+// Direct memories are stamped with authority="direct" and confidence="high".
+// Imported/extracted memories should use ImportedTrustMetadata() or
+// ExtractionTrustMetadata() instead.
+func DefaultTrustMetadata() map[string]string {
+	return map[string]string{
+		MetaAuthority:          AuthorityDirect,
+		MetaConfidence:         ConfidenceHigh,
+		MetaVerificationStatus: VerificationUnverified,
+	}
+}
+
+// ImportedTrustMetadata returns trust metadata for an imported fact.
+// Imported facts are inferred from external sources, so authority is "inferred"
+// and confidence is "medium" until verified.
+func ImportedTrustMetadata() map[string]string {
+	return map[string]string{
+		MetaAuthority:          AuthorityInferred,
+		MetaConfidence:         ConfidenceMedium,
+		MetaVerificationStatus: VerificationUnverified,
+	}
+}
+
+// ExtractionTrustMetadata returns trust metadata for an extracted secondary fact.
+// Extracted facts inherit confidence from the parent via MergeProvenance.
+func ExtractionTrustMetadata(parentConfidence string) map[string]string {
+	confidence := parentConfidence
+	if confidence == "" {
+		confidence = ConfidenceMedium
+	}
+	return map[string]string{
+		MetaAuthority:          AuthorityInferred,
+		MetaConfidence:         confidence,
+		MetaVerificationStatus: VerificationUnverified,
+	}
+}
+
+// DefaultPolicyMetadata returns standard sensitivity and sharing policy metadata.
+// Memories default to sensitivity="internal" and sharing_level="private" so that
+// new memories are conservative by default — they require explicit opt-in to
+// share more broadly.
+func DefaultPolicyMetadata() map[string]string {
+	return map[string]string{
+		MetaSensitivity:  SensitivityInternal,
+		MetaSharingLevel: SharingPrivate,
+	}
+}
+
 // DefaultProvenance returns the standard provenance metadata for a direct memory
 // creation via CLI/MCP/HTTP. The sourceTool parameter identifies the client
 // (e.g. "cli", "mcp", "http").
@@ -162,7 +243,15 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 	}
 
 	provenance := DefaultProvenance(sourceTool)
-	meta = MergeProvenance(meta, provenance)
+	trust := DefaultTrustMetadata()
+	policy := DefaultPolicyMetadata()
+
+	defaults := make(map[string]string)
+	defaults = MergeProvenance(defaults, provenance)
+	defaults = MergeProvenance(defaults, trust)
+	defaults = MergeProvenance(defaults, policy)
+
+	meta = MergeProvenance(defaults, meta)
 
 	cleanMeta := meta
 	if piiEnabled {
@@ -252,6 +341,17 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 
 		extractionProv := ExtractionProvenance("pattern")
 		subMeta = MergeProvenance(subMeta, extractionProv)
+
+		parentConfidence := m.Metadata[MetaConfidence]
+		extractionTrust := ExtractionTrustMetadata(parentConfidence)
+		subMeta = MergeProvenance(subMeta, extractionTrust)
+
+		if m.Metadata[MetaSensitivity] != "" {
+			subMeta[MetaSensitivity] = m.Metadata[MetaSensitivity]
+		}
+		if m.Metadata[MetaSharingLevel] != "" {
+			subMeta[MetaSharingLevel] = m.Metadata[MetaSharingLevel]
+		}
 
 		if piiEnabled {
 			subMeta = security.RedactMap(subMeta)

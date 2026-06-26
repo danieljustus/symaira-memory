@@ -40,10 +40,17 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var args struct {
-		Query  string `json:"query"`
-		Scope  string `json:"scope"`
-		Limit  int    `json:"limit"`
-		Entity string `json:"entity"`
+		Query             string `json:"query"`
+		Scope             string `json:"scope"`
+		Limit             int    `json:"limit"`
+		Entity            string `json:"entity"`
+		MinConfidence     string `json:"min_confidence"`
+		Verification      string `json:"verification"`
+		ExcludeSuperseded bool   `json:"exclude_superseded"`
+		MaxAge            string `json:"max_age"`
+		MaxSensitivity    string `json:"max_sensitivity"`
+		MinSharingLevel   string `json:"min_sharing_level"`
+		ClientID          string `json:"client_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 		writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "Bad request body", err)
@@ -54,7 +61,27 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		args.Limit = 5
 	}
 
-	results, err := s.service.Search(args.Query, args.Scope, args.Limit, args.Entity, db.TrustFilter{}, db.PolicyFilter{})
+	trustFilter := db.TrustFilter{
+		MinConfidence:      args.MinConfidence,
+		VerificationStatus: args.Verification,
+		ExcludeSuperseded:  args.ExcludeSuperseded,
+	}
+	if args.MaxAge != "" {
+		dur, err := parseDuration(args.MaxAge)
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "invalid max_age parameter", err)
+			return
+		}
+		trustFilter.MaxAge = dur
+	}
+
+	policyFilter := db.PolicyFilter{
+		MaxSensitivity:  args.MaxSensitivity,
+		MinSharingLevel: args.MinSharingLevel,
+		ClientID:        args.ClientID,
+	}
+
+	results, err := s.service.Search(args.Query, args.Scope, args.Limit, args.Entity, trustFilter, policyFilter)
 	if err != nil {
 		if nf, ok := err.(*NotFoundError); ok {
 			writeJSONError(w, http.StatusNotFound, CodeNotFound, nf.Error(), nil)
@@ -133,7 +160,13 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		limit = 1000
 	}
 
-	memories, err := s.service.List(scope, limit)
+	policyFilter := db.PolicyFilter{
+		MaxSensitivity:  r.URL.Query().Get("max_sensitivity"),
+		MinSharingLevel: r.URL.Query().Get("min_sharing_level"),
+		ClientID:        r.URL.Query().Get("client_id"),
+	}
+
+	memories, err := s.service.ListWithPolicy(scope, limit, policyFilter)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to list memories", err)
 		return
@@ -199,6 +232,21 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to fetch changes", err)
 		return
+	}
+
+	policyFilter := db.PolicyFilter{
+		MaxSensitivity:  r.URL.Query().Get("max_sensitivity"),
+		MinSharingLevel: r.URL.Query().Get("min_sharing_level"),
+		ClientID:        r.URL.Query().Get("client_id"),
+	}
+	if policyFilter.MaxSensitivity != "" || policyFilter.MinSharingLevel != "" || policyFilter.ClientID != "" {
+		var filtered []*db.Memory
+		for _, m := range memories {
+			if db.PassesPolicyFilter(m, policyFilter) {
+				filtered = append(filtered, m)
+			}
+		}
+		memories = filtered
 	}
 
 	var nextCursor string
@@ -309,6 +357,15 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "failed to fetch memory", err)
 		return
+	}
+
+	clientID := r.URL.Query().Get("client_id")
+	if clientID != "" {
+		policyFilter := db.PolicyFilter{ClientID: clientID}
+		if !db.PassesPolicyFilter(m, policyFilter) {
+			writeJSONError(w, http.StatusForbidden, CodeForbidden, fmt.Sprintf("access denied: memory %s is not accessible by client %s", id, clientID), nil)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

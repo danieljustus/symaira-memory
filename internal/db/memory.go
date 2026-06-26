@@ -377,6 +377,26 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 	return memories, nil
 }
 
+// ListMemoriesFilteredWithPolicy returns memories filtered by scope and policy.
+func (db *DB) ListMemoriesFilteredWithPolicy(scope string, offset, limit int, policyFilter PolicyFilter) ([]*Memory, error) {
+	memories, err := db.ListMemoriesLite(scope, offset, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if policyFilter.MaxSensitivity == "" && policyFilter.MinSharingLevel == "" && policyFilter.ClientID == "" {
+		return memories, nil
+	}
+
+	var filtered []*Memory
+	for _, m := range memories {
+		if PassesPolicyFilter(m, policyFilter) {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered, nil
+}
+
 // GetMemoriesSince returns all memories with updated_at strictly after t.
 // Embedding data is omitted (sync payloads do not need vectors).
 func (db *DB) GetMemoriesSince(t time.Time) ([]*Memory, error) {
@@ -631,7 +651,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 				if !passesTrustFilter(m, trustFilter) {
 					continue
 				}
-				if !passesPolicyFilter(m, policyFilter) {
+				if !PassesPolicyFilter(m, policyFilter) {
 					continue
 				}
 				relevance := CosineSimilarity(queryVec, m.Embedding)
@@ -717,7 +737,8 @@ func confidenceMeetsMinimum(actual, minimum string) bool {
 	return actualRank >= minRank
 }
 
-func passesPolicyFilter(m *Memory, f PolicyFilter) bool {
+// PassesPolicyFilter checks if a memory passes the given policy filter.
+func PassesPolicyFilter(m *Memory, f PolicyFilter) bool {
 	if f.MaxSensitivity == "" && f.MinSharingLevel == "" && f.ClientID == "" {
 		return true
 	}
