@@ -2,6 +2,7 @@ package extractor
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
@@ -24,12 +26,21 @@ type EmbeddingsGenerator struct {
 	mu             sync.Mutex
 	lastFail       time.Time
 	embeddingCache *lru.Cache[string, []float32]
+	OllamaTimeout  time.Duration
+
+	// Metrics
+	ollamaHits      atomic.Int64
+	ollamaMisses    atomic.Int64
+	fallbackCount   atomic.Int64
+	totalRequests   atomic.Int64
+	ollamaLatencyNs atomic.Int64
 }
 
 const (
-	DefaultDimensions = 768
-	ollamaCacheTTL    = 30 * time.Second
-	defaultTimeout    = 5 * time.Second
+	DefaultDimensions    = 768
+	ollamaCacheTTL       = 30 * time.Second
+	defaultTimeout       = 5 * time.Second
+	defaultOllamaTimeout = 2 * time.Second
 )
 
 // NewEmbeddingsGenerator configures an embeddings generator from the
@@ -52,8 +63,9 @@ func NewEmbeddingsGenerator(cfg *config.Config) *EmbeddingsGenerator {
 	cache, _ := lru.New[string, []float32](10000)
 
 	return &EmbeddingsGenerator{
-		OllamaURL: ollamaURL,
-		Model:     model,
+		OllamaURL:     ollamaURL,
+		Model:         model,
+		OllamaTimeout: defaultOllamaTimeout,
 		httpClient: &http.Client{
 			Timeout: defaultTimeout,
 			Transport: &http.Transport{
@@ -79,8 +91,18 @@ type EmbeddingResult struct {
 // avoid redundant computation for identical text. Fallback vectors are never
 // cached so that recovery after Ollama comes back online is automatic.
 func (eg *EmbeddingsGenerator) GenerateVector(text string) EmbeddingResult {
+	return eg.GenerateVectorWithContext(context.Background(), text)
+}
+
+// GenerateVectorWithContext is like GenerateVector but respects the provided
+// context for timeout control. If the context expires before Ollama responds,
+// the request falls back to hash-based embeddings automatically.
+func (eg *EmbeddingsGenerator) GenerateVectorWithContext(ctx context.Context, text string) EmbeddingResult {
+	eg.totalRequests.Add(1)
+
 	cacheKey := eg.cacheKey(text)
 	if cached, ok := eg.embeddingCache.Get(cacheKey); ok {
+		eg.ollamaHits.Add(1)
 		return EmbeddingResult{Vector: cached, Source: "ollama", Model: eg.Model}
 	}
 
@@ -91,19 +113,23 @@ func (eg *EmbeddingsGenerator) GenerateVector(text string) EmbeddingResult {
 	eg.mu.Unlock()
 
 	if !skip {
-		vec, err := eg.queryOllama(text)
+		start := time.Now()
+		vec, err := eg.queryOllamaWithContext(ctx, text)
+		latency := time.Since(start)
+		eg.ollamaLatencyNs.Add(latency.Nanoseconds())
+
 		if err == nil && len(vec) == dims {
 			eg.embeddingCache.Add(cacheKey, vec)
+			eg.ollamaHits.Add(1)
 			return EmbeddingResult{Vector: vec, Source: "ollama", Model: eg.Model}
 		}
 		eg.mu.Lock()
 		eg.lastFail = time.Now()
 		eg.mu.Unlock()
+		eg.ollamaMisses.Add(1)
 	}
 
-	// Fallback vectors are intentionally NOT cached so that when Ollama
-	// recovers, the next request for the same text will succeed via Ollama
-	// and produce a properly cached Ollama vector.
+	eg.fallbackCount.Add(1)
 	vec := GenerateLocalHashVector(text, dims)
 	return EmbeddingResult{Vector: vec, Source: "hash-fallback", Model: ""}
 }
@@ -135,12 +161,44 @@ func (eg *EmbeddingsGenerator) MarkOllamaFailed() {
 	eg.mu.Unlock()
 }
 
+// Metrics returns the current embedding generation metrics.
+func (eg *EmbeddingsGenerator) Metrics() EmbeddingMetrics {
+	total := eg.totalRequests.Load()
+	var avgLatencyMs float64
+	ollamaReqs := eg.ollamaHits.Load() + eg.ollamaMisses.Load()
+	if ollamaReqs > 0 {
+		avgLatencyMs = float64(eg.ollamaLatencyNs.Load()) / float64(ollamaReqs) / 1e6
+	}
+	var fallbackRate float64
+	if total > 0 {
+		fallbackRate = float64(eg.fallbackCount.Load()) / float64(total)
+	}
+	return EmbeddingMetrics{
+		TotalRequests: total,
+		OllamaHits:    eg.ollamaHits.Load(),
+		OllamaMisses:  eg.ollamaMisses.Load(),
+		FallbackCount: eg.fallbackCount.Load(),
+		FallbackRate:  fallbackRate,
+		AvgOllamaMs:   avgLatencyMs,
+	}
+}
+
+// EmbeddingMetrics holds metrics for embedding generation.
+type EmbeddingMetrics struct {
+	TotalRequests int64
+	OllamaHits    int64
+	OllamaMisses  int64
+	FallbackCount int64
+	FallbackRate  float64
+	AvgOllamaMs   float64
+}
+
 func (eg *EmbeddingsGenerator) cacheKey(text string) string {
 	h := sha256.Sum256([]byte(text))
 	return fmt.Sprintf("%x", h[:16])
 }
 
-func (eg *EmbeddingsGenerator) queryOllama(text string) ([]float32, error) {
+func (eg *EmbeddingsGenerator) queryOllamaWithContext(ctx context.Context, text string) ([]float32, error) {
 	reqBody, err := json.Marshal(map[string]string{
 		"model":  eg.Model,
 		"prompt": text,
@@ -149,7 +207,33 @@ func (eg *EmbeddingsGenerator) queryOllama(text string) ([]float32, error) {
 		return nil, err
 	}
 
-	resp, err := eg.httpClient.Post(eg.OllamaURL, "application/json", bytes.NewBuffer(reqBody))
+	var HTTPClient *http.Client
+	if _, hasDeadline := ctx.Deadline(); hasDeadline {
+		HTTPClient = &http.Client{
+			Transport: &http.Transport{
+				MaxIdleConns:    10,
+				IdleConnTimeout: 90 * time.Second,
+			},
+		}
+	} else if eg.OllamaTimeout > 0 {
+		HTTPClient = &http.Client{
+			Timeout: eg.OllamaTimeout,
+			Transport: &http.Transport{
+				MaxIdleConns:    10,
+				IdleConnTimeout: 90 * time.Second,
+			},
+		}
+	} else {
+		HTTPClient = eg.httpClient
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, eg.OllamaURL, bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

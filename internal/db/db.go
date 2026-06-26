@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/danieljustus/symaira-corekit/sqlitekit"
 	"github.com/danieljustus/symaira-memory/internal/config"
@@ -40,6 +41,10 @@ func Open(cfg *config.Config) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
+
+	conn.SetMaxOpenConns(1)
+	conn.SetMaxIdleConns(1)
+	conn.SetConnMaxLifetime(0)
 
 	db := &DB{conn: conn}
 	if err := db.runMigrations(); err != nil {
@@ -90,6 +95,35 @@ func (db *DB) Conn() *sql.DB {
 // BeginTransaction starts a new database transaction.
 func (db *DB) BeginTransaction() (*sql.Tx, error) {
 	return db.conn.Begin()
+}
+
+// Metrics returns current connection pool metrics.
+func (db *DB) Metrics() DBMetrics {
+	stats := db.conn.Stats()
+	return DBMetrics{
+		MaxOpenConnections: stats.MaxOpenConnections,
+		OpenConnections:    stats.OpenConnections,
+		InUse:              stats.InUse,
+		Idle:               stats.Idle,
+		WaitCount:          stats.WaitCount,
+		WaitDuration:       stats.WaitDuration,
+		MaxIdleClosed:      stats.MaxIdleClosed,
+		MaxIdleTimeClosed:  stats.MaxIdleTimeClosed,
+		MaxLifetimeClosed:  stats.MaxLifetimeClosed,
+	}
+}
+
+// DBMetrics holds connection pool metrics.
+type DBMetrics struct {
+	MaxOpenConnections int
+	OpenConnections    int
+	InUse              int
+	Idle               int
+	WaitCount          int64
+	WaitDuration       time.Duration
+	MaxIdleClosed      int64
+	MaxIdleTimeClosed  int64
+	MaxLifetimeClosed  int64
 }
 
 // SQLExecer is an interface for executing SQL statements, satisfied by both *sql.DB and *sql.Tx.

@@ -1,14 +1,14 @@
 package mcp
 
 import (
-	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/time/rate"
 )
 
@@ -39,22 +39,31 @@ type ipLimiter struct {
 
 type RateLimiter struct {
 	mu             sync.Mutex
-	limiters       map[string]*ipLimiter
+	limiters       *lru.Cache[string, *ipLimiter]
 	config         RateLimitConfig
 	stopCh         chan struct{}
 	trustedProxies []*net.IPNet
+
+	evictions int64
+	hits      int64
+	misses    int64
 }
 
 func NewRateLimiter(cfg RateLimitConfig, trustedProxies ...string) *RateLimiter {
+	maxEntries := cfg.MaxEntries
+	if maxEntries <= 0 {
+		maxEntries = 10000
+	}
+	cache, _ := lru.New[string, *ipLimiter](maxEntries)
 	rl := &RateLimiter{
-		limiters: make(map[string]*ipLimiter),
+		limiters: cache,
 		config:   cfg,
 		stopCh:   make(chan struct{}),
 	}
 	for _, cidr := range trustedProxies {
 		_, network, err := net.ParseCIDR(cidr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ratelimit: invalid trusted proxy CIDR %q: %v\n", cidr, err)
+			slog.Error("ratelimit: invalid trusted proxy CIDR", "cidr", cidr, "err", err)
 			continue
 		}
 		rl.trustedProxies = append(rl.trustedProxies, network)
@@ -71,32 +80,48 @@ func (rl *RateLimiter) getLimiter(key string, rps float64, burst int) *rate.Limi
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	if v, ok := rl.limiters[key]; ok {
+	if v, ok := rl.limiters.Get(key); ok {
 		v.lastSeen = time.Now()
+		rl.hits++
 		return v.limiter
 	}
 
-	if rl.config.MaxEntries > 0 && len(rl.limiters) >= rl.config.MaxEntries {
-		rl.evictOldest()
-	}
-
+	rl.misses++
 	limiter := rate.NewLimiter(rate.Limit(rps), burst)
-	rl.limiters[key] = &ipLimiter{limiter: limiter, lastSeen: time.Now()}
+	rl.limiters.Add(key, &ipLimiter{limiter: limiter, lastSeen: time.Now()})
 	return limiter
 }
 
-func (rl *RateLimiter) evictOldest() {
-	var oldestKey string
-	var oldestTime time.Time
-	for k, v := range rl.limiters {
-		if oldestKey == "" || v.lastSeen.Before(oldestTime) {
-			oldestKey = k
-			oldestTime = v.lastSeen
+func (rl *RateLimiter) cleanup() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	cutoff := time.Now().Add(-rl.config.LimiterTTL)
+	for _, v := range rl.limiters.Values() {
+		if v.lastSeen.Before(cutoff) {
+			rl.limiters.Remove("")
 		}
 	}
-	if oldestKey != "" {
-		delete(rl.limiters, oldestKey)
+}
+
+// Metrics returns current rate limiter metrics.
+func (rl *RateLimiter) Metrics() RateLimiterMetrics {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	return RateLimiterMetrics{
+		Entries:   int64(rl.limiters.Len()),
+		Hits:      rl.hits,
+		Misses:    rl.misses,
+		Evictions: rl.evictions,
 	}
+}
+
+// RateLimiterMetrics holds metrics for the rate limiter.
+type RateLimiterMetrics struct {
+	Entries   int64
+	Hits      int64
+	Misses    int64
+	Evictions int64
 }
 
 func (rl *RateLimiter) AllowData(key string) bool {
@@ -112,18 +137,6 @@ func (rl *RateLimiter) cleanupLoop() {
 			rl.cleanup()
 		case <-rl.stopCh:
 			return
-		}
-	}
-}
-
-func (rl *RateLimiter) cleanup() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	cutoff := time.Now().Add(-rl.config.LimiterTTL)
-	for key, v := range rl.limiters {
-		if v.lastSeen.Before(cutoff) {
-			delete(rl.limiters, key)
 		}
 	}
 }
