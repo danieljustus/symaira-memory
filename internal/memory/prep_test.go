@@ -31,6 +31,61 @@ func TestPrepareInvalidScopeReturnsError(t *testing.T) {
 	}
 }
 
+func TestPrepareStampsTrustDefaults(t *testing.T) {
+	mem, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mem.Metadata[MetaAuthority] != AuthorityDirect {
+		t.Errorf("expected authority=%q, got %q", AuthorityDirect, mem.Metadata[MetaAuthority])
+	}
+	if mem.Metadata[MetaConfidence] != ConfidenceHigh {
+		t.Errorf("expected confidence=%q, got %q", ConfidenceHigh, mem.Metadata[MetaConfidence])
+	}
+	if mem.Metadata[MetaVerificationStatus] != VerificationUnverified {
+		t.Errorf("expected verification_status=%q, got %q", VerificationUnverified, mem.Metadata[MetaVerificationStatus])
+	}
+}
+
+func TestPrepareStampsPolicyDefaults(t *testing.T) {
+	mem, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mem.Metadata[MetaSensitivity] != SensitivityInternal {
+		t.Errorf("expected sensitivity=%q, got %q", SensitivityInternal, mem.Metadata[MetaSensitivity])
+	}
+	if mem.Metadata[MetaSharingLevel] != SharingPrivate {
+		t.Errorf("expected sharing_level=%q, got %q", SharingPrivate, mem.Metadata[MetaSharingLevel])
+	}
+}
+
+func TestPreparePreservesExplicitMetadata(t *testing.T) {
+	meta := map[string]string{
+		MetaSensitivity:  SensitivityConfidential,
+		MetaSharingLevel: SharingTeam,
+		MetaAuthority:    AuthorityVerified,
+		MetaConfidence:   ConfidenceLow,
+		"custom_key":     "custom_value",
+	}
+	mem, err := Prepare("test content", "global", meta, false, Attribution{}, "test")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mem.Metadata[MetaSensitivity] != SensitivityConfidential {
+		t.Errorf("expected explicit sensitivity preserved, got %q", mem.Metadata[MetaSensitivity])
+	}
+	if mem.Metadata[MetaSharingLevel] != SharingTeam {
+		t.Errorf("expected explicit sharing_level preserved, got %q", mem.Metadata[MetaSharingLevel])
+	}
+	if mem.Metadata[MetaAuthority] != AuthorityVerified {
+		t.Errorf("expected explicit authority preserved, got %q", mem.Metadata[MetaAuthority])
+	}
+	if mem.Metadata["custom_key"] != "custom_value" {
+		t.Errorf("expected custom metadata preserved, got %q", mem.Metadata["custom_key"])
+	}
+}
+
 func TestPreparePIIRedaction(t *testing.T) {
 	content := "contact me at john@example.com for details"
 	mem, err := Prepare(content, "global", nil, true, Attribution{}, "test")
@@ -93,8 +148,8 @@ func TestPrepareNilMetaBecomesEmptyMap(t *testing.T) {
 	if mem.Metadata == nil {
 		t.Error("expected non-nil metadata map, got nil")
 	}
-	if len(mem.Metadata) != 4 {
-		t.Errorf("expected 4 metadata entries (provenance defaults), got %d", len(mem.Metadata))
+	if len(mem.Metadata) != 9 {
+		t.Errorf("expected 9 metadata entries (4 provenance + 3 trust + 2 policy), got %d", len(mem.Metadata))
 	}
 }
 

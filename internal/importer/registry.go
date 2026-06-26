@@ -237,6 +237,13 @@ func (r *Registry) storeFacts(facts []ImportedFact, importer SessionImporter) er
 			}
 		}
 
+		trustDefaults := memory.ImportedTrustMetadata()
+		metadata = memory.MergeProvenance(metadata, trustDefaults)
+
+		if _, ok := metadata[memory.MetaSharingLevel]; !ok {
+			metadata[memory.MetaSharingLevel] = memory.SharingPrivate
+		}
+
 		content := security.Redact(fact.Content)
 
 		memory := &db.Memory{

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,7 +68,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_get",
 		Description: "Retrieve a specific memory by its unique ID.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"Unique memory UUID"}},"required":["id"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"Unique memory UUID"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"}},"required":["id"]}`),
 		Handler:     s.handleMemoryGet,
 	})
 
@@ -81,14 +82,14 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_search",
 		Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"}},"required":["query"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"}},"required":["query"]}`),
 		Handler:     s.handleMemorySearch,
 	})
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_list",
 		Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of memories to return (default 100, max 1000)"}}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of memories to return (default 100, max 1000)"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"}}}`),
 		Handler:     s.handleMemoryList,
 	})
 
@@ -104,7 +105,8 @@ func (s *Server) MCPServer() *mcpserver.Server {
 
 func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
-		ID string `json:"id"`
+		ID       string `json:"id"`
+		ClientID string `json:"client_id"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_get': failed to parse arguments: %w", err)
@@ -119,6 +121,13 @@ func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (an
 			return nf.Error(), nil
 		}
 		return mcpError("Failed to fetch memory", err)
+	}
+
+	if args.ClientID != "" {
+		policyFilter := db.PolicyFilter{ClientID: args.ClientID}
+		if !db.PassesPolicyFilter(m, policyFilter) {
+			return nil, fmt.Errorf("access denied: memory %s is not accessible by client %s", args.ID, args.ClientID)
+		}
 	}
 
 	data, _ := json.MarshalIndent(memoryResponse(m), "", "  ")
@@ -171,10 +180,17 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 
 func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
-		Query  string `json:"query"`
-		Scope  string `json:"scope"`
-		Limit  int    `json:"limit"`
-		Entity string `json:"entity"`
+		Query             string `json:"query"`
+		Scope             string `json:"scope"`
+		Limit             int    `json:"limit"`
+		Entity            string `json:"entity"`
+		MinConfidence     string `json:"min_confidence"`
+		Verification      string `json:"verification"`
+		ExcludeSuperseded bool   `json:"exclude_superseded"`
+		MaxAge            string `json:"max_age"`
+		MaxSensitivity    string `json:"max_sensitivity"`
+		MinSharingLevel   string `json:"min_sharing_level"`
+		ClientID          string `json:"client_id"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_search': failed to parse arguments: %w", err)
@@ -188,7 +204,26 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		limit = 5
 	}
 
-	results, err := s.service.Search(args.Query, args.Scope, limit, args.Entity, db.TrustFilter{}, db.PolicyFilter{})
+	trustFilter := db.TrustFilter{
+		MinConfidence:      args.MinConfidence,
+		VerificationStatus: args.Verification,
+		ExcludeSuperseded:  args.ExcludeSuperseded,
+	}
+	if args.MaxAge != "" {
+		dur, err := parseDuration(args.MaxAge)
+		if err != nil {
+			return nil, fmt.Errorf("invalid arguments for 'memory_search': invalid max_age: %w", err)
+		}
+		trustFilter.MaxAge = dur
+	}
+
+	policyFilter := db.PolicyFilter{
+		MaxSensitivity:  args.MaxSensitivity,
+		MinSharingLevel: args.MinSharingLevel,
+		ClientID:        args.ClientID,
+	}
+
+	results, err := s.service.Search(args.Query, args.Scope, limit, args.Entity, trustFilter, policyFilter)
 	if err != nil {
 		if nf, ok := err.(*NotFoundError); ok {
 			return nil, fmt.Errorf("%s", nf.Error())
@@ -211,8 +246,11 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 
 func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
-		Scope string `json:"scope"`
-		Limit int    `json:"limit"`
+		Scope           string `json:"scope"`
+		Limit           int    `json:"limit"`
+		MaxSensitivity  string `json:"max_sensitivity"`
+		MinSharingLevel string `json:"min_sharing_level"`
+		ClientID        string `json:"client_id"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_list': failed to parse arguments: %w", err)
@@ -226,7 +264,13 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 		limit = 1000
 	}
 
-	memories, err := s.service.List(args.Scope, limit)
+	policyFilter := db.PolicyFilter{
+		MaxSensitivity:  args.MaxSensitivity,
+		MinSharingLevel: args.MinSharingLevel,
+		ClientID:        args.ClientID,
+	}
+
+	memories, err := s.service.ListWithPolicy(args.Scope, limit, policyFilter)
 	if err != nil {
 		return mcpError("Failed to list memories", err)
 	}
@@ -251,4 +295,30 @@ func (s *Server) handleEntityList(ctx context.Context, input json.RawMessage) (a
 
 	data, _ := json.MarshalIndent(entities, "", "  ")
 	return string(data), nil
+}
+
+func parseDuration(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	if len(s) < 2 {
+		return 0, fmt.Errorf("invalid duration: %s", s)
+	}
+	suffix := s[len(s)-1]
+	switch suffix {
+	case 'd':
+		n, err := strconv.Atoi(s[:len(s)-1])
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(n) * 24 * time.Hour, nil
+	case 'h':
+		return time.ParseDuration(s)
+	case 'm':
+		return time.ParseDuration(s)
+	case 's':
+		return time.ParseDuration(s)
+	default:
+		return time.ParseDuration(s)
+	}
 }

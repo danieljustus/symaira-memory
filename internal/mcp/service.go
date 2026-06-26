@@ -92,6 +92,13 @@ func (s *MemoryService) List(scope string, limit int) ([]*db.Memory, error) {
 	return s.db.ListMemoriesLite(scope, 0, limit)
 }
 
+func (s *MemoryService) ListWithPolicy(scope string, limit int, policyFilter db.PolicyFilter) ([]*db.Memory, error) {
+	if policyFilter.MaxSensitivity == "" && policyFilter.MinSharingLevel == "" && policyFilter.ClientID == "" {
+		return s.db.ListMemoriesLite(scope, 0, limit)
+	}
+	return s.db.ListMemoriesFilteredWithPolicy(scope, 0, limit, policyFilter)
+}
+
 func (s *MemoryService) ListRules(scope string) ([]*db.Rule, error) {
 	return s.db.ListRules(scope)
 }
