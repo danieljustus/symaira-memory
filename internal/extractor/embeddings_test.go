@@ -1,6 +1,9 @@
 package extractor
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -75,6 +78,73 @@ func TestActiveBackendRecoveryAfterCooldown(t *testing.T) {
 	eg.mu.Unlock()
 	if got := eg.ActiveBackend(); got != "ollama" {
 		t.Errorf("expected ActiveBackend() to return 'ollama' after cooldown, got %q", got)
+	}
+}
+
+func TestGenerateVectorTimeoutFallsBack(t *testing.T) {
+	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer slowServer.Close()
+
+	eg := NewEmbeddingsGenerator(nil)
+	eg.OllamaURL = slowServer.URL
+	eg.OllamaTimeout = 50 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	result := eg.GenerateVectorWithContext(ctx, "test query")
+	elapsed := time.Since(start)
+
+	if result.Source != "hash-fallback" {
+		t.Errorf("expected hash-fallback on timeout, got %q", result.Source)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("timeout fallback took too long: %v", elapsed)
+	}
+}
+
+func TestGenerateVectorContextCanceledFallsBack(t *testing.T) {
+	slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(5 * time.Second)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer slowServer.Close()
+
+	eg := NewEmbeddingsGenerator(nil)
+	eg.OllamaURL = slowServer.URL
+	eg.OllamaTimeout = 5 * time.Second
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	result := eg.GenerateVectorWithContext(ctx, "test query")
+
+	if result.Source != "hash-fallback" {
+		t.Errorf("expected hash-fallback on canceled context, got %q", result.Source)
+	}
+}
+
+func TestMetricsTracking(t *testing.T) {
+	eg := NewEmbeddingsGenerator(nil)
+	eg.MarkOllamaFailed()
+
+	for i := 0; i < 5; i++ {
+		eg.GenerateVector("test query")
+	}
+
+	metrics := eg.Metrics()
+	if metrics.TotalRequests != 5 {
+		t.Errorf("expected 5 total requests, got %d", metrics.TotalRequests)
+	}
+	if metrics.FallbackCount != 5 {
+		t.Errorf("expected 5 fallbacks, got %d", metrics.FallbackCount)
+	}
+	if metrics.FallbackRate != 1.0 {
+		t.Errorf("expected fallback rate 1.0, got %f", metrics.FallbackRate)
 	}
 }
 
