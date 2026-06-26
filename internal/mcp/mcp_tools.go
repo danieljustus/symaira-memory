@@ -10,6 +10,7 @@ import (
 
 	"github.com/danieljustus/symaira-corekit/mcpserver"
 	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/instructions"
 	"github.com/danieljustus/symaira-memory/internal/security"
 )
 
@@ -64,6 +65,7 @@ func searchResultResponse(r db.SearchResult) SearchResultResponse {
 
 func (s *Server) MCPServer() *mcpserver.Server {
 	srv := mcpserver.New("symaira-memory", s.version)
+	srv.SetInstructions(instructions.Text(s.version))
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_get",
