@@ -81,7 +81,7 @@ func TestStoreFactsPIIRedaction(t *testing.T) {
 		},
 	}
 
-	if err := r.storeFacts(facts); err != nil {
+	if err := r.storeFacts(facts, &mockCuratedImporter{name: "test-importer"}); err != nil {
 		t.Fatalf("storeFacts failed: %v", err)
 	}
 
@@ -116,7 +116,7 @@ func TestStoreFactsMetadataPIIRedaction(t *testing.T) {
 		},
 	}
 
-	if err := r.storeFacts(facts); err != nil {
+	if err := r.storeFacts(facts, &mockCuratedImporter{name: "test-importer"}); err != nil {
 		t.Fatalf("storeFacts failed: %v", err)
 	}
 
@@ -132,8 +132,11 @@ func TestStoreFactsMetadataPIIRedaction(t *testing.T) {
 	if m.Metadata["contact"] != "[REDACTED_EMAIL]" {
 		t.Errorf("expected metadata email redacted, got %q", m.Metadata["contact"])
 	}
-	if m.Metadata["source"] != "test-importer" {
-		t.Errorf("expected source preserved, got %q", m.Metadata["source"])
+	if m.Metadata["source_type"] != "imported" {
+		t.Errorf("expected source_type 'imported', got %q", m.Metadata["source_type"])
+	}
+	if m.Metadata["source_tool"] != "test-importer" {
+		t.Errorf("expected source_tool 'test-importer', got %q", m.Metadata["source_tool"])
 	}
 }
 
@@ -151,7 +154,7 @@ func TestStoreFactsNilMetadata(t *testing.T) {
 		},
 	}
 
-	if err := r.storeFacts(facts); err != nil {
+	if err := r.storeFacts(facts, &mockCuratedImporter{name: "test-importer"}); err != nil {
 		t.Fatalf("storeFacts failed: %v", err)
 	}
 
@@ -164,8 +167,11 @@ func TestStoreFactsNilMetadata(t *testing.T) {
 	}
 
 	m := memories[0]
-	if m.Metadata["source"] != "test-importer" {
-		t.Errorf("expected source populated from nil metadata, got %q", m.Metadata["source"])
+	if m.Metadata["source_type"] != "imported" {
+		t.Errorf("expected source_type 'imported' from nil metadata, got %q", m.Metadata["source_type"])
+	}
+	if m.Metadata["source_tool"] != "test-importer" {
+		t.Errorf("expected source_tool 'test-importer' from nil metadata, got %q", m.Metadata["source_tool"])
 	}
 }
 
@@ -182,7 +188,7 @@ func TestStoreFactsGeneratesEmbedding(t *testing.T) {
 		},
 	}
 
-	if err := r.storeFacts(facts); err != nil {
+	if err := r.storeFacts(facts, &mockCuratedImporter{name: "test-importer"}); err != nil {
 		t.Fatalf("storeFacts failed: %v", err)
 	}
 
@@ -233,7 +239,7 @@ func TestImportedMemorySearchable(t *testing.T) {
 		},
 	}
 
-	if err := r.storeFacts(facts); err != nil {
+	if err := r.storeFacts(facts, &mockCuratedImporter{name: "test-importer"}); err != nil {
 		t.Fatalf("storeFacts failed: %v", err)
 	}
 

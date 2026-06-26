@@ -9,6 +9,7 @@ import (
 
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/danieljustus/symaira-memory/internal/summarizer"
 	"github.com/google/uuid"
@@ -195,7 +196,7 @@ func (r *Registry) runToolImport(ctx context.Context, importer SessionImporter, 
 
 		if !dryRun {
 			// Store facts in database
-			if err := r.storeFacts(facts); err != nil {
+			if err := r.storeFacts(facts, importer); err != nil {
 				fmt.Fprintf(r.stderr, "Error storing facts for session %s: %v\n", session.SessionID, err)
 				result.Errors++
 				continue
@@ -213,7 +214,7 @@ func (r *Registry) runToolImport(ctx context.Context, importer SessionImporter, 
 }
 
 // storeFacts stores imported facts in the database with local embeddings.
-func (r *Registry) storeFacts(facts []ImportedFact) error {
+func (r *Registry) storeFacts(facts []ImportedFact, importer SessionImporter) error {
 	for _, fact := range facts {
 		now := time.Now().UTC()
 
@@ -221,9 +222,20 @@ func (r *Registry) storeFacts(facts []ImportedFact) error {
 		if metadata == nil {
 			metadata = make(map[string]string)
 		}
-		metadata["source"] = fact.Source
-		metadata["session_id"] = fact.SessionID
-		metadata["imported_at"] = now.Format(time.RFC3339)
+
+		sourceURI := ""
+		if _, ok := metadata["session_id"]; ok {
+			sourceURI = metadata["session_id"]
+		}
+		provenance := memory.ImportedProvenance(fact.Source, sourceURI, fact.Timestamp)
+		metadata = memory.MergeProvenance(metadata, provenance)
+
+		if pa, ok := importer.(PrivacyAware); ok {
+			privacyLevel := string(pa.PrivacyLevel())
+			if privacyLevel != "" {
+				metadata[memory.MetaSensitivity] = privacyLevel
+			}
+		}
 
 		content := security.Redact(fact.Content)
 

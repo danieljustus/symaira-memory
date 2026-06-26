@@ -54,7 +54,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		args.Limit = 5
 	}
 
-	results, err := s.service.Search(args.Query, args.Scope, args.Limit, args.Entity)
+	results, err := s.service.Search(args.Query, args.Scope, args.Limit, args.Entity, db.TrustFilter{}, db.PolicyFilter{})
 	if err != nil {
 		if nf, ok := err.(*NotFoundError); ok {
 			writeJSONError(w, http.StatusNotFound, CodeNotFound, nf.Error(), nil)
@@ -98,7 +98,7 @@ func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 		author = payload.Subject
 	}
 
-	id, err := s.service.Set(args.Content, args.Scope, args.Metadata, args.SessionID, author, args.Entities)
+	id, err := s.service.Set(args.Content, args.Scope, args.Metadata, args.SessionID, author, args.Entities, "http")
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to save memory", err)
 		return

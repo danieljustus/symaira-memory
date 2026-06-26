@@ -72,7 +72,7 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 			}
 		}
 
-		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, setValue, setScope, meta, true, attr, entities)
+		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, setValue, setScope, meta, true, attr, entities, "cli")
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to store memory")
 		}

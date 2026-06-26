@@ -18,9 +18,128 @@ type Attribution struct {
 	SessionID string // e.g. Hermes session ID, empty if unknown
 }
 
+// Standard provenance metadata keys stored in Memory.Metadata.
+// Every memory MUST carry these fields; missing keys imply safe defaults.
+//
+// Required:
+//   - source_type: How the memory was created ("direct", "imported", "extracted")
+//   - source_tool: Which tool/client created it ("cli", "mcp", "http", "import:<name>")
+//   - source_uri: Origin URI when available (file path, session ID, URL)
+//   - observed_at: When the source event occurred (RFC3339)
+//
+// Optional:
+//   - extraction_method: For extracted secondary facts ("pattern", "extractive_summary")
+//   - evidence_snippet: Short quote from source that triggered the memory
+//   - evidence_hash: SHA-256 of evidence_snippet for dedup
+const (
+	MetaSourceType       = "source_type"
+	MetaSourceTool       = "source_tool"
+	MetaSourceURI        = "source_uri"
+	MetaObservedAt       = "observed_at"
+	MetaExtractionMethod = "extraction_method"
+	MetaEvidenceSnippet  = "evidence_snippet"
+	MetaEvidenceHash     = "evidence_hash"
+)
+
+// Trust metadata keys for retrieval filtering.
+// Missing keys imply safe defaults: authority="unverified", confidence="medium",
+// verification_status="unverified".
+const (
+	MetaAuthority          = "authority"
+	MetaConfidence         = "confidence"
+	MetaVerificationStatus = "verification_status"
+	MetaVerifiedAt         = "verified_at"
+	MetaSupersededBy       = "superseded_by"
+)
+
+// Trust filter values.
+const (
+	AuthorityDirect     = "direct"
+	AuthorityVerified   = "verified"
+	AuthorityInferred   = "inferred"
+	AuthorityUnverified = "unverified"
+
+	ConfidenceHigh   = "high"
+	ConfidenceMedium = "medium"
+	ConfidenceLow    = "low"
+
+	VerificationVerified   = "verified"
+	VerificationUnverified = "unverified"
+	VerificationStale      = "stale"
+)
+
+// Sensitivity and sharing policy metadata keys.
+// Missing keys imply safe defaults: sensitivity="internal", sharing_level="private".
+const (
+	MetaSensitivity  = "sensitivity"
+	MetaSharingLevel = "sharing_level"
+)
+
+// Sensitivity levels (ascending sensitivity).
+const (
+	SensitivityPublic       = "public"
+	SensitivityInternal     = "internal"
+	SensitivityConfidential = "confidential"
+	SensitivitySecret       = "secret"
+)
+
+// Sharing levels (ascending visibility).
+const (
+	SharingPrivate = "private"
+	SharingTeam    = "team"
+	SharingOrg     = "org"
+	SharingPublic  = "public"
+)
+
+// DefaultProvenance returns the standard provenance metadata for a direct memory
+// creation via CLI/MCP/HTTP. The sourceTool parameter identifies the client
+// (e.g. "cli", "mcp", "http").
+func DefaultProvenance(sourceTool string) map[string]string {
+	now := time.Now().UTC().Format(time.RFC3339)
+	return map[string]string{
+		MetaSourceType: "direct",
+		MetaSourceTool: sourceTool,
+		MetaSourceURI:  "",
+		MetaObservedAt: now,
+	}
+}
+
+// ImportedProvenance returns provenance metadata for an imported fact.
+func ImportedProvenance(sourceTool, sourceURI string, observedAt time.Time) map[string]string {
+	ts := observedAt.Format(time.RFC3339)
+	return map[string]string{
+		MetaSourceType: "imported",
+		MetaSourceTool: sourceTool,
+		MetaSourceURI:  sourceURI,
+		MetaObservedAt: ts,
+	}
+}
+
+// ExtractionProvenance returns provenance metadata for an extracted secondary fact.
+func ExtractionProvenance(method string) map[string]string {
+	return map[string]string{
+		MetaSourceType:       "extracted",
+		MetaExtractionMethod: method,
+	}
+}
+
+// MergeProvenance overlays provenance onto a base metadata map, preserving
+// any pre-existing keys not in the provenance set.
+func MergeProvenance(base, provenance map[string]string) map[string]string {
+	if base == nil {
+		base = make(map[string]string)
+	}
+	for k, v := range provenance {
+		base[k] = v
+	}
+	return base
+}
+
 // Prepare validates scope, redacts PII, detects project boundaries,
 // and returns a Memory ready for embedding generation and persistence.
-func Prepare(content, scope string, meta map[string]string, piiEnabled bool, attr Attribution) (*db.Memory, error) {
+// sourceTool identifies the client (e.g. "cli", "mcp", "http") and is used
+// to stamp provenance metadata on the memory.
+func Prepare(content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, sourceTool string) (*db.Memory, error) {
 	if scope == "" {
 		scope = "global"
 	}
@@ -42,6 +161,9 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 		meta["project_name"] = detector.DetectActiveProject()
 	}
 
+	provenance := DefaultProvenance(sourceTool)
+	meta = MergeProvenance(meta, provenance)
+
 	cleanMeta := meta
 	if piiEnabled {
 		cleanMeta = security.RedactMap(meta)
@@ -62,8 +184,9 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 // Store wraps the full prepare → redact → embed → save → extract-facts pipeline.
 // Returns the saved memory and any extracted secondary fact descriptions.
 // The entities parameter contains entity names to link to the saved memory.
-func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string) (*db.Memory, []string, error) {
-	m, err := Prepare(content, scope, meta, piiEnabled, attr)
+// sourceTool identifies the client (e.g. "cli", "mcp", "http").
+func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string, sourceTool string) (*db.Memory, []string, error) {
+	m, err := Prepare(content, scope, meta, piiEnabled, attr, sourceTool)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -126,6 +249,10 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 		if m.Scope == "project" {
 			subMeta["project_name"] = m.Metadata["project_name"]
 		}
+
+		extractionProv := ExtractionProvenance("pattern")
+		subMeta = MergeProvenance(subMeta, extractionProv)
+
 		if piiEnabled {
 			subMeta = security.RedactMap(subMeta)
 		}

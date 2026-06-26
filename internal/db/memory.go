@@ -50,6 +50,23 @@ type RankingWeights struct {
 	RecencyHalfLife  float64 // days
 }
 
+// TrustFilter defines retrieval filters for trust-aware memory search.
+// Empty fields are ignored (no filtering on that dimension).
+type TrustFilter struct {
+	MinConfidence      string        // "low", "medium", "high" — skip memories below this
+	VerificationStatus string        // "verified", "unverified", "stale" — filter by verification
+	ExcludeSuperseded  bool          // when true, skip memories with non-empty superseded_by
+	MaxAge             time.Duration // when non-zero, skip memories older than this
+}
+
+// PolicyFilter defines sensitivity and sharing policy filters for memory retrieval.
+// Empty fields are ignored (no filtering on that dimension).
+type PolicyFilter struct {
+	MaxSensitivity  string // "public", "internal", "confidential", "secret" — skip memories above this
+	MinSharingLevel string // "private", "team", "org", "public" — skip memories below this
+	ClientID        string // when non-empty, check against allowed_clients metadata
+}
+
 // ComputeContentHash returns the SHA-256 hex digest of the given content string.
 func ComputeContentHash(content string) string {
 	h := sha256.Sum256([]byte(content))
@@ -507,6 +524,13 @@ func (db *DB) SearchMemories(queryVec []float32, querySource string, scope strin
 // Only memories whose embedding_source matches querySource are scored; rows
 // from a different embedding space are silently skipped.
 func (db *DB) SearchMemoriesFiltered(queryVec []float32, querySource string, scope string, limit int, entityID string, weights ...RankingWeights) ([]SearchResult, error) {
+	return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, limit, entityID, TrustFilter{}, PolicyFilter{}, weights...)
+}
+
+// SearchMemoriesFilteredWithTrust extends SearchMemoriesFiltered with trust-aware
+// and policy-aware filtering. Memories that don't match the trust or policy filter
+// are excluded from results.
+func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, weights ...RankingWeights) ([]SearchResult, error) {
 	w := DefaultRankingWeights()
 	if len(weights) > 0 {
 		w = weights[0]
@@ -604,6 +628,12 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, querySource string, sco
 				return nil, err
 			}
 			if len(m.Embedding) > 0 && m.EmbeddingSource == querySource {
+				if !passesTrustFilter(m, trustFilter) {
+					continue
+				}
+				if !passesPolicyFilter(m, policyFilter) {
+					continue
+				}
 				relevance := CosineSimilarity(queryVec, m.Embedding)
 				score := float32(CompositeScore(relevance, m.CreatedAt, float64(m.Importance)/10.0, w))
 				results = append(results, scored{m: m, score: score})
@@ -629,6 +659,166 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, querySource string, sco
 	}
 
 	return final, nil
+}
+
+func passesTrustFilter(m *Memory, f TrustFilter) bool {
+	if f.ExcludeSuperseded && m.SupersededBy != "" {
+		return false
+	}
+
+	meta := m.Metadata
+	if meta == nil {
+		meta = make(map[string]string)
+	}
+
+	if f.MinConfidence != "" {
+		confidence := meta["confidence"]
+		if confidence == "" {
+			confidence = "medium"
+		}
+		if !confidenceMeetsMinimum(confidence, f.MinConfidence) {
+			return false
+		}
+	}
+
+	if f.VerificationStatus != "" {
+		status := meta["verification_status"]
+		if status == "" {
+			status = "unverified"
+		}
+		if status != f.VerificationStatus {
+			return false
+		}
+	}
+
+	if f.MaxAge > 0 {
+		if time.Since(m.CreatedAt) > f.MaxAge {
+			return false
+		}
+	}
+
+	return true
+}
+
+func confidenceMeetsMinimum(actual, minimum string) bool {
+	rank := map[string]int{
+		"low":    0,
+		"medium": 1,
+		"high":   2,
+	}
+	actualRank, ok := rank[actual]
+	if !ok {
+		actualRank = 1
+	}
+	minRank, ok := rank[minimum]
+	if !ok {
+		minRank = 1
+	}
+	return actualRank >= minRank
+}
+
+func passesPolicyFilter(m *Memory, f PolicyFilter) bool {
+	if f.MaxSensitivity == "" && f.MinSharingLevel == "" && f.ClientID == "" {
+		return true
+	}
+
+	meta := m.Metadata
+	if meta == nil {
+		meta = make(map[string]string)
+	}
+
+	if f.MaxSensitivity != "" {
+		sensitivity := meta["sensitivity"]
+		if sensitivity == "" {
+			sensitivity = "internal"
+		}
+		if !sensitivityWithinLimit(sensitivity, f.MaxSensitivity) {
+			return false
+		}
+	}
+
+	if f.MinSharingLevel != "" {
+		sharing := meta["sharing_level"]
+		if sharing == "" {
+			sharing = "private"
+		}
+		if !sharingMeetsMinimum(sharing, f.MinSharingLevel) {
+			return false
+		}
+	}
+
+	if f.ClientID != "" {
+		allowed := meta["allowed_clients"]
+		denied := meta["denied_clients"]
+		if denied != "" {
+			for _, c := range splitCSV(denied) {
+				if c == f.ClientID {
+					return false
+				}
+			}
+		}
+		if allowed != "" {
+			found := false
+			for _, c := range splitCSV(allowed) {
+				if c == f.ClientID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func sensitivityWithinLimit(actual, max string) bool {
+	rank := map[string]int{
+		"public":       0,
+		"internal":     1,
+		"confidential": 2,
+		"secret":       3,
+	}
+	actualRank, ok := rank[actual]
+	if !ok {
+		actualRank = 1
+	}
+	maxRank, ok := rank[max]
+	if !ok {
+		maxRank = 1
+	}
+	return actualRank <= maxRank
+}
+
+func sharingMeetsMinimum(actual, minimum string) bool {
+	rank := map[string]int{
+		"private": 0,
+		"team":    1,
+		"org":     2,
+		"public":  3,
+	}
+	actualRank, ok := rank[actual]
+	if !ok {
+		actualRank = 0
+	}
+	minRank, ok := rank[minimum]
+	if !ok {
+		minRank = 0
+	}
+	return actualRank >= minRank
+}
+
+func splitCSV(s string) []string {
+	var result []string
+	for _, part := range strings.Split(s, ",") {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 // CosineSimilarity calculates the cosine similarity between two float vectors.
