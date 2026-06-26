@@ -198,10 +198,6 @@ func (eg *EmbeddingsGenerator) cacheKey(text string) string {
 	return fmt.Sprintf("%x", h[:16])
 }
 
-func (eg *EmbeddingsGenerator) queryOllama(text string) ([]float32, error) {
-	return eg.queryOllamaWithContext(context.Background(), text)
-}
-
 func (eg *EmbeddingsGenerator) queryOllamaWithContext(ctx context.Context, text string) ([]float32, error) {
 	reqBody, err := json.Marshal(map[string]string{
 		"model":  eg.Model,
