@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"fmt"
-	"os"
-
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/spf13/cobra"
 )
 
@@ -23,23 +21,21 @@ var getCmd = &cobra.Command{
   # Output as JSON for scripting
   symmemory get mem_abc123def456 --format json`,
 	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]
 		m, err := GetDB().GetMemory(id)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Database read error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "database read error")
 		}
 
 		if m == nil {
-			fmt.Fprintf(os.Stderr, "Memory not found with ID: %s\n", id)
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "memory not found with ID: %s", id)
 		}
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		if err := formatter.Output(m, "get"); err != nil {
-			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}
+		return nil
 	},
 }

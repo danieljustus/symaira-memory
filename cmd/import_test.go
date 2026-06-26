@@ -44,7 +44,7 @@ func TestImportListOutputsJSON(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	importSessionsCmd.Run(importSessionsCmd, nil)
+	importSessionsCmd.RunE(importSessionsCmd, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -92,7 +92,7 @@ func TestImportListOutputsHumanTextByDefault(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	importSessionsCmd.Run(importSessionsCmd, nil)
+	importSessionsCmd.RunE(importSessionsCmd, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
@@ -141,7 +141,7 @@ func TestImportDryRunOutputsJSON(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	importSessionsCmd.Run(importSessionsCmd, nil)
+	importSessionsCmd.RunE(importSessionsCmd, nil)
 
 	w.Close()
 	os.Stdout = oldStdout

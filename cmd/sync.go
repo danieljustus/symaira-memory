@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/spf13/cobra"
@@ -31,18 +32,16 @@ func init() {
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Bidirectional sync with a remote Symaira Memory server (pull + push with LWW merge)",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		database := GetDB()
 		if database == nil {
-			fmt.Fprintf(os.Stderr, "Error: database not initialized\n")
-			os.Exit(1)
-			return
+			return exitcodes.Wrapf(nil, exitcodes.ExitSoftware, exitcodes.KindInternal, "database not initialized")
 		}
 
 		if err := runSync(database, syncRemote, syncToken); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "sync failed")
 		}
+		return nil
 	},
 }
 

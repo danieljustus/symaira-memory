@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/spf13/cobra"
 )
 
@@ -78,7 +79,7 @@ var configCmd = &cobra.Command{
 major MCP clients. Use --tool to generate tool-specific config formats.
 
 Supported tools: claude-code (default), opencode, codex, kimi, copilot.`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		// Default to claude-code when no --tool flag provided
 		tool := configTool
 		if tool == "" {
@@ -87,8 +88,7 @@ Supported tools: claude-code (default), opencode, codex, kimi, copilot.`,
 
 		preset, ok := toolPresets[tool]
 		if !ok {
-			fmt.Fprintf(os.Stderr, "Unknown tool %q. Valid tools: %s\n", tool, strings.Join(toolNames(), ", "))
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "unknown tool %q; valid tools: %s", tool, strings.Join(toolNames(), ", "))
 		}
 
 		// Find the path to the current executable or assume symmemory standard path
@@ -138,6 +138,7 @@ Supported tools: claude-code (default), opencode, codex, kimi, copilot.`,
 		fmt.Fprintln(os.Stderr, "\n========================= CONFIGURATION BLOCK =========================")
 		fmt.Fprintln(os.Stderr, output)
 		fmt.Fprintln(os.Stderr, "=======================================================================")
+		return nil
 	},
 }
 
@@ -188,8 +189,8 @@ func buildJSONConfig(tool, execPath string, serveArgs []string) string {
 
 	b, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to encode config: %v\n", err)
-		os.Exit(1)
+		// This should never happen with well-formed config maps
+		return fmt.Sprintf(`{"error": %q}`, err.Error())
 	}
 	return string(b)
 }

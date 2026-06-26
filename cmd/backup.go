@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -147,7 +148,7 @@ var exportCmd = &cobra.Command{
 	Use:   "export [destination.tar.gz]",
 	Short: "Export local SQLite memory database to an encrypted backup",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		destPath := args[0]
 
 		cfg := GetConfig()
@@ -155,50 +156,42 @@ var exportCmd = &cobra.Command{
 		if dbPath == "" {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: failed to resolve user home: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve user home directory")
 			}
 			dbPath = filepath.Join(home, ".local", "share", "symmemory", "default.db")
 		}
 
 		if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "Error: database file does not exist yet. Add memories first!\n")
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "database file does not exist yet; add memories first")
 		}
 
 		if err := checkpointAndClose(dbPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: WAL checkpoint failed: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "WAL checkpoint failed")
 		}
 
 		dbBytes, err := os.ReadFile(dbPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading database: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to read database file")
 		}
 
 		password, err := resolveBackupPassword("encryption")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitNoInput, exitcodes.KindValidation, "failed to resolve backup password")
 		}
 		if password == "" {
-			fmt.Fprintln(os.Stderr, "Error: backup export requires an encryption password")
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "backup export requires an encryption password")
 		}
 
 		fmt.Println("🔒 Encrypting backup with AES-256-GCM...")
 		crypto := security.NewCryptoEngine()
 		finalBytes, err := crypto.Encrypt(dbBytes, password)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Encryption failure: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "encryption failed")
 		}
 
 		file, err := os.Create(destPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to create target file: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to create target file")
 		}
 		defer file.Close()
 
@@ -215,16 +208,15 @@ var exportCmd = &cobra.Command{
 		}
 
 		if err := tw.WriteHeader(header); err != nil {
-			fmt.Fprintf(os.Stderr, "Tar header failed: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "tar header write failed")
 		}
 
 		if _, err := tw.Write(finalBytes); err != nil {
-			fmt.Fprintf(os.Stderr, "Tar payload write failed: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "tar payload write failed")
 		}
 
 		fmt.Printf("⚡ Backup exported successfully to %s!\n", destPath)
+		return nil
 	},
 }
 
@@ -232,20 +224,18 @@ var importCmd = &cobra.Command{
 	Use:   "restore [source.tar.gz]",
 	Short: "Restore local SQLite database from a compressed backup",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		sourcePath := args[0]
 
 		file, err := os.Open(sourcePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to open source file: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to open source file")
 		}
 		defer file.Close()
 
 		gr, err := gzip.NewReader(file)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Gzip unpack failed: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitData, exitcodes.KindValidation, "gzip unpack failed; file may not be a valid gzip archive")
 		}
 		defer gr.Close()
 
@@ -259,8 +249,7 @@ var importCmd = &cobra.Command{
 				break
 			}
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Tar extraction failed: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitData, exitcodes.KindValidation, "tar extraction failed")
 			}
 
 			if strings.HasPrefix(header.Name, "default.db") {
@@ -268,12 +257,10 @@ var importCmd = &cobra.Command{
 				limited := io.LimitReader(tr, maxTarEntrySize+1)
 				var buf bytesBuffer
 				if _, err := io.Copy(&buf, limited); err != nil {
-					fmt.Fprintf(os.Stderr, "Copy failure: %v\n", err)
-					os.Exit(1)
+					return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to copy archive entry")
 				}
 				if int64(buf.Len()) > maxTarEntrySize {
-					fmt.Fprintf(os.Stderr, "Error: database entry exceeds maximum allowed size (%d bytes)\n", maxTarEntrySize)
-					os.Exit(1)
+					return exitcodes.Wrapf(nil, exitcodes.ExitData, exitcodes.KindValidation, "database entry exceeds maximum allowed size (%d bytes)", maxTarEntrySize)
 				}
 				payload = buf.Bytes()
 				break
@@ -281,23 +268,20 @@ var importCmd = &cobra.Command{
 		}
 
 		if len(payload) == 0 {
-			fmt.Fprintf(os.Stderr, "Error: no database file found in the archive\n")
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "no database file found in the archive")
 		}
 
 		var dbBytes []byte
 		if strings.HasSuffix(filename, ".enc") {
 			password, err := resolveBackupPassword("decryption")
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitNoInput, exitcodes.KindValidation, "failed to resolve backup password")
 			}
 			fmt.Println("🔓 Decrypting database payload with AES-256-GCM...")
 			crypto := security.NewCryptoEngine()
 			plainBytes, err := crypto.Decrypt(payload, password)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Decryption failure: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitNoAuth, exitcodes.KindAuth, "decryption failed; wrong password or corrupted data")
 			}
 			dbBytes = plainBytes
 		} else {
@@ -305,8 +289,7 @@ var importCmd = &cobra.Command{
 		}
 
 		if err := validateSQLiteFile(dbBytes); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: backup is not a valid SQLite database: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitData, exitcodes.KindValidation, "backup is not a valid SQLite database")
 		}
 
 		cfg := GetConfig()
@@ -314,8 +297,7 @@ var importCmd = &cobra.Command{
 		if dbPath == "" {
 			home, err := os.UserHomeDir()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve user home directory")
 			}
 			dbPath = filepath.Join(home, ".local", "share", "symmemory", "default.db")
 		}
@@ -325,8 +307,7 @@ var importCmd = &cobra.Command{
 
 		tmpFile, err := os.CreateTemp(dbDir, "symmemory-restore-*.db.tmp")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to create staging file: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to create staging file")
 		}
 		stagingPath := tmpFile.Name()
 
@@ -339,25 +320,21 @@ var importCmd = &cobra.Command{
 
 		if err := tmpFile.Chmod(0600); err != nil {
 			tmpFile.Close()
-			fmt.Fprintf(os.Stderr, "Failed to set staging file permissions: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to set staging file permissions")
 		}
 
 		if _, err := tmpFile.Write(dbBytes); err != nil {
 			tmpFile.Close()
-			fmt.Fprintf(os.Stderr, "Failed to write staging file: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to write staging file")
 		}
 
 		if err := tmpFile.Sync(); err != nil {
 			tmpFile.Close()
-			fmt.Fprintf(os.Stderr, "Failed to sync staging file: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to sync staging file")
 		}
 
 		if err := tmpFile.Close(); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to close staging file: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to close staging file")
 		}
 
 		for _, suffix := range []string{"-wal", "-shm"} {
@@ -365,12 +342,12 @@ var importCmd = &cobra.Command{
 		}
 
 		if err := os.Rename(stagingPath, dbPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to atomically replace database: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to atomically replace database")
 		}
 
 		success = true
 		fmt.Println("⚡ Memory database successfully restored!")
+		return nil
 	},
 }
 

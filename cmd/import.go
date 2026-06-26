@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/importer"
 	"github.com/danieljustus/symaira-memory/internal/importer/aider"
@@ -55,7 +56,7 @@ Examples:
   symmemory import --tool curated-memory
   symmemory import --all
   symmemory import --tool claude-code --dry-run`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if importList {
 			cfg := GetConfig()
 			tools := []string{"claude-code", "codex", "hermes", "aider", "curated-memory", "git", "github", "shell-history", "calendar", "email", "obsidian", "paperless", "opencode", "openmemory", "mem0", "chatgpt"}
@@ -86,16 +87,14 @@ Examples:
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
 				if err := enc.Encode(statuses); err != nil {
-					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-					os.Exit(1)
+					return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to encode JSON output")
 				}
 			}
-			return
+			return nil
 		}
 
 		if !importAll && importTool == "" {
-			fmt.Fprintln(os.Stderr, "Error: either --tool, --all, or --list flag is required")
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "either --tool, --all, or --list flag is required")
 		}
 
 		registry := importer.NewRegistry(GetDB(), extractor.NewEmbeddingsGenerator(GetConfig()), GetConfig().Import.ExtractOnImport)
@@ -136,18 +135,16 @@ Examples:
 		}
 		results, err := registry.RunImport(ctx, tools, importDryRun)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Import failed: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "import failed")
 		}
 
 		if GetOutputFormat(cmd) == "json" {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			if err := enc.Encode(results); err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to encode JSON output")
 			}
-			return
+			return nil
 		}
 
 		for _, result := range results {
@@ -161,5 +158,6 @@ Examples:
 			}
 			fmt.Println()
 		}
+		return nil
 	},
 }

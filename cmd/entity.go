@@ -3,10 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -41,7 +41,7 @@ var entityAddCmd = &cobra.Command{
 	Use:   "add [name]",
 	Short: "Create a new entity",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
 		var aliases []string
@@ -65,32 +65,31 @@ var entityAddCmd = &cobra.Command{
 		}
 
 		if err := GetDB().SaveEntity(e); err != nil {
-			fmt.Fprintf(os.Stderr, "Error saving entity: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to save entity")
 		}
 
 		fmt.Printf("Entity created: %s (type=%s)\n", e.Name, e.Type)
 		if len(aliases) > 0 {
 			fmt.Printf("  Aliases: %s\n", strings.Join(aliases, ", "))
 		}
+		return nil
 	},
 }
 
 var entityListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List all entities",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		entities, err := GetDB().ListEntities()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error listing entities: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to list entities")
 		}
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		if err := formatter.Output(entities, "entity-list"); err != nil {
-			fmt.Fprintf(os.Stderr, "Output error: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}
+		return nil
 	},
 }
 
@@ -98,36 +97,32 @@ var entityLinkCmd = &cobra.Command{
 	Use:   "link [memory-id] [entity-name]",
 	Short: "Link a memory to an entity",
 	Args:  cobra.ExactArgs(2),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		memoryID := args[0]
 		entityName := args[1]
 
 		entity, err := GetDB().ResolveEntity(entityName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving entity: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
 		}
 		if entity == nil {
-			fmt.Fprintf(os.Stderr, "Entity not found: %s\n", entityName)
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", entityName)
 		}
 
 		m, err := GetDB().GetMemory(memoryID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching memory: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to fetch memory")
 		}
 		if m == nil {
-			fmt.Fprintf(os.Stderr, "Memory not found: %s\n", memoryID)
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "memory not found: %s", memoryID)
 		}
 
 		if err := GetDB().LinkMemoryToEntity(memoryID, entity.ID); err != nil {
-			fmt.Fprintf(os.Stderr, "Error linking: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to link memory to entity")
 		}
 
 		fmt.Printf("Linked memory %s to entity %q\n", memoryID, entity.Name)
+		return nil
 	},
 }
 
@@ -135,35 +130,31 @@ var entityShowCmd = &cobra.Command{
 	Use:   "show [name]",
 	Short: "Show entity details and linked memories",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
 		entity, err := GetDB().ResolveEntity(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving entity: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
 		}
 		if entity == nil {
-			fmt.Fprintf(os.Stderr, "Entity not found: %s\n", name)
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", name)
 		}
 
 		bytes, err := json.MarshalIndent(entity, "", "  ")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error encoding entity: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error encoding entity")
 		}
 		fmt.Println(string(bytes))
 
 		memoryIDs, err := GetDB().MemoryIDsForEntity(entity.ID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error fetching linked memories: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error fetching linked memories")
 		}
 
 		if len(memoryIDs) == 0 {
 			fmt.Println("\nNo linked memories.")
-			return
+			return nil
 		}
 
 		fmt.Printf("\nLinked memories (%d):\n", len(memoryIDs))
@@ -179,6 +170,7 @@ var entityShowCmd = &cobra.Command{
 			}
 			fmt.Printf("  - %s: %s\n", m.ID, content)
 		}
+		return nil
 	},
 }
 
@@ -186,24 +178,22 @@ var entityRemoveCmd = &cobra.Command{
 	Use:   "remove [name]",
 	Short: "Delete an entity and its memory links",
 	Args:  cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 
 		entity, err := GetDB().ResolveEntity(name)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error resolving entity: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
 		}
 		if entity == nil {
-			fmt.Fprintf(os.Stderr, "Entity not found: %s\n", name)
-			os.Exit(1)
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", name)
 		}
 
 		if err := GetDB().DeleteEntity(entity.ID); err != nil {
-			fmt.Fprintf(os.Stderr, "Error deleting entity: %v\n", err)
-			os.Exit(1)
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to delete entity")
 		}
 
 		fmt.Printf("Entity %q removed.\n", entity.Name)
+		return nil
 	},
 }

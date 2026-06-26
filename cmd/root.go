@@ -112,14 +112,13 @@ func init() {
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the current CLI version details",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		check, _ := cmd.Flags().GetBool("check")
 		if check {
 			checker := updatecheck.NewChecker("danieljustus", "symaira-memory")
 			release, err := checker.Check(context.Background(), Version)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Update check failed: %v\n", err)
-				os.Exit(1)
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "update check failed")
 			}
 			if release != nil {
 				fmt.Printf("Update available: %s → %s\n", Version, release.TagName)
@@ -127,9 +126,10 @@ var versionCmd = &cobra.Command{
 			} else {
 				fmt.Printf("symmemory %s is up to date.\n", Version)
 			}
-			return
+			return nil
 		}
 		fmt.Printf("symmemory version %s (%s, date: %s)\n", Version, Commit, Date)
+		return nil
 	},
 }
 
