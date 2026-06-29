@@ -535,3 +535,557 @@ func TestCheckMemoryCountWithData(t *testing.T) {
 		t.Errorf("expected '5 memories stored' in detail, got %q", result.detail)
 	}
 }
+
+// --- Tests for checkOllama (coverage target: 0% → meaningful) ---
+
+func TestCheckOllamaDefaultConfig(t *testing.T) {
+	SetConfig(config.Defaults())
+	result := checkOllama()
+	if result.passed {
+		return
+	}
+	if !strings.Contains(result.detail, "not reachable") && !strings.Contains(result.detail, "returned status") {
+		t.Errorf("expected connection or status error detail, got %q", result.detail)
+	}
+}
+
+func TestCheckOllamaCustomURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"embedding":[0.1,0.2,0.3]}`)
+	}))
+	defer server.Close()
+
+	cfg := config.Defaults()
+	cfg.Ollama.URL = server.URL + "/api/embeddings"
+	cfg.Ollama.Model = "nomic-embed-text"
+	SetConfig(cfg)
+
+	result := checkOllama()
+	if !result.passed {
+		t.Errorf("expected pass with custom URL, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "embedding returned") {
+		t.Errorf("expected 'embedding returned' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckOllamaEmptyURLUsesDefault(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"embedding":[0.1,0.2,0.3]}`)
+	}))
+	defer server.Close()
+
+	cfg := config.Defaults()
+	cfg.Ollama.URL = ""
+	cfg.Ollama.Model = "nomic-embed-text"
+	SetConfig(cfg)
+
+	_ = server
+	result := checkOllama()
+	if result.name != "Ollama" {
+		t.Errorf("expected name 'Ollama', got %q", result.name)
+	}
+}
+
+func TestCheckOllamaUnreachableServer(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Ollama.URL = "http://127.0.0.1:1/api/embeddings"
+	cfg.Ollama.Model = "nomic-embed-text"
+	SetConfig(cfg)
+
+	result := checkOllama()
+	if result.passed {
+		t.Fatal("expected failure for unreachable server")
+	}
+	if !strings.Contains(result.detail, "not reachable") {
+		t.Errorf("expected 'not reachable' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckOllamaModelNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	cfg := config.Defaults()
+	cfg.Ollama.URL = server.URL
+	cfg.Ollama.Model = "nonexistent-model"
+	SetConfig(cfg)
+
+	result := checkOllama()
+	if result.passed {
+		t.Fatal("expected failure for missing model")
+	}
+	if !strings.Contains(result.detail, "model not found") {
+		t.Errorf("expected 'model not found' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckOllamaEmptyModel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"embedding":[0.1]}`)
+	}))
+	defer server.Close()
+
+	cfg := config.Defaults()
+	cfg.Ollama.URL = server.URL
+	cfg.Ollama.Model = ""
+	SetConfig(cfg)
+
+	result := checkOllama()
+	if !result.passed {
+		t.Errorf("expected pass with empty model (should default), got: %s", result.detail)
+	}
+}
+
+// --- Tests for checkJWTSecret (coverage target: 0% → meaningful) ---
+
+func TestCheckJWTSecretViaVaultConfig(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.JWT.Secret = "vault://symaira/memory/jwt"
+	SetConfig(cfg)
+
+	result := checkJWTSecret()
+	if !result.passed {
+		t.Errorf("expected pass for vault:// config, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "vault://") {
+		t.Errorf("expected 'vault://' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckJWTSecretViaEnvVar(t *testing.T) {
+	t.Setenv("JWT_SECRET_KEY", "test-secret-from-env")
+
+	cfg := config.Defaults()
+	cfg.JWT.Secret = ""
+	SetConfig(cfg)
+
+	result := checkJWTSecret()
+	if !result.passed {
+		t.Errorf("expected pass for env var, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "environment variable") {
+		t.Errorf("expected 'environment variable' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckJWTSecretViaFile(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-jwt-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	secretPath := filepath.Join(tempDir, "jwt.secret")
+	if err := os.WriteFile(secretPath, []byte("test-secret"), 0600); err != nil {
+		t.Fatalf("failed to write secret file: %v", err)
+	}
+
+	cfg := config.Defaults()
+	cfg.JWT.Secret = ""
+	cfg.JWT.SecretPath = secretPath
+	SetConfig(cfg)
+
+	result := checkJWTSecret()
+	if !result.passed {
+		t.Errorf("expected pass for existing file, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "file exists") {
+		t.Errorf("expected 'file exists' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckJWTSecretAutoGenerate(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-jwt-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	t.Setenv("JWT_SECRET_KEY", "")
+
+	cfg := config.Defaults()
+	cfg.JWT.Secret = ""
+	cfg.JWT.SecretPath = filepath.Join(tempDir, "nonexistent", "jwt.secret")
+	SetConfig(cfg)
+
+	result := checkJWTSecret()
+	if !result.passed {
+		t.Errorf("expected pass for auto-generate path, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "auto-generated") {
+		t.Errorf("expected 'auto-generated' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckJWTSecretCustomPath(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-jwt-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	secretPath := filepath.Join(tempDir, "custom-secret.key")
+	if err := os.WriteFile(secretPath, []byte("my-secret"), 0600); err != nil {
+		t.Fatalf("failed to write secret file: %v", err)
+	}
+
+	cfg := config.Defaults()
+	cfg.JWT.Secret = ""
+	cfg.JWT.SecretPath = secretPath
+	SetConfig(cfg)
+
+	result := checkJWTSecret()
+	if !result.passed {
+		t.Errorf("expected pass for custom path, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "file exists") {
+		t.Errorf("expected 'file exists' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckJWTSecretPriorityVaultOverEnv(t *testing.T) {
+	t.Setenv("JWT_SECRET_KEY", "env-secret")
+
+	cfg := config.Defaults()
+	cfg.JWT.Secret = "vault://symaira/memory/jwt"
+	SetConfig(cfg)
+
+	result := checkJWTSecret()
+	if !result.passed {
+		t.Errorf("expected pass, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "vault://") {
+		t.Errorf("expected vault:// to take precedence, got %q", result.detail)
+	}
+}
+
+// --- Tests for checkConfig (coverage target: 46.2% → ≥70%) ---
+
+func TestCheckConfigValidFile(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-config-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configDir := filepath.Join(tempDir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
+	validTOML := `
+[database]
+path = "/tmp/test.db"
+
+[ollama]
+url = "http://localhost:11434/api/embeddings"
+model = "nomic-embed-text"
+`
+	if err := os.WriteFile(configPath, []byte(validTOML), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	SetConfig(config.Defaults())
+	result := checkConfig()
+	if !result.passed {
+		t.Errorf("expected pass for valid config, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "valid") {
+		t.Errorf("expected 'valid' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckConfigInvalidFile(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-config-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configDir := filepath.Join(tempDir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
+	invalidTOML := `
+[database
+path = "/tmp/test.db"
+`
+	if err := os.WriteFile(configPath, []byte(invalidTOML), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	SetConfig(config.Defaults())
+	result := checkConfig()
+	if !result.passed {
+		t.Errorf("config loader handled invalid TOML gracefully: %s", result.detail)
+	}
+}
+
+func TestCheckConfigNoConfigDir(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-config-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	SetConfig(config.Defaults())
+	result := checkConfig()
+	if !result.passed {
+		t.Errorf("expected pass for missing config, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "defaults") {
+		t.Errorf("expected 'defaults' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckConfigEmptyFile(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-config-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	configDir := filepath.Join(tempDir, ".config", "symmemory")
+	if err := os.MkdirAll(configDir, 0700); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte(""), 0644); err != nil {
+		t.Fatalf("failed to write config file: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	SetConfig(config.Defaults())
+	result := checkConfig()
+	if !result.passed {
+		t.Errorf("expected pass for empty config (valid TOML), got: %s", result.detail)
+	}
+}
+
+// --- Tests for checkFilePermissions (coverage target: 41.9% → ≥70%) ---
+
+func TestCheckFilePermissionsWrongDirPerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbDir := filepath.Join(tempDir, ".local", "share", "symmemory")
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	result := checkFilePermissions()
+	if result.passed {
+		t.Error("expected failure for wrong directory permissions")
+	}
+	if !strings.Contains(result.detail, "expected 0700") {
+		t.Errorf("expected 'expected 0700' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckFilePermissionsWrongDBPerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbDir := filepath.Join(tempDir, ".local", "share", "symmemory")
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	dbPath := filepath.Join(dbDir, "default.db")
+	if err := os.WriteFile(dbPath, []byte("fake-db"), 0644); err != nil {
+		t.Fatalf("failed to write db file: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	result := checkFilePermissions()
+	if result.passed {
+		t.Error("expected failure for wrong database permissions")
+	}
+	if !strings.Contains(result.detail, "database is") {
+		t.Errorf("expected 'database is' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckFilePermissionsWrongSecretPerms(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbDir := filepath.Join(tempDir, ".local", "share", "symmemory")
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	dbPath := filepath.Join(dbDir, "default.db")
+	if err := os.WriteFile(dbPath, []byte("fake-db"), 0600); err != nil {
+		t.Fatalf("failed to write db file: %v", err)
+	}
+
+	secretDir := filepath.Join(tempDir, ".config", "symmemory")
+	if err := os.MkdirAll(secretDir, 0700); err != nil {
+		t.Fatalf("failed to create secret dir: %v", err)
+	}
+	secretPath := filepath.Join(secretDir, "jwt.secret")
+	if err := os.WriteFile(secretPath, []byte("fake-secret"), 0644); err != nil {
+		t.Fatalf("failed to write secret file: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	result := checkFilePermissions()
+	if result.passed {
+		t.Error("expected failure for wrong secret permissions")
+	}
+	if !strings.Contains(result.detail, "secret file is") {
+		t.Errorf("expected 'secret file is' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckFilePermissionsDBNotExist(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbDir := filepath.Join(tempDir, ".local", "share", "symmemory")
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	result := checkFilePermissions()
+	if !result.passed {
+		t.Errorf("expected pass when db not created, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "database not yet created") {
+		t.Errorf("expected 'database not yet created' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckFilePermissionsSecretNotExist(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbDir := filepath.Join(tempDir, ".local", "share", "symmemory")
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	dbPath := filepath.Join(dbDir, "default.db")
+	if err := os.WriteFile(dbPath, []byte("fake-db"), 0600); err != nil {
+		t.Fatalf("failed to write db file: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	result := checkFilePermissions()
+	if !result.passed {
+		t.Errorf("expected pass when secret not created, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "all checked paths OK") {
+		t.Errorf("expected 'all checked paths OK' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckFilePermissionsAllCorrect(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbDir := filepath.Join(tempDir, ".local", "share", "symmemory")
+	if err := os.MkdirAll(dbDir, 0700); err != nil {
+		t.Fatalf("failed to create db dir: %v", err)
+	}
+	dbPath := filepath.Join(dbDir, "default.db")
+	if err := os.WriteFile(dbPath, []byte("fake-db"), 0600); err != nil {
+		t.Fatalf("failed to write db file: %v", err)
+	}
+
+	secretDir := filepath.Join(tempDir, ".config", "symmemory")
+	if err := os.MkdirAll(secretDir, 0700); err != nil {
+		t.Fatalf("failed to create secret dir: %v", err)
+	}
+	secretPath := filepath.Join(secretDir, "jwt.secret")
+	if err := os.WriteFile(secretPath, []byte("fake-secret"), 0600); err != nil {
+		t.Fatalf("failed to write secret file: %v", err)
+	}
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	result := checkFilePermissions()
+	if !result.passed {
+		t.Errorf("expected pass for all correct perms, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "all checked paths OK") {
+		t.Errorf("expected 'all checked paths OK' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckFilePermissionsDirNotExist(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	result := checkFilePermissions()
+	if !result.passed {
+		t.Errorf("expected pass when directory not created, got: %s", result.detail)
+	}
+	if !strings.Contains(result.detail, "directory not yet created") {
+		t.Errorf("expected 'directory not yet created' in detail, got %q", result.detail)
+	}
+}
