@@ -13,9 +13,9 @@ import (
 
 // OutputFormatter handles formatting command output as JSON or human-readable text.
 type OutputFormatter struct {
-	Format          string // "json" or "text"
-	Writer          io.Writer
-	IncludeEmbedding bool  // when true, include raw embedding vectors in JSON output
+	Format           string // "json" or "text"
+	Writer           io.Writer
+	IncludeEmbedding bool // when true, include raw embedding vectors in JSON output
 }
 
 // NewOutputFormatter creates an OutputFormatter with the given format and os.Stdout as writer.

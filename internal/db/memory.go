@@ -15,8 +15,8 @@ import (
 type Memory struct {
 	ID                  string            `json:"id"`
 	Content             string            `json:"content"`
-	Scope               string            `json:"scope"`     // global, project, agent, user, session
-	Metadata            map[string]string `json:"metadata"`  // key-value metadata
+	Scope               string            `json:"scope"`               // global, project, agent, user, session
+	Metadata            map[string]string `json:"metadata"`            // key-value metadata
 	Embedding           []float32         `json:"embedding,omitempty"` // semantic embedding
 	EmbeddingSource     string            `json:"embedding_source,omitempty"`
 	EmbeddingModel      string            `json:"embedding_model,omitempty"`
