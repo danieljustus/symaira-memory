@@ -314,7 +314,7 @@ func dbFileSize(homeDir string) int64 {
 // gzipSize returns the gzipped size of data.
 func gzipSize(data []byte) int64 {
 	var buf bytes.Buffer
-	gz := gzip.NewWriter(&buf)
+	gz, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
 	if _, err := gz.Write(data); err != nil {
 		return 0
 	}
