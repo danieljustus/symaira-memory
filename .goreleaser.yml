@@ -18,7 +18,7 @@ builds:
     main: main.go
     binary: symmemory
     ldflags:
-      - -s -w -X github.com/danieljustus/symaira-memory/cmd.Version={{.Version}} -X github.com/danieljustus/symaira-memory/cmd.Commit={{.Commit}} -X github.com/danieljustus/symaira-memory/cmd.Date={{.Date}}
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
     hooks:
       post:
         - cmd: sh -c 'if [ "{{ .Os }}" = "darwin" ] && [ -n "${CODESIGN_IDENTITY:-}" ]; then codesign -s "$CODESIGN_IDENTITY" --timestamp --options runtime "{{ .Path }}"; echo "Signed {{ .Path }}"; fi'
