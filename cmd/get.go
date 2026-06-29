@@ -6,9 +6,11 @@ import (
 )
 
 var getFormat string
+var getIncludeEmbedding bool
 
 func init() {
 	getCmd.Flags().StringVar(&getFormat, "format", "text", "Output format: json or text")
+	getCmd.Flags().BoolVar(&getIncludeEmbedding, "include-embedding", false, "Include raw embedding vectors in JSON output (omitted by default)")
 	rootCmd.AddCommand(getCmd)
 }
 
@@ -33,6 +35,7 @@ var getCmd = &cobra.Command{
 		}
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
+		formatter.IncludeEmbedding = getIncludeEmbedding
 		if err := formatter.Output(m, "get"); err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}

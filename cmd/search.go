@@ -23,6 +23,7 @@ var (
 	searchMaxSensitivity    string
 	searchMinSharingLevel   string
 	searchClientID          string
+	searchIncludeEmbedding  bool
 )
 
 func init() {
@@ -37,6 +38,7 @@ func init() {
 	searchCmd.Flags().StringVar(&searchMaxSensitivity, "max-sensitivity", "", "Maximum sensitivity level: public, internal, confidential, secret")
 	searchCmd.Flags().StringVar(&searchMinSharingLevel, "min-sharing-level", "", "Minimum sharing level: private, team, org, public")
 	searchCmd.Flags().StringVar(&searchClientID, "client-id", "", "Client ID for access control filtering")
+	searchCmd.Flags().BoolVar(&searchIncludeEmbedding, "include-embedding", false, "Include raw embedding vectors in JSON output (omitted by default)")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -101,6 +103,7 @@ var searchCmd = &cobra.Command{
 		}
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
+		formatter.IncludeEmbedding = searchIncludeEmbedding
 		if err := formatter.Output(results, "search"); err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}

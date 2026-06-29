@@ -7,12 +7,15 @@ import (
 	"os"
 	"strings"
 	"text/template"
+
+	"github.com/danieljustus/symaira-memory/internal/db"
 )
 
 // OutputFormatter handles formatting command output as JSON or human-readable text.
 type OutputFormatter struct {
-	Format string // "json" or "text"
-	Writer io.Writer
+	Format          string // "json" or "text"
+	Writer          io.Writer
+	IncludeEmbedding bool  // when true, include raw embedding vectors in JSON output
 }
 
 // NewOutputFormatter creates an OutputFormatter with the given format and os.Stdout as writer.
@@ -35,13 +38,91 @@ func (f *OutputFormatter) Output(data interface{}, templateName string) error {
 }
 
 // FormatJSON writes data as indented JSON to the writer.
+// When IncludeEmbedding is false, raw embedding vectors are stripped from the output.
 func (f *OutputFormatter) FormatJSON(data interface{}) error {
-	bytes, err := json.MarshalIndent(data, "", "  ")
+	output := data
+	if !f.IncludeEmbedding {
+		output = stripEmbedding(data)
+	}
+	bytes, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to encode JSON: %w", err)
 	}
 	_, err = fmt.Fprintln(f.Writer, string(bytes))
 	return err
+}
+
+// stripEmbedding removes embedding vectors from Memory and SearchResult types
+// to produce compact JSON output suitable for agent workflows.
+func stripEmbedding(data interface{}) interface{} {
+	switch v := data.(type) {
+	case *db.Memory:
+		clone := *v
+		clone.Embedding = nil
+		return &clone
+	case db.Memory:
+		clone := v
+		clone.Embedding = nil
+		return clone
+	case *db.SearchResult:
+		clone := *v
+		if clone.Memory != nil {
+			memClone := *clone.Memory
+			memClone.Embedding = nil
+			clone.Memory = &memClone
+		}
+		return &clone
+	case db.SearchResult:
+		clone := v
+		if clone.Memory != nil {
+			memClone := *clone.Memory
+			memClone.Embedding = nil
+			clone.Memory = &memClone
+		}
+		return clone
+	case []*db.Memory:
+		out := make([]*db.Memory, len(v))
+		for i, m := range v {
+			clone := *m
+			clone.Embedding = nil
+			out[i] = &clone
+		}
+		return out
+	case []db.Memory:
+		out := make([]db.Memory, len(v))
+		for i, m := range v {
+			clone := m
+			clone.Embedding = nil
+			out[i] = clone
+		}
+		return out
+	case []db.SearchResult:
+		out := make([]db.SearchResult, len(v))
+		for i, r := range v {
+			clone := r
+			if clone.Memory != nil {
+				memClone := *clone.Memory
+				memClone.Embedding = nil
+				clone.Memory = &memClone
+			}
+			out[i] = clone
+		}
+		return out
+	case []*db.SearchResult:
+		out := make([]*db.SearchResult, len(v))
+		for i, r := range v {
+			clone := *r
+			if clone.Memory != nil {
+				memClone := *clone.Memory
+				memClone.Embedding = nil
+				clone.Memory = &memClone
+			}
+			out[i] = &clone
+		}
+		return out
+	default:
+		return data
+	}
 }
 
 // FormatText renders data using the provided Go text/template string.
