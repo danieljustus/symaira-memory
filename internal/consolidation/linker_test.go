@@ -292,24 +292,24 @@ func TestLinkCrossToolWithMemories(t *testing.T) {
 	// Identical embeddings will yield cosine similarity = 1.0
 	embedding := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
 	m1 := &db.Memory{
-		ID:            "mem-claude-1",
-		Content:       "user prefers dark mode",
-		Scope:         "claude-code",
-		Embedding:     embedding,
+		ID:              "mem-claude-1",
+		Content:         "user prefers dark mode",
+		Scope:           "claude-code",
+		Embedding:       embedding,
 		EmbeddingSource: "ollama",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Metadata:      map[string]string{},
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		Metadata:        map[string]string{},
 	}
 	m2 := &db.Memory{
-		ID:            "mem-hermes-1",
-		Content:       "user prefers dark mode",
-		Scope:         "hermes",
-		Embedding:     embedding,
+		ID:              "mem-hermes-1",
+		Content:         "user prefers dark mode",
+		Scope:           "hermes",
+		Embedding:       embedding,
 		EmbeddingSource: "ollama",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Metadata:      map[string]string{},
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		Metadata:        map[string]string{},
 	}
 
 	if err := database.SaveMemory(m1); err != nil {
@@ -337,24 +337,24 @@ func TestLinkCrossToolDryRun(t *testing.T) {
 	now := time.Now()
 	embedding := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
 	m1 := &db.Memory{
-		ID:            "mem-claude-1",
-		Content:       "user prefers dark mode",
-		Scope:         "claude-code",
-		Embedding:     embedding,
+		ID:              "mem-claude-1",
+		Content:         "user prefers dark mode",
+		Scope:           "claude-code",
+		Embedding:       embedding,
 		EmbeddingSource: "ollama",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Metadata:      map[string]string{},
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		Metadata:        map[string]string{},
 	}
 	m2 := &db.Memory{
-		ID:            "mem-hermes-1",
-		Content:       "user prefers dark mode",
-		Scope:         "hermes",
-		Embedding:     embedding,
+		ID:              "mem-hermes-1",
+		Content:         "user prefers dark mode",
+		Scope:           "hermes",
+		Embedding:       embedding,
 		EmbeddingSource: "ollama",
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		Metadata:      map[string]string{},
+		CreatedAt:       now,
+		UpdatedAt:       now,
+		Metadata:        map[string]string{},
 	}
 
 	if err := database.SaveMemory(m1); err != nil {
