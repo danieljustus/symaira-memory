@@ -65,3 +65,9 @@ CLAUDE.md
 .github/audit/
 .sisyphus/
 .omo/
+
+# Xcode / macOS / XcodeGen
+*.xcodeproj/
+*.xcworkspace/
+.xcuserdata/
+DerivedData/
