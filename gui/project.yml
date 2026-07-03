@@ -1,11 +1,24 @@
 name: SymairaMemory
 options:
   bundleIdPrefix: com.symaira
+
+packages:
+  SymairaAppKit:
+    url: https://github.com/danieljustus/symaira-appkit
+    exactVersion: 0.1.0
+
 targets:
   SymairaMemory:
     type: application
     platform: macOS
-    deploymentTarget: "13.0"
+    # 13.0 → 14.0: required by the shared symaira-appkit package and the
+    # ecosystem-wide client baseline (all other clients already target 14).
+    deploymentTarget: "14.0"
+    dependencies:
+      - package: SymairaAppKit
+        product: SymairaTheme
+      - package: SymairaAppKit
+        product: SymairaKeychain
     sources:
       - Sources
     info:
@@ -21,6 +34,6 @@ targets:
         CODE_SIGNING_REQUIRED: "NO"
         CODE_SIGN_IDENTITY: ""
         DEVELOPMENT_TEAM: ""
-        MACOSX_DEPLOYMENT_TARGET: "13.0"
-        INFOPLIST_KEY_LSMinimumSystemVersion: "13.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        INFOPLIST_KEY_LSMinimumSystemVersion: "14.0"
         SWIFT_VERSION: "5.9"
