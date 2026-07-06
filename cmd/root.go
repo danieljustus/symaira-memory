@@ -7,6 +7,7 @@ import (
 
 	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-corekit/updatecheck"
+	"github.com/danieljustus/symaira-corekit/versionkit"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/spf13/cobra"
@@ -114,6 +115,11 @@ var versionCmd = &cobra.Command{
 	Short: "Print the current CLI version details",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		check, _ := cmd.Flags().GetBool("check")
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+		if jsonFlag {
+			info := versionkit.New("symmemory", Version, 1)
+			return info.Write(os.Stdout)
+		}
 		if check {
 			checker := updatecheck.NewChecker("danieljustus", "symaira-memory")
 			release, err := checker.Check(context.Background(), Version)
@@ -135,4 +141,5 @@ var versionCmd = &cobra.Command{
 
 func init() {
 	versionCmd.Flags().Bool("check", false, "Check for updates via GitHub releases")
+	versionCmd.Flags().Bool("json", false, "Emit version as machine-readable JSON")
 }
