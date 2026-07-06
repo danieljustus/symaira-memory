@@ -34,3 +34,18 @@ This repository is the public Apache-2.0 licensed Symaira Memory self-hosted fou
 
 - Keep public issues focused on self-hosted/core behavior.
 - Move Cloud Pro, commercial readiness, hosted compliance, tenant operations, billing, managed sync servers, and SSO/managed RBAC work to the private Pro repository.
+
+## macOS Client (`gui/`)
+
+- SwiftUI app (XcodeGen: `cd gui && xcodegen generate`, scheme
+  `SymairaMemory`; local builds need `DEVELOPER_DIR` pointing at Xcode).
+- Depends on the shared **symaira-appkit** package, pinned exact (`0.1.0`)
+  in `gui/project.yml`: SymairaTheme (this app's unprefixed `Color.*` tokens
+  are mapped in `Sources/ThemeBridge.swift`; borderGlass values stay local)
+  and SymairaKeychain (wrapped in `KeychainHelper` with the LEGACY service
+  name `com.symaira.memory` so existing tokens survive — do not rename it).
+- Deployment target was raised 13.0 → 14.0 for the shared package
+  (ecosystem client baseline).
+- The GUI talks HTTP to the local daemon (127.0.0.1:8787) via `APIClient` —
+  that transport stays app-specific by design (no CLIRunner here).
+- Migration context: see `../docs/symaira-appkit-migration.md` (Welle 3).
