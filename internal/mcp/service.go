@@ -111,6 +111,10 @@ func (s *MemoryService) GetMemory(id string) (*db.Memory, error) {
 	return s.db.GetMemory(id)
 }
 
+func (s *MemoryService) GetMemoryEvidence(memoryID string) ([]db.EvidenceSpan, error) {
+	return s.db.GetMemoryEvidence(memoryID)
+}
+
 func (s *MemoryService) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddings ...bool) ([]*db.Memory, error) {
 	return s.db.GetMemoriesSinceCursor(since, limit, includeEmbeddings...)
 }

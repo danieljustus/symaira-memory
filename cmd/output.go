@@ -172,6 +172,12 @@ Metadata:
   {{$k}}: {{$v}}
 {{- end}}
 {{- end}}
+{{- if .Evidence}}
+Evidence:
+{{- range .Evidence}}
+  [{{.AlignmentStatus}}] {{.EvidenceText | truncate 80}} ({{.CharStart}}-{{.CharEnd}})
+{{- end}}
+{{- end}}
 `,
 
 	"entity-list": `{{- if not .}}No entities found.
