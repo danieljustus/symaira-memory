@@ -123,6 +123,10 @@ func (s *MemoryService) GraphNeighbors(entityID string, depth int) ([]*db.Entity
 	return s.db.GraphNeighbors(entityID, depth)
 }
 
+func (s *MemoryService) ListMemoriesAsOf(scope string, asOf time.Time, limit int) ([]*db.Memory, error) {
+	return s.db.ListMemoriesAsOf(scope, asOf, 0, limit)
+}
+
 func (s *MemoryService) GetMemory(id string) (*db.Memory, error) {
 	return s.db.GetMemory(id)
 }

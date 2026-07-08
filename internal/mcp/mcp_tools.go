@@ -92,7 +92,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_list",
 		Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of memories to return (default 100, max 1000)"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"}}}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of memories to return (default 100, max 1000)"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"as_of":{"type":"string","description":"Optional RFC3339 timestamp: return memory state as of this point in time instead of current state. Not combinable with the policy filters."}}}`),
 		Handler:     s.handleMemoryList,
 	})
 
@@ -285,6 +285,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 		MaxSensitivity  string `json:"max_sensitivity"`
 		MinSharingLevel string `json:"min_sharing_level"`
 		ClientID        string `json:"client_id"`
+		AsOf            string `json:"as_of"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_list': failed to parse arguments: %w", err)
@@ -296,6 +297,22 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 	}
 	if limit > 1000 {
 		limit = 1000
+	}
+
+	if args.AsOf != "" {
+		asOf, err := time.Parse(time.RFC3339, args.AsOf)
+		if err != nil {
+			return nil, fmt.Errorf("invalid arguments for 'memory_list': 'as_of' must be RFC3339: %w", err)
+		}
+		memories, err := s.service.ListMemoriesAsOf(args.Scope, asOf, limit)
+		if err != nil {
+			return mcpError("Failed to list memories as of the given time", err)
+		}
+		if len(memories) == 0 {
+			return "No memories were valid at that point in time.", nil
+		}
+		data, _ := json.MarshalIndent(memories, "", "  ")
+		return string(data), nil
 	}
 
 	policyFilter := db.PolicyFilter{
