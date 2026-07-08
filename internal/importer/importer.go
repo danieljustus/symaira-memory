@@ -2,6 +2,8 @@ package importer
 
 import (
 	"time"
+
+	"github.com/danieljustus/symaira-corekit/evidencekit"
 )
 
 // SessionRef represents a discovered session from an external tool.
@@ -15,11 +17,12 @@ type SessionRef struct {
 
 // ImportedFact represents a memory fact extracted from an external session.
 type ImportedFact struct {
-	Content   string            // The memory content
-	Source    string            // Tool name (e.g., "claude-code", "git")
-	SessionID string            // Session identifier
-	Timestamp time.Time         // When the fact was created
-	Metadata  map[string]string // Tool-specific context
+	Content   string                   // The memory content
+	Source    string                   // Tool name (e.g., "claude-code", "git")
+	SessionID string                   // Session identifier
+	Timestamp time.Time                // When the fact was created
+	Metadata  map[string]string        // Tool-specific context
+	Evidence  []evidencekit.Extraction // Grounded span(s) backing Content, if any
 }
 
 // SessionImporter defines the interface for importing sessions from external tools.

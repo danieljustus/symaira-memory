@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/danieljustus/symaira-corekit v0.3.0
+	github.com/danieljustus/symaira-corekit v0.4.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/spf13/cobra v1.10.2

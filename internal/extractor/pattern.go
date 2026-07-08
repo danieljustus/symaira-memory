@@ -3,13 +3,16 @@ package extractor
 import (
 	"regexp"
 	"strings"
+
+	"github.com/danieljustus/symaira-corekit/evidencekit"
 )
 
 // Fact represents a single extracted assertion.
 type Fact struct {
-	Content  string            `json:"content"`
-	Category string            `json:"category"` // preference, identity, project, general
-	Metadata map[string]string `json:"metadata"`
+	Content  string                   `json:"content"`
+	Category string                   `json:"category"` // preference, identity, project, general
+	Metadata map[string]string        `json:"metadata"`
+	Evidence []evidencekit.Extraction `json:"evidence,omitempty"` // grounded span(s) in the source text; Source is left for the caller to fill in
 }
 
 // PatternExtractor analyzes conversations and extracts key assertions.
@@ -87,6 +90,7 @@ func (pe *PatternExtractor) ExtractFacts(text string) []Fact {
 								"raw_trigger": trimmed,
 								"method":      "regex_pattern",
 							},
+							Evidence: []evidencekit.Extraction{groundEvidence(text, trimmed, formatted)},
 						})
 					}
 					matched = true
@@ -107,12 +111,27 @@ func (pe *PatternExtractor) ExtractFacts(text string) []Fact {
 						"raw_trigger": trimmed,
 						"method":      "keyword_filter",
 					},
+					Evidence: []evidencekit.Extraction{groundEvidence(text, trimmed, cleanedFact)},
 				})
 			}
 		}
 	}
 
 	return facts
+}
+
+// groundEvidence aligns evidenceText (a sentence produced by splitSentences,
+// already a substring of the original text modulo trimming) back to its
+// character span in text. Source is left zero-value for the caller — the
+// extractor doesn't know which session/document text came from.
+func groundEvidence(text, evidenceText, factText string) evidencekit.Extraction {
+	span, status := evidencekit.Align(text, evidenceText)
+	return evidencekit.Extraction{
+		Text:            factText,
+		EvidenceText:    evidenceText,
+		Span:            span,
+		AlignmentStatus: status,
+	}
 }
 
 func splitSentences(text string) []string {
