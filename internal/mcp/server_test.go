@@ -189,11 +189,13 @@ func TestJSONRPCToolsList(t *testing.T) {
 	tools := result["tools"].([]interface{})
 
 	expectedTools := map[string]bool{
-		"memory_get":    false,
-		"memory_set":    false,
-		"memory_search": false,
-		"memory_list":   false,
-		"entity_list":   false,
+		"memory_get":      false,
+		"memory_set":      false,
+		"memory_search":   false,
+		"memory_list":     false,
+		"entity_list":     false,
+		"entity_relate":   false,
+		"graph_neighbors": false,
 	}
 	for _, toolRaw := range tools {
 		tool := toolRaw.(map[string]interface{})
@@ -553,6 +555,34 @@ func TestToolMemoryListWithMemories(t *testing.T) {
 	}
 	if len(mems) != 2 {
 		t.Errorf("expected 2 memories, got %d", len(mems))
+	}
+}
+
+func TestToolMemoryList_AsOfReturnsHistoricalVersion(t *testing.T) {
+	s := helperServer(t)
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	t1 := t0.Add(1 * time.Hour)
+
+	old := &db.Memory{ID: "mcp-asof-old", Content: "old fact", Scope: "global", ValidFrom: &t0, ValidTo: &t1, SupersededBy: "mcp-asof-new"}
+	newer := &db.Memory{ID: "mcp-asof-new", Content: "new fact", Scope: "global", ValidFrom: &t1}
+	if err := s.DB().SaveMemory(old); err != nil {
+		t.Fatalf("save old: %v", err)
+	}
+	if err := s.DB().SaveMemory(newer); err != nil {
+		t.Fatalf("save new: %v", err)
+	}
+
+	res := callTool(s, "memory_list", map[string]interface{}{"as_of": t0.Add(30 * time.Minute).Format(time.RFC3339)})
+	if code, msg := getToolError(res); code != 0 {
+		t.Fatalf("unexpected error: %v %s", code, msg)
+	}
+
+	var mems []*db.Memory
+	if err := json.Unmarshal([]byte(getToolText(res)), &mems); err != nil {
+		t.Fatalf("failed to unmarshal memories: %v", err)
+	}
+	if len(mems) != 1 || mems[0].ID != "mcp-asof-old" {
+		t.Fatalf("expected the historical version 'mcp-asof-old', got %+v", mems)
 	}
 }
 

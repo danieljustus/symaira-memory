@@ -120,6 +120,29 @@ func (db *DB) GetEntityByName(name string) (*Entity, error) {
 	return &e, nil
 }
 
+// GetEntityByID retrieves an entity by its ID. Returns nil, nil if not found.
+func (db *DB) GetEntityByID(id string) (*Entity, error) {
+	query := `SELECT id, name, type, aliases, description, created_by, created_at, updated_at
+		FROM entities WHERE id = ?`
+
+	var e Entity
+	var aliasesStr string
+	err := db.conn.QueryRow(query, id).Scan(
+		&e.ID, &e.Name, &e.Type, &aliasesStr, &e.Description,
+		&e.CreatedBy, &e.CreatedAt, &e.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal([]byte(aliasesStr), &e.Aliases); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
 // ListEntities returns all stored entities.
 func (db *DB) ListEntities() ([]*Entity, error) {
 	query := `SELECT id, name, type, aliases, description, created_by, created_at, updated_at

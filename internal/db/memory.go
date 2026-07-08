@@ -298,6 +298,45 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	return memories, nil
 }
 
+// ListMemoriesAsOf returns memories whose validity window includes asOf,
+// i.e. valid_from <= asOf and (valid_to is unset or valid_to > asOf). This
+// makes a memory that has since been superseded visible again for a query
+// against a timestamp within its original validity window. A memory with
+// no valid_from (never explicitly versioned) is treated as always having
+// started, so it participates in every as-of query. Same result shape as
+// ListMemories.
+func (db *DB) ListMemoriesAsOf(scope string, asOf time.Time, offset, limit int) ([]*Memory, error) {
+	var query string
+	var rows *sql.Rows
+	var err error
+
+	const asOfClause = " AND (valid_from IS NULL OR valid_from <= ?) AND (valid_to IS NULL OR valid_to > ?)"
+
+	if scope != "" {
+		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE scope = ? AND consolidation_status != 'archived'" + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, scope, asOf, asOf, limit, offset)
+	} else {
+		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE consolidation_status != 'archived'" + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		rows, err = db.conn.Query(query, asOf, asOf, limit, offset)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var memories []*Memory
+	for rows.Next() {
+		m, err := scanMemory(rows)
+		if err != nil {
+			return nil, err
+		}
+		memories = append(memories, m)
+	}
+
+	return memories, nil
+}
+
 // ListMemoriesLite returns memories without embedding data, with pagination.
 func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, error) {
 	var query string
