@@ -107,6 +107,18 @@ func (s *MemoryService) ListEntities() ([]*db.Entity, error) {
 	return s.db.ListEntities()
 }
 
+func (s *MemoryService) ResolveEntity(nameOrAlias string) (*db.Entity, error) {
+	return s.db.ResolveEntity(nameOrAlias)
+}
+
+func (s *MemoryService) SaveEntityRelation(r *db.EntityRelation) error {
+	return s.db.SaveEntityRelation(r)
+}
+
+func (s *MemoryService) DeleteEntityRelation(fromEntityID, toEntityID, relationType string) error {
+	return s.db.DeleteEntityRelation(fromEntityID, toEntityID, relationType)
+}
+
 func (s *MemoryService) GetMemory(id string) (*db.Memory, error) {
 	return s.db.GetMemory(id)
 }

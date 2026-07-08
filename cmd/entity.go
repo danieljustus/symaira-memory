@@ -24,6 +24,8 @@ func init() {
 	entityCmd.AddCommand(entityLinkCmd)
 	entityCmd.AddCommand(entityShowCmd)
 	entityCmd.AddCommand(entityRemoveCmd)
+	entityCmd.AddCommand(entityRelateCmd)
+	entityCmd.AddCommand(entityUnrelateCmd)
 
 	entityAddCmd.Flags().StringVar(&entityType, "type", "other", "Entity type: person, project, org, other")
 	entityAddCmd.Flags().StringVar(&entityAliases, "aliases", "", "Comma-separated aliases")
@@ -147,6 +149,24 @@ var entityShowCmd = &cobra.Command{
 		}
 		fmt.Println(string(bytes))
 
+		outRels, err := GetDB().OutgoingRelations(entity.ID)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error fetching outgoing relations")
+		}
+		inRels, err := GetDB().IncomingRelations(entity.ID)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error fetching incoming relations")
+		}
+		if len(outRels) > 0 || len(inRels) > 0 {
+			fmt.Println("\nRelations:")
+			for _, r := range outRels {
+				fmt.Printf("  --%s--> %s\n", r.RelationType, r.ToEntityID)
+			}
+			for _, r := range inRels {
+				fmt.Printf("  <--%s-- %s\n", r.RelationType, r.FromEntityID)
+			}
+		}
+
 		memoryIDs, err := GetDB().MemoryIDsForEntity(entity.ID)
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "error fetching linked memories")
@@ -170,6 +190,77 @@ var entityShowCmd = &cobra.Command{
 			}
 			fmt.Printf("  - %s: %s\n", m.ID, content)
 		}
+		return nil
+	},
+}
+
+var entityRelateCmd = &cobra.Command{
+	Use:   "relate [from] [relation] [to]",
+	Short: "Create a directed relation between two entities",
+	Args:  cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		from, relation, to := args[0], args[1], args[2]
+
+		fromEntity, err := GetDB().ResolveEntity(from)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
+		}
+		if fromEntity == nil {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", from)
+		}
+
+		toEntity, err := GetDB().ResolveEntity(to)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
+		}
+		if toEntity == nil {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", to)
+		}
+
+		rel := &db.EntityRelation{
+			FromEntityID: fromEntity.ID,
+			ToEntityID:   toEntity.ID,
+			RelationType: relation,
+			CreatedBy:    "cli",
+			CreatedAt:    time.Now().UTC(),
+		}
+		if err := GetDB().SaveEntityRelation(rel); err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to save relation")
+		}
+
+		fmt.Printf("Related: %s --%s--> %s\n", fromEntity.Name, relation, toEntity.Name)
+		return nil
+	},
+}
+
+var entityUnrelateCmd = &cobra.Command{
+	Use:   "unrelate [from] [relation] [to]",
+	Short: "Remove a directed relation between two entities",
+	Args:  cobra.ExactArgs(3),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		from, relation, to := args[0], args[1], args[2]
+
+		fromEntity, err := GetDB().ResolveEntity(from)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
+		}
+		if fromEntity == nil {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", from)
+		}
+
+		toEntity, err := GetDB().ResolveEntity(to)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
+		}
+		if toEntity == nil {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", to)
+		}
+
+		if err := GetDB().DeleteEntityRelation(fromEntity.ID, toEntity.ID, relation); err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to delete relation")
+		}
+
+		fmt.Printf("Unrelated: %s --%s--> %s\n", fromEntity.Name, relation, toEntity.Name)
 		return nil
 	},
 }

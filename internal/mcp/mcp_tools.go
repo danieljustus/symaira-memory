@@ -103,6 +103,13 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Handler:     s.handleEntityList,
 	})
 
+	srv.RegisterTool(&mcpserver.Tool{
+		Name:        "entity_relate",
+		Description: "Create or delete a directed, typed relationship between two entities (e.g. 'Alice works-with Bob'). Use action='delete' to remove a relation.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"from":{"type":"string","description":"Name or alias of the source entity"},"relation":{"type":"string","description":"Relation type, free-form (e.g. 'works-with', 'manages', 'depends-on')"},"to":{"type":"string","description":"Name or alias of the target entity"},"action":{"type":"string","description":"'create' (default) or 'delete'"}},"required":["from","relation","to"]}`),
+		Handler:     s.handleEntityRelate,
+	})
+
 	return srv
 }
 
@@ -315,6 +322,61 @@ func (s *Server) handleEntityList(ctx context.Context, input json.RawMessage) (a
 
 	data, _ := json.MarshalIndent(entities, "", "  ")
 	return string(data), nil
+}
+
+func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) (any, error) {
+	var args struct {
+		From     string `json:"from"`
+		Relation string `json:"relation"`
+		To       string `json:"to"`
+		Action   string `json:"action"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments for 'entity_relate': failed to parse arguments: %w", err)
+	}
+	if args.From == "" || args.Relation == "" || args.To == "" {
+		return nil, fmt.Errorf("invalid arguments for 'entity_relate': 'from', 'relation', and 'to' are required")
+	}
+	if args.Action == "" {
+		args.Action = "create"
+	}
+
+	fromEntity, err := s.service.ResolveEntity(args.From)
+	if err != nil {
+		return mcpError("Failed to resolve source entity", err)
+	}
+	if fromEntity == nil {
+		return nil, fmt.Errorf("entity not found: %s", args.From)
+	}
+	toEntity, err := s.service.ResolveEntity(args.To)
+	if err != nil {
+		return mcpError("Failed to resolve target entity", err)
+	}
+	if toEntity == nil {
+		return nil, fmt.Errorf("entity not found: %s", args.To)
+	}
+
+	switch args.Action {
+	case "create":
+		rel := &db.EntityRelation{
+			FromEntityID: fromEntity.ID,
+			ToEntityID:   toEntity.ID,
+			RelationType: args.Relation,
+			CreatedBy:    "mcp",
+			CreatedAt:    time.Now().UTC(),
+		}
+		if err := s.service.SaveEntityRelation(rel); err != nil {
+			return mcpError("Failed to save relation", err)
+		}
+		return fmt.Sprintf("Related: %s --%s--> %s", fromEntity.Name, args.Relation, toEntity.Name), nil
+	case "delete":
+		if err := s.service.DeleteEntityRelation(fromEntity.ID, toEntity.ID, args.Relation); err != nil {
+			return mcpError("Failed to delete relation", err)
+		}
+		return fmt.Sprintf("Unrelated: %s --%s--> %s", fromEntity.Name, args.Relation, toEntity.Name), nil
+	default:
+		return nil, fmt.Errorf("invalid arguments for 'entity_relate': 'action' must be 'create' or 'delete', got %q", args.Action)
+	}
 }
 
 func parseDuration(s string) (time.Duration, error) {
