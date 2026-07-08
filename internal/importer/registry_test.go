@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/evidencekit"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
@@ -206,6 +207,124 @@ func TestStoreFactsGeneratesEmbedding(t *testing.T) {
 	}
 	if len(m.Embedding) != 768 {
 		t.Errorf("expected 768-dim embedding, got %d", len(m.Embedding))
+	}
+}
+
+func TestStoreFactsPersistsEvidence(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := helperRegistry(t, database)
+
+	facts := []ImportedFact{
+		{
+			Content:   "User prefers dark mode",
+			Source:    "test-importer",
+			SessionID: "sess-evidence-001",
+			Timestamp: time.Now().UTC(),
+			Evidence: []evidencekit.Extraction{
+				{
+					Source:          evidencekit.SourceRef{ID: "sess-evidence-001", Kind: "test-importer"},
+					Text:            "User prefers dark mode",
+					EvidenceText:    "I always use dark mode",
+					Span:            evidencekit.Span{Start: 0, End: 23},
+					AlignmentStatus: evidencekit.AlignmentExact,
+				},
+			},
+		},
+	}
+
+	if err := r.storeFacts(facts, &mockCuratedImporter{name: "test-importer"}); err != nil {
+		t.Fatalf("storeFacts failed: %v", err)
+	}
+
+	memories, err := database.ListMemoriesLite("", 0, 10)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	if len(memories) != 1 {
+		t.Fatalf("expected 1 memory, got %d", len(memories))
+	}
+
+	evidence, err := database.GetMemoryEvidence(memories[0].ID)
+	if err != nil {
+		t.Fatalf("GetMemoryEvidence failed: %v", err)
+	}
+	if len(evidence) != 1 {
+		t.Fatalf("expected 1 evidence row, got %d", len(evidence))
+	}
+	if evidence[0].SourceID != "sess-evidence-001" {
+		t.Errorf("expected source_id 'sess-evidence-001', got %q", evidence[0].SourceID)
+	}
+}
+
+func TestStoreFactsRedactsEvidenceText(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := helperRegistry(t, database)
+
+	facts := []ImportedFact{
+		{
+			Content:   "clean content",
+			Source:    "test-importer",
+			SessionID: "sess-evidence-002",
+			Timestamp: time.Now().UTC(),
+			Evidence: []evidencekit.Extraction{
+				{
+					EvidenceText:    "contact alice@example.com about it",
+					Span:            evidencekit.Span{Start: 0, End: 5},
+					AlignmentStatus: evidencekit.AlignmentExact,
+				},
+			},
+		},
+	}
+
+	if err := r.storeFacts(facts, &mockCuratedImporter{name: "test-importer"}); err != nil {
+		t.Fatalf("storeFacts failed: %v", err)
+	}
+
+	memories, err := database.ListMemoriesLite("", 0, 10)
+	if err != nil {
+		t.Fatalf("ListMemoriesLite failed: %v", err)
+	}
+	evidence, err := database.GetMemoryEvidence(memories[0].ID)
+	if err != nil {
+		t.Fatalf("GetMemoryEvidence failed: %v", err)
+	}
+	if len(evidence) != 1 {
+		t.Fatalf("expected 1 evidence row, got %d", len(evidence))
+	}
+	if strings.Contains(evidence[0].EvidenceText, "alice@example.com") {
+		t.Errorf("expected evidence text email redacted, got %q", evidence[0].EvidenceText)
+	}
+}
+
+func TestExtractFactsPropagatesEvidence(t *testing.T) {
+	database := helperRegistryDB(t)
+	r := helperRegistry(t, database)
+
+	raw := []ImportedFact{
+		{Content: "I like dark mode in all my apps.", Source: "claude-code", SessionID: "s-evidence", Timestamp: time.Now().UTC()},
+	}
+
+	distilled := r.extractFacts(raw)
+
+	found := false
+	for _, f := range distilled {
+		if f.Metadata["method"] != "regex_pattern" {
+			continue
+		}
+		found = true
+		if len(f.Evidence) != 1 {
+			t.Fatalf("expected 1 evidence span on distilled fact, got %d", len(f.Evidence))
+		}
+		ev := f.Evidence[0]
+		if ev.Source.ID != "s-evidence" || ev.Source.Kind != "claude-code" {
+			t.Errorf("expected evidence source {s-evidence claude-code}, got %+v", ev.Source)
+		}
+		if err := evidencekit.Validate(ev); err != nil {
+			t.Errorf("expected valid grounded evidence, got: %v", err)
+		}
+	}
+	if !found {
+		t.Fatal("expected at least one regex_pattern fact with evidence")
 	}
 }
 

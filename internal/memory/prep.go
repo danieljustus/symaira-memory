@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/evidencekit"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/security"
@@ -372,6 +373,19 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 		}
 		if err := database.SaveMemory(subMem); err == nil {
 			extractedStr = append(extractedStr, fmt.Sprintf("  - [Fact Extracted] %s (ID: %s)", cleanFactContent, subID))
+
+			if len(f.Evidence) > 0 {
+				evidence := make([]evidencekit.Extraction, len(f.Evidence))
+				for i, ext := range f.Evidence {
+					ext.Source = evidencekit.SourceRef{ID: m.ID, Kind: sourceTool}
+					if piiEnabled {
+						ext.EvidenceText = security.Redact(ext.EvidenceText)
+						ext.Text = security.Redact(ext.Text)
+					}
+					evidence[i] = ext
+				}
+				_ = database.SaveMemoryEvidence(subID, evidence)
+			}
 		}
 	}
 

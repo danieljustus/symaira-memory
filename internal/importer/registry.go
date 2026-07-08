@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/evidencekit"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
@@ -266,6 +267,18 @@ func (r *Registry) storeFacts(facts []ImportedFact, importer SessionImporter) er
 		if err := r.database.SaveMemory(memory); err != nil {
 			return fmt.Errorf("failed to save memory: %w", err)
 		}
+
+		if len(fact.Evidence) > 0 {
+			redacted := make([]evidencekit.Extraction, len(fact.Evidence))
+			for i, ext := range fact.Evidence {
+				ext.EvidenceText = security.Redact(ext.EvidenceText)
+				ext.Text = security.Redact(ext.Text)
+				redacted[i] = ext
+			}
+			if err := r.database.SaveMemoryEvidence(memory.ID, redacted); err != nil {
+				return fmt.Errorf("failed to save memory evidence: %w", err)
+			}
+		}
 	}
 	return nil
 }
@@ -304,12 +317,18 @@ func (r *Registry) extractFacts(facts []ImportedFact) []ImportedFact {
 	var distilled []ImportedFact
 
 	for _, ef := range extracted {
+		evidence := make([]evidencekit.Extraction, len(ef.Evidence))
+		for i, ext := range ef.Evidence {
+			ext.Source = evidencekit.SourceRef{ID: first.SessionID, Kind: first.Source}
+			evidence[i] = ext
+		}
 		distilled = append(distilled, ImportedFact{
 			Content:   ef.Content,
 			Source:    first.Source,
 			SessionID: first.SessionID,
 			Timestamp: first.Timestamp,
 			Metadata:  mergeMetadata(first.Metadata, ef.Metadata),
+			Evidence:  evidence,
 		})
 	}
 
