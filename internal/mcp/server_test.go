@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/evidencekit"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/security"
@@ -279,6 +280,88 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 	}
 	if mem.Scope != "global" {
 		t.Errorf("expected scope 'global', got %q", mem.Scope)
+	}
+}
+
+func TestToolMemoryGetWithEvidence(t *testing.T) {
+	s := helperServer(t)
+	m := &db.Memory{
+		ID:      "test-mem-evidence",
+		Content: "User prefers dark mode",
+		Scope:   "global",
+	}
+	if err := s.DB().SaveMemory(m); err != nil {
+		t.Fatalf("failed to save test memory: %v", err)
+	}
+	if err := s.DB().SaveMemoryEvidence(m.ID, []evidencekit.Extraction{
+		{EvidenceText: "I always use dark mode", Span: evidencekit.Span{Start: 0, End: 23}, AlignmentStatus: evidencekit.AlignmentExact},
+	}); err != nil {
+		t.Fatalf("failed to save evidence: %v", err)
+	}
+
+	res := callTool(s, "memory_get", map[string]interface{}{"id": m.ID, "with_evidence": true})
+	text := getToolText(res)
+	var mem MemoryResponse
+	if err := json.Unmarshal([]byte(text), &mem); err != nil {
+		t.Fatalf("failed to unmarshal memory from response: %v\ntext: %s", err, text)
+	}
+	if len(mem.Evidence) != 1 {
+		t.Fatalf("expected 1 evidence row, got %d", len(mem.Evidence))
+	}
+	if mem.Evidence[0].EvidenceText != "I always use dark mode" {
+		t.Errorf("unexpected evidence text: %q", mem.Evidence[0].EvidenceText)
+	}
+
+	// Without with_evidence, evidence must be omitted entirely.
+	res2 := callTool(s, "memory_get", map[string]interface{}{"id": m.ID})
+	text2 := getToolText(res2)
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text2), &raw); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+	if _, ok := raw["evidence"]; ok {
+		t.Errorf("expected no 'evidence' field without with_evidence, got %s", text2)
+	}
+}
+
+func TestToolMemorySearchWithEvidence(t *testing.T) {
+	s := helperServer(t)
+	content := "User strongly prefers using Rust for systems programming projects"
+	m := &db.Memory{
+		ID:      "test-mem-search-evidence",
+		Content: content,
+		Scope:   "project",
+	}
+	emb := s.service.embeddings.GenerateVector(content)
+	m.Embedding = emb.Vector
+	m.EmbeddingSource = emb.Source
+	m.EmbeddingModel = emb.Model
+	if err := s.DB().SaveMemory(m); err != nil {
+		t.Fatalf("failed to save test memory: %v", err)
+	}
+	if err := s.DB().SaveMemoryEvidence(m.ID, []evidencekit.Extraction{
+		{EvidenceText: content, Span: evidencekit.Span{Start: 0, End: len(content)}, AlignmentStatus: evidencekit.AlignmentExact},
+	}); err != nil {
+		t.Fatalf("failed to save evidence: %v", err)
+	}
+
+	res := callTool(s, "memory_search", map[string]interface{}{"query": content, "scope": "project", "limit": 5, "with_evidence": true})
+	text := getToolText(res)
+	var results []SearchResultResponse
+	if err := json.Unmarshal([]byte(text), &results); err != nil {
+		t.Fatalf("failed to unmarshal search results: %v\ntext: %s", err, text)
+	}
+	found := false
+	for _, r := range results {
+		if r.Memory.ID == m.ID {
+			found = true
+			if len(r.Memory.Evidence) != 1 {
+				t.Errorf("expected 1 evidence row on search result, got %d", len(r.Memory.Evidence))
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected to find memory %s in search results", m.ID)
 	}
 }
 

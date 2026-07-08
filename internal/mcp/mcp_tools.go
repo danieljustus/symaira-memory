@@ -28,6 +28,7 @@ type MemoryResponse struct {
 	EmbeddingSource     string            `json:"embedding_source,omitempty"`
 	EmbeddingModel      string            `json:"embedding_model,omitempty"`
 	Importance          float64           `json:"importance,omitempty"`
+	Evidence            []db.EvidenceSpan `json:"evidence,omitempty"`
 }
 
 type SearchResultResponse struct {
@@ -70,7 +71,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_get",
 		Description: "Retrieve a specific memory by its unique ID.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"Unique memory UUID"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"}},"required":["id"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"Unique memory UUID"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans backing this memory, if any (default false)"}},"required":["id"]}`),
 		Handler:     s.handleMemoryGet,
 	})
 
@@ -84,7 +85,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_search",
 		Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"}},"required":["query"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"}},"required":["query"]}`),
 		Handler:     s.handleMemorySearch,
 	})
 
@@ -107,8 +108,9 @@ func (s *Server) MCPServer() *mcpserver.Server {
 
 func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
-		ID       string `json:"id"`
-		ClientID string `json:"client_id"`
+		ID           string `json:"id"`
+		ClientID     string `json:"client_id"`
+		WithEvidence bool   `json:"with_evidence"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_get': failed to parse arguments: %w", err)
@@ -132,7 +134,16 @@ func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (an
 		}
 	}
 
-	data, _ := json.MarshalIndent(memoryResponse(m), "", "  ")
+	resp := memoryResponse(m)
+	if args.WithEvidence {
+		evidence, err := s.service.GetMemoryEvidence(args.ID)
+		if err != nil {
+			return mcpError("Failed to fetch memory evidence", err)
+		}
+		resp.Evidence = evidence
+	}
+
+	data, _ := json.MarshalIndent(resp, "", "  ")
 	return string(data), nil
 }
 
@@ -193,6 +204,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		MaxSensitivity    string `json:"max_sensitivity"`
 		MinSharingLevel   string `json:"min_sharing_level"`
 		ClientID          string `json:"client_id"`
+		WithEvidence      bool   `json:"with_evidence"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_search': failed to parse arguments: %w", err)
@@ -240,6 +252,12 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 	compact := make([]SearchResultResponse, len(results))
 	for i, r := range results {
 		compact[i] = searchResultResponse(r)
+		if args.WithEvidence && r.Memory != nil {
+			evidence, err := s.service.GetMemoryEvidence(r.Memory.ID)
+			if err == nil {
+				compact[i].Memory.Evidence = evidence
+			}
+		}
 	}
 
 	data, _ := json.MarshalIndent(compact, "", "  ")
