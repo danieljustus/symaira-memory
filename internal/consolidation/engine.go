@@ -195,6 +195,15 @@ func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dry
 				}
 			}
 
+			// Propagate evidence from replaced raw memories to their new
+			// consolidated memory so grounding is preserved across merges.
+			for oldID, newID := range summary.ReplacedIDToNewID {
+				if err := eng.database.ReparentMemoryEvidenceTx(tx, oldID, newID); err != nil {
+					tx.Rollback()
+					return nil, fmt.Errorf("failed to propagate evidence from %s to %s: %w", oldID, newID, err)
+				}
+			}
+
 			// Update replaced memories to archived with parent link
 			for _, m := range memories {
 				status := "archived"

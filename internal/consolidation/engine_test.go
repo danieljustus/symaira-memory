@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/danieljustus/symaira-corekit/evidencekit"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
@@ -308,5 +309,94 @@ func TestEngineConsolidation(t *testing.T) {
 	}
 	if mem4.ConsolidationStatus != "consolidated" {
 		t.Errorf("expected mem-4 status 'consolidated', got '%s'", mem4.ConsolidationStatus)
+	}
+}
+
+func TestEngineConsolidationPropagatesEvidence(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-engine-evidence-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Defaults()
+	cfg.Database.Path = filepath.Join(tempDir, "test.db")
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	m1 := &db.Memory{ID: "ev-mem-1", Content: "Daniel likes dark mode", Scope: "global", ConsolidationStatus: "raw", Metadata: map[string]string{}}
+	m2 := &db.Memory{ID: "ev-mem-2", Content: "Daniel prefers dark backgrounds", Scope: "global", ConsolidationStatus: "raw", Metadata: map[string]string{}}
+	for _, m := range []*db.Memory{m1, m2} {
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("failed to seed memory %s: %v", m.ID, err)
+		}
+	}
+
+	if err := database.SaveMemoryEvidence("ev-mem-1", []evidencekit.Extraction{
+		{EvidenceText: "Daniel likes dark mode", Span: evidencekit.Span{Start: 0, End: 22}, AlignmentStatus: evidencekit.AlignmentExact},
+	}); err != nil {
+		t.Fatalf("failed to seed evidence for ev-mem-1: %v", err)
+	}
+	if err := database.SaveMemoryEvidence("ev-mem-2", []evidencekit.Extraction{
+		{EvidenceText: "Daniel prefers dark backgrounds", Span: evidencekit.Span{Start: 0, End: 30}, AlignmentStatus: evidencekit.AlignmentExact},
+	}); err != nil {
+		t.Fatalf("failed to seed evidence for ev-mem-2: %v", err)
+	}
+
+	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		respObj := map[string]string{
+			"response": `{
+				"consolidated": [
+					{
+						"content": "Daniel prefers dark mode.",
+						"replaces_ids": ["ev-mem-1", "ev-mem-2"],
+						"metadata": {}
+					}
+				],
+				"discarded_ids": []
+			}`,
+		}
+		json.NewEncoder(w).Encode(respObj)
+	}))
+	defer mockLLM.Close()
+
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false)
+
+	summaries, err := engine.RunConsolidation(context.Background(), "global", false)
+	if err != nil {
+		t.Fatalf("consolidation failed: %v", err)
+	}
+	if len(summaries) != 1 || len(summaries[0].NewMemories) != 1 {
+		t.Fatalf("expected 1 new consolidated memory, got %+v", summaries)
+	}
+	newID := summaries[0].NewMemories[0].ID
+
+	oldEvidence1, err := database.GetMemoryEvidence("ev-mem-1")
+	if err != nil {
+		t.Fatalf("GetMemoryEvidence(ev-mem-1) failed: %v", err)
+	}
+	if len(oldEvidence1) != 0 {
+		t.Errorf("expected evidence moved off ev-mem-1, got %d rows", len(oldEvidence1))
+	}
+	oldEvidence2, err := database.GetMemoryEvidence("ev-mem-2")
+	if err != nil {
+		t.Fatalf("GetMemoryEvidence(ev-mem-2) failed: %v", err)
+	}
+	if len(oldEvidence2) != 0 {
+		t.Errorf("expected evidence moved off ev-mem-2, got %d rows", len(oldEvidence2))
+	}
+
+	newEvidence, err := database.GetMemoryEvidence(newID)
+	if err != nil {
+		t.Fatalf("GetMemoryEvidence(new) failed: %v", err)
+	}
+	if len(newEvidence) != 2 {
+		t.Fatalf("expected 2 evidence rows on consolidated memory (from both replaced raws), got %d", len(newEvidence))
 	}
 }
