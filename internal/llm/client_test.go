@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -54,17 +55,15 @@ func TestQueryOllamaSuccess(t *testing.T) {
 		if reqBody["model"] != "llama3" {
 			t.Errorf("expected model 'llama3', got %v", reqBody["model"])
 		}
-		if reqBody["stream"] != false {
-			t.Errorf("expected stream false, got %v", reqBody["stream"])
-		}
 		if reqBody["format"] != "json" {
 			t.Errorf("expected format 'json', got %v", reqBody["format"])
 		}
+		if reqBody["system"] != "system" {
+			t.Errorf("expected system 'system', got %v", reqBody["system"])
+		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"response": "test response",
-		})
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		fmt.Fprintln(w, `{"model":"llama3","response":"test response","done":true}`)
 	}))
 	defer server.Close()
 
@@ -75,6 +74,26 @@ func TestQueryOllamaSuccess(t *testing.T) {
 	}
 	if result != "test response" {
 		t.Errorf("expected 'test response', got %s", result)
+	}
+}
+
+// TestQueryOllamaAccumulatesChunks verifies that a multi-chunk streamed
+// response is concatenated into the final result, not just the last chunk.
+func TestQueryOllamaAccumulatesChunks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		fmt.Fprintln(w, `{"model":"llama3","response":"hello ","done":false}`)
+		fmt.Fprintln(w, `{"model":"llama3","response":"world","done":true}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "llama3")
+	result, err := client.QueryOllama(context.Background(), "system", "user")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "hello world" {
+		t.Errorf("expected 'hello world', got %q", result)
 	}
 }
 
@@ -93,8 +112,8 @@ func TestQueryOllamaHTTPError(t *testing.T) {
 
 func TestQueryOllamaMalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("not json"))
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		w.Write([]byte("not json\n"))
 	}))
 	defer server.Close()
 
@@ -244,10 +263,8 @@ func TestQueryOpenAIMalformedJSON(t *testing.T) {
 
 func TestQueryOllamaProvider(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"response": "ollama result",
-		})
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		fmt.Fprintln(w, `{"model":"llama3","response":"ollama result","done":true}`)
 	}))
 	defer server.Close()
 

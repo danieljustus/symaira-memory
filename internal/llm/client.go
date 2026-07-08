@@ -6,14 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/danieljustus/symaira-corekit/ollamakit"
 )
 
 type Client struct {
 	OllamaURL   string
 	OllamaModel string
 	HTTPClient  *http.Client
+	ollama      *ollamakit.Client
 }
 
 func NewClient(ollamaURL, ollamaModel string) *Client {
@@ -23,51 +28,46 @@ func NewClient(ollamaURL, ollamaModel string) *Client {
 	if ollamaModel == "" {
 		ollamaModel = "llama3"
 	}
-	return &Client{
+	c := &Client{
 		OllamaURL:   ollamaURL,
 		OllamaModel: ollamaModel,
 		HTTPClient: &http.Client{
 			Timeout: 45 * time.Second,
 		},
 	}
+	c.ollama = ollamakit.New(ollamakit.Config{
+		BaseURL: ollamaBaseURL(ollamaURL),
+		Model:   ollamaModel,
+		Timeout: 45 * time.Second,
+	})
+	return c
+}
+
+// ollamaBaseURL strips a configured Ollama endpoint path (e.g.
+// "http://localhost:11434/api/generate") down to the scheme+host root
+// ollamakit.Config.BaseURL expects. Malformed input is passed through
+// unchanged so ollamakit's own defaulting takes over.
+func ollamaBaseURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return raw
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 func (c *Client) QueryOllama(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	reqBody, err := json.Marshal(map[string]interface{}{
-		"model":  c.OllamaModel,
-		"prompt": userPrompt,
-		"system": systemPrompt,
-		"stream": false,
-		"format": "json",
+	var out strings.Builder
+	err := c.ollama.Generate(ctx, c.OllamaModel, userPrompt, &ollamakit.GenerateOptions{
+		Format: "json",
+		System: systemPrompt,
+	}, func(chunk ollamakit.GenerateResponse) error {
+		out.WriteString(chunk.Response)
+		return nil
 	})
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.OllamaURL, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to query Ollama: %w", err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ollama returned HTTP status %d", resp.StatusCode)
-	}
-
-	var res struct {
-		Response string `json:"response"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return "", err
-	}
-
-	return res.Response, nil
+	return out.String(), nil
 }
 
 func (c *Client) QueryOpenAI(ctx context.Context, systemPrompt, userPrompt, apiKey, model, url string) (string, error) {
