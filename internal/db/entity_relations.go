@@ -1,8 +1,13 @@
 package db
 
 import (
+	"fmt"
 	"time"
 )
+
+// MaxGraphDepth bounds how far GraphNeighbors will traverse, so a query
+// against a large, densely connected graph cannot run away.
+const MaxGraphDepth = 3
 
 // EntityRelation is a directed, typed relationship between two entities,
 // e.g. "Daniel works-with Musterland Bank".
@@ -65,6 +70,64 @@ func (db *DB) RelationsForEntity(entityID string) ([]*EntityRelation, error) {
 		return nil, err
 	}
 	return append(out, in...), nil
+}
+
+// GraphNeighbors performs a breadth-first traversal of entity_relations
+// starting at entityID out to depth hops (1 means direct relations only).
+// It returns every entity reached (including the starting entity) and every
+// distinct edge traversed. Cycles are handled: a node or edge is never
+// visited/returned twice regardless of how many paths reach it.
+func (db *DB) GraphNeighbors(entityID string, depth int) ([]*Entity, []*EntityRelation, error) {
+	if depth < 1 {
+		depth = 1
+	}
+	if depth > MaxGraphDepth {
+		return nil, nil, fmt.Errorf("depth %d exceeds maximum allowed depth %d", depth, MaxGraphDepth)
+	}
+
+	visited := map[string]bool{entityID: true}
+	edgeSeen := map[string]bool{}
+	var edges []*EntityRelation
+
+	frontier := []string{entityID}
+	for hop := 0; hop < depth && len(frontier) > 0; hop++ {
+		var next []string
+		for _, id := range frontier {
+			rels, err := db.RelationsForEntity(id)
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, r := range rels {
+				key := r.FromEntityID + "\x00" + r.ToEntityID + "\x00" + r.RelationType
+				if !edgeSeen[key] {
+					edgeSeen[key] = true
+					edges = append(edges, r)
+				}
+				other := r.ToEntityID
+				if other == id {
+					other = r.FromEntityID
+				}
+				if !visited[other] {
+					visited[other] = true
+					next = append(next, other)
+				}
+			}
+		}
+		frontier = next
+	}
+
+	nodes := make([]*Entity, 0, len(visited))
+	for id := range visited {
+		e, err := db.GetEntityByID(id)
+		if err != nil {
+			return nil, nil, err
+		}
+		if e != nil {
+			nodes = append(nodes, e)
+		}
+	}
+
+	return nodes, edges, nil
 }
 
 func (db *DB) queryRelations(query, entityID string) ([]*EntityRelation, error) {

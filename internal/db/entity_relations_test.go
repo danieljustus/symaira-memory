@@ -134,6 +134,88 @@ func TestRelationsForEntity_CombinesBothDirections(t *testing.T) {
 	}
 }
 
+func TestGraphNeighbors_Depth1(t *testing.T) {
+	database := newTestDB(t)
+	ids := seedRelationEntities(t, database, "Alice", "Bob", "Carol")
+
+	if err := database.SaveEntityRelation(&EntityRelation{FromEntityID: ids["Alice"], ToEntityID: ids["Bob"], RelationType: "works-with"}); err != nil {
+		t.Fatalf("save Alice->Bob: %v", err)
+	}
+	if err := database.SaveEntityRelation(&EntityRelation{FromEntityID: ids["Bob"], ToEntityID: ids["Carol"], RelationType: "manages"}); err != nil {
+		t.Fatalf("save Bob->Carol: %v", err)
+	}
+
+	nodes, edges, err := database.GraphNeighbors(ids["Alice"], 1)
+	if err != nil {
+		t.Fatalf("GraphNeighbors: %v", err)
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("expected 2 nodes at depth 1 (Alice, Bob), got %d", len(nodes))
+	}
+	if len(edges) != 1 {
+		t.Fatalf("expected 1 edge at depth 1, got %d", len(edges))
+	}
+}
+
+func TestGraphNeighbors_Depth2ReachesSecondHop(t *testing.T) {
+	database := newTestDB(t)
+	ids := seedRelationEntities(t, database, "Alice", "Bob", "Carol")
+
+	if err := database.SaveEntityRelation(&EntityRelation{FromEntityID: ids["Alice"], ToEntityID: ids["Bob"], RelationType: "works-with"}); err != nil {
+		t.Fatalf("save Alice->Bob: %v", err)
+	}
+	if err := database.SaveEntityRelation(&EntityRelation{FromEntityID: ids["Bob"], ToEntityID: ids["Carol"], RelationType: "manages"}); err != nil {
+		t.Fatalf("save Bob->Carol: %v", err)
+	}
+
+	nodes, edges, err := database.GraphNeighbors(ids["Alice"], 2)
+	if err != nil {
+		t.Fatalf("GraphNeighbors: %v", err)
+	}
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 nodes at depth 2 (Alice, Bob, Carol), got %d", len(nodes))
+	}
+	if len(edges) != 2 {
+		t.Fatalf("expected 2 edges at depth 2, got %d", len(edges))
+	}
+}
+
+func TestGraphNeighbors_CycleTerminatesAndDeduplicates(t *testing.T) {
+	database := newTestDB(t)
+	ids := seedRelationEntities(t, database, "A", "B", "C")
+
+	if err := database.SaveEntityRelation(&EntityRelation{FromEntityID: ids["A"], ToEntityID: ids["B"], RelationType: "next"}); err != nil {
+		t.Fatalf("save A->B: %v", err)
+	}
+	if err := database.SaveEntityRelation(&EntityRelation{FromEntityID: ids["B"], ToEntityID: ids["C"], RelationType: "next"}); err != nil {
+		t.Fatalf("save B->C: %v", err)
+	}
+	if err := database.SaveEntityRelation(&EntityRelation{FromEntityID: ids["C"], ToEntityID: ids["A"], RelationType: "next"}); err != nil {
+		t.Fatalf("save C->A: %v", err)
+	}
+
+	nodes, edges, err := database.GraphNeighbors(ids["A"], MaxGraphDepth)
+	if err != nil {
+		t.Fatalf("GraphNeighbors: %v", err)
+	}
+	if len(nodes) != 3 {
+		t.Fatalf("expected exactly 3 distinct nodes in the A->B->C->A cycle, got %d", len(nodes))
+	}
+	if len(edges) != 3 {
+		t.Fatalf("expected exactly 3 distinct edges in the cycle, got %d", len(edges))
+	}
+}
+
+func TestGraphNeighbors_DepthBeyondCapIsRejected(t *testing.T) {
+	database := newTestDB(t)
+	ids := seedRelationEntities(t, database, "Alice")
+
+	_, _, err := database.GraphNeighbors(ids["Alice"], MaxGraphDepth+1)
+	if err == nil {
+		t.Fatal("expected an error for depth beyond the configured cap")
+	}
+}
+
 func TestEntityRelation_CascadesOnEntityDelete(t *testing.T) {
 	database := newTestDB(t)
 	ids := seedRelationEntities(t, database, "Alice", "Bob")

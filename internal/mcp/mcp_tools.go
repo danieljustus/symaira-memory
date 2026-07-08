@@ -110,6 +110,13 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Handler:     s.handleEntityRelate,
 	})
 
+	srv.RegisterTool(&mcpserver.Tool{
+		Name:        "graph_neighbors",
+		Description: "Return the entities and relations reachable from a starting entity via a breadth-first traversal, as {nodes, edges}. Use this to answer 'what connects to X'.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"entity":{"type":"string","description":"Name or alias of the starting entity"},"depth":{"type":"integer","description":"Traversal depth, 1-3 (default 1)"}},"required":["entity"]}`),
+		Handler:     s.handleGraphNeighbors,
+	})
+
 	return srv
 }
 
@@ -377,6 +384,41 @@ func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) 
 	default:
 		return nil, fmt.Errorf("invalid arguments for 'entity_relate': 'action' must be 'create' or 'delete', got %q", args.Action)
 	}
+}
+
+func (s *Server) handleGraphNeighbors(ctx context.Context, input json.RawMessage) (any, error) {
+	var args struct {
+		Entity string `json:"entity"`
+		Depth  int    `json:"depth"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments for 'graph_neighbors': failed to parse arguments: %w", err)
+	}
+	if args.Entity == "" {
+		return nil, fmt.Errorf("invalid arguments for 'graph_neighbors': 'entity' is required")
+	}
+	if args.Depth == 0 {
+		args.Depth = 1
+	}
+
+	entity, err := s.service.ResolveEntity(args.Entity)
+	if err != nil {
+		return mcpError("Failed to resolve entity", err)
+	}
+	if entity == nil {
+		return nil, fmt.Errorf("entity not found: %s", args.Entity)
+	}
+
+	nodes, edges, err := s.service.GraphNeighbors(entity.ID, args.Depth)
+	if err != nil {
+		return nil, fmt.Errorf("invalid arguments for 'graph_neighbors': %w", err)
+	}
+
+	data, _ := json.MarshalIndent(struct {
+		Nodes []*db.Entity         `json:"nodes"`
+		Edges []*db.EntityRelation `json:"edges"`
+	}{Nodes: nodes, Edges: edges}, "", "  ")
+	return string(data), nil
 }
 
 func parseDuration(s string) (time.Duration, error) {

@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	entityType        string
-	entityAliases     string
-	entityDescription string
+	entityType           string
+	entityAliases        string
+	entityDescription    string
+	entityNeighborsDepth int
 )
 
 func init() {
@@ -26,10 +27,12 @@ func init() {
 	entityCmd.AddCommand(entityRemoveCmd)
 	entityCmd.AddCommand(entityRelateCmd)
 	entityCmd.AddCommand(entityUnrelateCmd)
+	entityCmd.AddCommand(entityNeighborsCmd)
 
 	entityAddCmd.Flags().StringVar(&entityType, "type", "other", "Entity type: person, project, org, other")
 	entityAddCmd.Flags().StringVar(&entityAliases, "aliases", "", "Comma-separated aliases")
 	entityAddCmd.Flags().StringVar(&entityDescription, "description", "", "Entity description")
+	entityNeighborsCmd.Flags().IntVar(&entityNeighborsDepth, "depth", 1, fmt.Sprintf("Traversal depth, 1-%d", db.MaxGraphDepth))
 
 	rootCmd.AddCommand(entityCmd)
 }
@@ -261,6 +264,50 @@ var entityUnrelateCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Unrelated: %s --%s--> %s\n", fromEntity.Name, relation, toEntity.Name)
+		return nil
+	},
+}
+
+// entityNeighborsResult is the shared shape returned by the CLI's --output
+// json form and the graph_neighbors MCP tool.
+type entityNeighborsResult struct {
+	Nodes []*db.Entity         `json:"nodes"`
+	Edges []*db.EntityRelation `json:"edges"`
+}
+
+var entityNeighborsCmd = &cobra.Command{
+	Use:   "neighbors [name]",
+	Short: "Show the entities and relations reachable from an entity",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		name := args[0]
+
+		entity, err := GetDB().ResolveEntity(name)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
+		}
+		if entity == nil {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", name)
+		}
+
+		nodes, edges, err := GetDB().GraphNeighbors(entity.ID, entityNeighborsDepth)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to compute neighbors")
+		}
+
+		if GetOutputFormat(cmd) == "json" {
+			formatter := NewOutputFormatter(GetOutputFormat(cmd))
+			return formatter.Output(entityNeighborsResult{Nodes: nodes, Edges: edges}, "entity-neighbors")
+		}
+
+		fmt.Printf("Nodes (%d):\n", len(nodes))
+		for _, n := range nodes {
+			fmt.Printf("  - %s (%s)\n", n.Name, n.Type)
+		}
+		fmt.Printf("\nEdges (%d):\n", len(edges))
+		for _, e := range edges {
+			fmt.Printf("  %s --%s--> %s\n", e.FromEntityID, e.RelationType, e.ToEntityID)
+		}
 		return nil
 	},
 }

@@ -119,6 +119,10 @@ func (s *MemoryService) DeleteEntityRelation(fromEntityID, toEntityID, relationT
 	return s.db.DeleteEntityRelation(fromEntityID, toEntityID, relationType)
 }
 
+func (s *MemoryService) GraphNeighbors(entityID string, depth int) ([]*db.Entity, []*db.EntityRelation, error) {
+	return s.db.GraphNeighbors(entityID, depth)
+}
+
 func (s *MemoryService) GetMemory(id string) (*db.Memory, error) {
 	return s.db.GetMemory(id)
 }

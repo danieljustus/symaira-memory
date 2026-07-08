@@ -193,8 +193,9 @@ func TestJSONRPCToolsList(t *testing.T) {
 		"memory_set":    false,
 		"memory_search": false,
 		"memory_list":   false,
-		"entity_list":   false,
-		"entity_relate": false,
+		"entity_list":     false,
+		"entity_relate":   false,
+		"graph_neighbors": false,
 	}
 	for _, toolRaw := range tools {
 		tool := toolRaw.(map[string]interface{})
