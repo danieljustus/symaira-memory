@@ -189,10 +189,10 @@ func TestJSONRPCToolsList(t *testing.T) {
 	tools := result["tools"].([]interface{})
 
 	expectedTools := map[string]bool{
-		"memory_get":    false,
-		"memory_set":    false,
-		"memory_search": false,
-		"memory_list":   false,
+		"memory_get":      false,
+		"memory_set":      false,
+		"memory_search":   false,
+		"memory_list":     false,
 		"entity_list":     false,
 		"entity_relate":   false,
 		"graph_neighbors": false,
