@@ -63,6 +63,19 @@ func decodeEmbeddingBLOB(data []byte) []float32 {
 
 // saveMemoryBLOB writes a memory with its embedding stored as raw BLOB bytes.
 func saveMemoryBLOB(database *DB, m *Memory) error {
+	tx, err := database.BeginTransaction()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := saveMemoryBLOBTx(tx, m); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// saveMemoryBLOBTx writes a memory with its embedding stored as raw BLOB bytes in a transaction.
+func saveMemoryBLOBTx(tx *sql.Tx, m *Memory) error {
 	metadataJSON, err := json.Marshal(m.Metadata)
 	if err != nil {
 		return fmt.Errorf("metadata marshal: %w", err)
@@ -101,7 +114,7 @@ func saveMemoryBLOB(database *DB, m *Memory) error {
 			importance=excluded.importance, valid_from=excluded.valid_from,
 			valid_to=excluded.valid_to, superseded_by=excluded.superseded_by`
 
-	_, err = database.conn.Exec(query,
+	_, err = tx.Exec(query,
 		m.ID, m.Content, m.Scope, string(metadataJSON),
 		embeddingBLOB, embeddingDim,
 		m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash,
@@ -327,6 +340,12 @@ func gzipSize(data []byte) int64 {
 // seedJSONMemories writes n memories with deterministic embeddings using the
 // JSON (production) path. prefix is prepended to each ID.
 func seedJSONMemories(database *DB, n int, prefix string) {
+	tx, err := database.BeginTransaction()
+	if err != nil {
+		panic(fmt.Sprintf("seedJSONMemories begin: %v", err))
+	}
+	defer tx.Rollback()
+
 	for i := range n {
 		emb := generateDeterministicEmbedding(i, EmbeddingDim)
 		m := &Memory{
@@ -336,15 +355,25 @@ func seedJSONMemories(database *DB, n int, prefix string) {
 			Metadata:  map[string]string{"seed": fmt.Sprintf("%d", i)},
 			Embedding: emb,
 		}
-		if err := database.SaveMemory(m); err != nil {
+		if err := database.SaveMemoryTx(tx, m); err != nil {
 			panic(fmt.Sprintf("seedJSONMemories: %v", err))
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("seedJSONMemories commit: %v", err))
 	}
 }
 
 // seedBLOBMemories writes n memories with deterministic embeddings using the
 // BLOB (proposed) path. prefix is prepended to each ID.
 func seedBLOBMemories(database *DB, n int, prefix string) {
+	tx, err := database.BeginTransaction()
+	if err != nil {
+		panic(fmt.Sprintf("seedBLOBMemories begin: %v", err))
+	}
+	defer tx.Rollback()
+
 	for i := range n {
 		emb := generateDeterministicEmbedding(i, EmbeddingDim)
 		m := &Memory{
@@ -354,9 +383,13 @@ func seedBLOBMemories(database *DB, n int, prefix string) {
 			Metadata:  map[string]string{"seed": fmt.Sprintf("%d", i)},
 			Embedding: emb,
 		}
-		if err := saveMemoryBLOB(database, m); err != nil {
+		if err := saveMemoryBLOBTx(tx, m); err != nil {
 			panic(fmt.Sprintf("seedBLOBMemories: %v", err))
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		panic(fmt.Sprintf("seedBLOBMemories commit: %v", err))
 	}
 }
 

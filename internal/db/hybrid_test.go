@@ -161,6 +161,12 @@ func TestHybridSearch_CandidateCap(t *testing.T) {
 	defer database.Close()
 
 	const count = maxCandidates + 500
+	tx, err := database.BeginTransaction()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+
 	for i := 0; i < count; i++ {
 		emb := make([]float32, EmbeddingDim)
 		emb[i%EmbeddingDim] = 1.0
@@ -172,9 +178,12 @@ func TestHybridSearch_CandidateCap(t *testing.T) {
 			Metadata:  map[string]string{},
 			Embedding: emb,
 		}
-		if err := database.SaveMemory(m); err != nil {
+		if err := database.SaveMemoryTx(tx, m); err != nil {
 			t.Fatalf("failed to save memory %d: %v", i, err)
 		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 
 	queryVec := make([]float32, EmbeddingDim)
