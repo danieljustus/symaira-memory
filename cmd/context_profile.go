@@ -13,12 +13,12 @@ import (
 )
 
 var (
-	cpBaseScope    string
-	cpDescription  string
-	cpParent       string
-	cpOrder        int
-	cpFilterKey    string
-	cpFilterValue  string
+	cpBaseScope   string
+	cpDescription string
+	cpParent      string
+	cpOrder       int
+	cpFilterKey   string
+	cpFilterValue string
 )
 
 var contextProfileCmd = &cobra.Command{

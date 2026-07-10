@@ -28,14 +28,14 @@ type ContextProfile struct {
 // filter_key/filter_value optionally restrict the link to memories whose
 // metadata[filter_key] == filter_value during resolution.
 type ContextProfileLink struct {
-	ID               int64     `json:"id"`
-	ProfileID        string    `json:"profile_id"`
-	ParentProfileID  *string   `json:"parent_profile_id,omitempty"`
-	Scope            string    `json:"scope"`             // one of: global, project, agent, user, session
-	FilterKey        string    `json:"filter_key"`        // optional metadata key to filter by
-	FilterValue      string    `json:"filter_value"`      // required when filter_key is set
-	PrecedenceOrder  int       `json:"precedence_order"`  // lower = searched first
-	CreatedAt        time.Time `json:"created_at"`
+	ID              int64     `json:"id"`
+	ProfileID       string    `json:"profile_id"`
+	ParentProfileID *string   `json:"parent_profile_id,omitempty"`
+	Scope           string    `json:"scope"`            // one of: global, project, agent, user, session
+	FilterKey       string    `json:"filter_key"`       // optional metadata key to filter by
+	FilterValue     string    `json:"filter_value"`     // required when filter_key is set
+	PrecedenceOrder int       `json:"precedence_order"` // lower = searched first
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // ResolvedScope is a fully resolved scope entry produced by ResolveContextProfile.
@@ -186,12 +186,12 @@ func (db *DB) ListContextProfileLinks(profileName string) ([]*ContextProfileLink
 // detecting cycles and enforcing a maximum depth.
 //
 // Resolution order:
-// 1. Fetch the profile's links sorted by (precedence_order ASC, id ASC).
-// 2. For each link:
-//    a. If parent_profile_id is set, recurse into the parent first (depth+1).
-//    b. Otherwise emit the link's scope + filter as a ResolvedScope.
-// 3. After all links, append the profile's base_scope (if non-empty) as the
-//    lowest-precedence fallback.
+//  1. Fetch the profile's links sorted by (precedence_order ASC, id ASC).
+//  2. For each link:
+//     a. If parent_profile_id is set, recurse into the parent first (depth+1).
+//     b. Otherwise emit the link's scope + filter as a ResolvedScope.
+//  3. After all links, append the profile's base_scope (if non-empty) as the
+//     lowest-precedence fallback.
 func (db *DB) ResolveContextProfile(name string, maxDepth int) ([]ResolvedScope, error) {
 	if maxDepth <= 0 {
 		maxDepth = DefaultMaxDepth
