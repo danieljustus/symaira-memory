@@ -30,12 +30,14 @@ In the Human-AI Symbiosis Era, the bottleneck of productivity is no longer compu
 - **Web Console**: Built-in browser dashboard served at `http://localhost:8787/` when running `symmemory serve`. Browse, search, and delete memories with a clean UI. No npm, no frameworks, no CDN — fully offline.
 - **Browser extension**: Chrome/Edge/Brave Manifest V3 extension injects memory context into ChatGPT, Claude Web, and Perplexity. Ships in `extension/`.
 - **TUI dashboard**: Terminal-based memory browser and curator built with Bubble Tea and Lip Gloss. Launch with `symmemory console`.
-- **PII Guard**: Automatic regex-based redaction of credit cards, email addresses, and API keys before anything touches disk.
+- **PII Guard**: Automatic regex-based redaction of credit cards, email addresses, API keys, URL credentials, vendor tokens (GitHub, GitLab, npm, Slack, Stripe, AWS, Firebase, HTTP Basic Auth, Docker config), and high-entropy secret assignments before anything touches disk.
 - **JWT authentication**: Generate and verify signed tokens for REST API access. HMAC-SHA256, configurable expiry and subject.
 - **Memory scoping**: Organize memories by scope (global, project, agent, user, session). Project scope auto-detects `.git` or `.symmemory.toml` in parent directories.
+- **Context profiles**: Define ordered scope-inheritance chains so a single search retrieves memories from multiple scopes in precedence order. Create profiles with `symmemory context-profile`, link scopes with `symmemory context-profile link`, and resolve the full chain with `symmemory context-profile show`.
 - **Behavioral rules**: Store procedural instructions for AI agents, automatically injected into prompts. Manage with `symmemory rule`.
 - **Encrypted backup / restore**: Export your SQLite database to compressed `.tar.gz` archives with optional AES-256-GCM encryption.
 - **Extractive dialogue summarizer**: Reduce LLM context cost by 60-70% via keyword-weighted sentence extraction.
+- **Corpus-backed retrieval benchmark**: Built-in evaluation command (`symmemory bench`) measuring BM25, vector, and hybrid search quality with Recall@k, NDCG@k, MRR, and latency percentiles (P50/P95). Deterministic 50-memory corpus for reproducible CI runs.
 - **Zero CGO**: Pure Go compilation. Builds on any platform without C toolchains. Uses `modernc.org/sqlite` instead of `mattn/go-sqlite3`.
 
 ---
@@ -94,6 +96,15 @@ symmemory serve
 
 # Generate an API token for HTTP access
 symmemory token generate --subject "my-agent" --duration 720
+
+# Create a context profile that chains scopes
+symmemory context-profile add "dev-agent" --base-scope project --description "Project + global fallback"
+symmemory context-profile link "dev-agent" project --order 1
+symmemory context-profile link "dev-agent" global --order 2
+symmemory context-profile show "dev-agent"
+
+# Run the retrieval benchmark (BM25, vector, hybrid search quality)
+symmemory bench
 ```
 
 For a full reference of all commands and flags, run `symmemory --help`.
@@ -195,7 +206,7 @@ secret = "vault://symaira/memory/jwt"
 
 ## Security & Privacy
 
-- **PII Guard**: All memory content passes through a regex filter that redacts credit cards, email addresses, and API tokens before storage.
+- **PII Guard**: All memory content passes through a regex filter that redacts credit cards, email addresses, API tokens, URL credentials (`https://user:pass@host`), vendor tokens (GitHub, GitLab, npm, Slack, Stripe, AWS, Firebase, HTTP Basic Auth, Docker config), and high-entropy secret assignments before storage.
 - **JWT Auth**: REST API endpoints require signed bearer tokens. Tokens are scoped to named subjects with configurable expiration.
 - **Encrypted backups**: Backup archives can be encrypted with AES-256-GCM using a password you provide. Decryption requires the same password.
 - **Local-first**: The database stays on your machine under `~/.local/share/symmemory/`. No telemetry, no external calls (Ollama is optional and local).
