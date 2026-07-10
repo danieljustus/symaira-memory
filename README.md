@@ -37,6 +37,7 @@ In the Human-AI Symbiosis Era, the bottleneck of productivity is no longer compu
 - **Behavioral rules**: Store procedural instructions for AI agents, automatically injected into prompts. Manage with `symmemory rule`.
 - **Encrypted backup / restore**: Export your SQLite database to compressed `.tar.gz` archives with optional AES-256-GCM encryption.
 - **Extractive dialogue summarizer**: Reduce LLM context cost by 60-70% via keyword-weighted sentence extraction.
+- **Corpus-backed retrieval benchmark**: Built-in evaluation command (`symmemory bench`) measuring BM25, vector, and hybrid search quality with Recall@k, NDCG@k, MRR, and latency percentiles (P50/P95). Deterministic 50-memory corpus for reproducible CI runs.
 - **Zero CGO**: Pure Go compilation. Builds on any platform without C toolchains. Uses `modernc.org/sqlite` instead of `mattn/go-sqlite3`.
 
 ---
@@ -101,6 +102,9 @@ symmemory context-profile add "dev-agent" --base-scope project --description "Pr
 symmemory context-profile link "dev-agent" project --order 1
 symmemory context-profile link "dev-agent" global --order 2
 symmemory context-profile show "dev-agent"
+
+# Run the retrieval benchmark (BM25, vector, hybrid search quality)
+symmemory bench
 ```
 
 For a full reference of all commands and flags, run `symmemory --help`.
