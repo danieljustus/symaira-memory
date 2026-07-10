@@ -89,7 +89,7 @@ Once the MCP server is initialized, the following tools are registered with the 
 | :--- | :--- | :--- |
 | `memory_get` | `id` (string, required) | Retrieve a specific memory element from the SQLite database by its UUID. |
 | `memory_set` | `content` (string, required)<br>`scope` (string, optional)<br>`metadata` (JSON string, optional) | Saves a new memory/fact. Runs offline pattern fact extraction, executes PII redactions, and automatically parses project directories. |
-| `memory_search` | `query` (string, required)<br>`scope` (string, optional)<br>`limit` (string, optional) | Semantic search of memories using cosine similarity over local vector embeddings. |
+| `memory_search` | `query` (string, required)<br>`scope` (string, optional)<br>`profile` (string, optional)<br>`limit` (string, optional) | Semantic search of memories using cosine similarity over local vector embeddings. When `profile` is provided, searches across the scopes defined by that context profile in precedence order instead of a single `scope` filter. |
 | `memory_list` | `scope` (string, optional) | Lists all stored memories, optionally filtering by scope level. |
 
 ---
@@ -107,7 +107,7 @@ The daemon exposes standard REST API routes for database queries and updates. Fo
 
 *   **`GET /api/status`**
     *   *Purpose*: Health check.
-    *   *Response*: `{"status":"healthy","version":"0.10.0","server":"symaira-memory"}`
+    *   *Response*: `{"status":"healthy","version":"0.12.0","server":"symaira-memory"}`
 *   **`POST /api/search`**
     *   *Purpose*: Semantic cosine-similarity search.
     *   *Payload*: `{"query": "database connection settings", "scope": "project", "limit": 3}`

@@ -33,6 +33,7 @@ In the Human-AI Symbiosis Era, the bottleneck of productivity is no longer compu
 - **PII Guard**: Automatic regex-based redaction of credit cards, email addresses, and API keys before anything touches disk.
 - **JWT authentication**: Generate and verify signed tokens for REST API access. HMAC-SHA256, configurable expiry and subject.
 - **Memory scoping**: Organize memories by scope (global, project, agent, user, session). Project scope auto-detects `.git` or `.symmemory.toml` in parent directories.
+- **Context profiles**: Define ordered scope-inheritance chains so a single search retrieves memories from multiple scopes in precedence order. Create profiles with `symmemory context-profile`, link scopes with `symmemory context-profile link`, and resolve the full chain with `symmemory context-profile show`.
 - **Behavioral rules**: Store procedural instructions for AI agents, automatically injected into prompts. Manage with `symmemory rule`.
 - **Encrypted backup / restore**: Export your SQLite database to compressed `.tar.gz` archives with optional AES-256-GCM encryption.
 - **Extractive dialogue summarizer**: Reduce LLM context cost by 60-70% via keyword-weighted sentence extraction.
@@ -94,6 +95,12 @@ symmemory serve
 
 # Generate an API token for HTTP access
 symmemory token generate --subject "my-agent" --duration 720
+
+# Create a context profile that chains scopes
+symmemory context-profile add "dev-agent" --base-scope project --description "Project + global fallback"
+symmemory context-profile link "dev-agent" project --order 1
+symmemory context-profile link "dev-agent" global --order 2
+symmemory context-profile show "dev-agent"
 ```
 
 For a full reference of all commands and flags, run `symmemory --help`.
