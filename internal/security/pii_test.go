@@ -276,3 +276,188 @@ func TestCreditCardPrefixValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestPIIGuardURLCredentials(t *testing.T) {
+	pg := NewPIIGuard()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "HTTPS URL with credentials",
+			input:    "Repo is at https://user:p4ssw0rd@github.com/org/repo.git",
+			expected: "Repo is at [REDACTED_URL_CREDENTIALS]",
+		},
+		{
+			name:     "MongoDB connection string with credentials",
+			input:    "mongodb://admin:secret123@mongodb.example.com:27017/db",
+			expected: "[REDACTED_URL_CREDENTIALS]",
+		},
+		{
+			name:     "FTP URL with credentials",
+			input:    "ftp://ftpuser:ftppass@ftp.example.com/file.txt",
+			expected: "[REDACTED_URL_CREDENTIALS]",
+		},
+		{
+			name:     "HTTP URL without credentials is preserved",
+			input:    "See https://example.com/path?query=1 for details",
+			expected: "See https://example.com/path?query=1 for details",
+		},
+		{
+			name:     "Connection string without credentials is preserved",
+			input:    "Connect via mongodb://mongodb.example.com:27017/db",
+			expected: "Connect via mongodb://mongodb.example.com:27017/db",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pg.Redact(tt.input)
+			if result != tt.expected {
+				t.Errorf("expected:\n  '%s'\ngot:\n  '%s'", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestPIIGuardVendorTokens(t *testing.T) {
+	pg := NewPIIGuard()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "GitLab personal access token",
+			input:    "glpat-" + "abc123def456ghi789jkl012mno345pqr678",
+			expected: "[REDACTED_API_KEY]",
+		},
+		{
+			name:     "npm access token",
+			input:    "npm_" + "abcdefghijklmnopqrstuvwxyz0123456789",
+			expected: "[REDACTED_API_KEY]",
+		},
+		{
+			name:     "GitHub app token",
+			input:    "ghs_" + "abcdefghijklmnopqrstuvwxyz0123456789",
+			expected: "[REDACTED_API_KEY]",
+		},
+		{
+			name:     "GitHub refresh token",
+			input:    "ghr_" + "abcdefghijklmnopqrstuvwxyz0123456789",
+			expected: "[REDACTED_API_KEY]",
+		},
+		{
+			name:     "Firebase Cloud Messaging server key",
+			input:    "AAAA" + "1234567890abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz1234567890abcdefghijklmnopqrstuvwxyz1234",
+			expected: "[REDACTED_API_KEY]",
+		},
+		{
+			name:     "HTTP Basic Auth header",
+			input:    "Authorization: basic " + "dXNlcjpwYXNzd29yZA==",
+			expected: "Authorization: [REDACTED_API_KEY]",
+		},
+		{
+			name:     "Docker config auth",
+			input:    `"auth": "` + "dXNlcjpwYXNzd29yZA==" + `"`,
+			expected: "[REDACTED_API_KEY]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pg.Redact(tt.input)
+			if result != tt.expected {
+				t.Errorf("expected:\n  '%s'\ngot:\n  '%s'", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestPIIGuardEntropyFallback(t *testing.T) {
+	pg := NewPIIGuard()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "High entropy unknown token in api_key assignment",
+			input:    "api_key=Ab1_cd2.ef3_gh4_ij5_kl6_mn7_op8_qr9",
+			expected: "api_key=[REDACTED_API_KEY]",
+		},
+		{
+			name:     "High entropy unknown token with colon assignment",
+			input:    "token: Xy9_ab87.CD65_ef43.GH21_ij09.KL87_mn65",
+			expected: "token: [REDACTED_API_KEY]",
+		},
+		{
+			name:     "Password assignment with high entropy value",
+			input:    "password = 9aB3_cD7.eF1_gH5_iJ2_kL8_mN4_oP0_qR6",
+			expected: "password = [REDACTED_API_KEY]",
+		},
+		{
+			name:     "Low entropy assignment is preserved",
+			input:    "password=correcthorsebatterystaple",
+			expected: "password=correcthorsebatterystaple",
+		},
+		{
+			name:     "Short value in secret assignment is preserved",
+			input:    "token=short",
+			expected: "token=short",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pg.Redact(tt.input)
+			if result != tt.expected {
+				t.Errorf("expected:\n  '%s'\ngot:\n  '%s'", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestPIIGuardPreservesNonSecrets(t *testing.T) {
+	pg := NewPIIGuard()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "Git SHA-1", input: "commit a42dfbb6a2e81089ebe84fb62d058fe19829a06e"},
+		{name: "SHA-256", input: "hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+		{name: "UUID", input: "id 550e8400-e29b-41d4-a716-446655440000"},
+		{name: "Ordinary prose", input: "The quick brown fox jumps over the lazy dog."},
+		{name: "URL without credentials", input: "Visit https://example.com/settings?tab=security"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := pg.Redact(tt.input)
+			if result != tt.input {
+				t.Errorf("expected input to be unchanged:\n  '%s'\ngot:\n  '%s'", tt.input, result)
+			}
+		})
+	}
+}
+
+func FuzzPIIGuardRedaction(f *testing.F) {
+	f.Add("sk-proj-" + "12345abcde12345abcde12345abcde12345abcde12345")
+	f.Add("email is test@domain.com")
+	f.Add("api_key=Ab1_cd2.ef3_gh4_ij5_kl6_mn7_op8_qr9")
+	f.Add("The quick brown fox jumps over the lazy dog.")
+	f.Add("https://user:pass@example.com/path")
+
+	f.Fuzz(func(t *testing.T, input string) {
+		result := Redact(input)
+
+		if second := Redact(result); second != result {
+			t.Errorf("redaction not stable:\n  first:  %q\n  second: %q", result, second)
+		}
+	})
+}
