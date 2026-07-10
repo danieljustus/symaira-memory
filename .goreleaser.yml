@@ -53,7 +53,7 @@ brews:
     directory: Formula
     homepage: https://github.com/danieljustus/symaira-memory
     description: Persistent memory layer and semantic knowledge base for AI agents
-    license: MIT
+    license: Apache-2.0
     test: |
       system "#{bin}/symmemory", "version"
 
