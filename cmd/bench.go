@@ -4,44 +4,57 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/bench"
 	"github.com/danieljustus/symaira-memory/internal/summarizer"
 	"github.com/spf13/cobra"
 )
 
-var benchRepetitions int
+var (
+	benchRepetitions int
+	benchFixture     string
+	benchDataset     string
+	benchOutput      string
+)
 
 func init() {
 	benchCmd.Flags().IntVarP(&benchRepetitions, "repetitions", "n", 10, "Number of repetitions for latency measurement")
+	benchCmd.Flags().StringVar(&benchFixture, "fixture", "", "Path to custom JSON/YAML fixture file (optional)")
+	benchCmd.Flags().StringVar(&benchDataset, "dataset", "", "External dataset name for opt-in evaluation (optional)")
+	benchCmd.Flags().StringVar(&benchOutput, "output", "text", "Output format: text or json")
 	rootCmd.AddCommand(benchCmd)
 }
 
 var benchCmd = &cobra.Command{
 	Use:   "bench",
-	Short: "Run benchmark harness measuring token reduction and retrieval KPIs",
-	Long: `Runs a reproducible benchmark measuring:
-  - Token reduction via the extractive summarizer
-  - Retrieval latency percentiles (P50/P95)
-  - Hybrid search vs vector-only comparison
+	Short: "Run corpus-backed retrieval benchmark measuring BM25, vector, and hybrid KPIs",
+	Long: `Runs a reproducible retrieval benchmark against a built-in deterministic corpus:
+  - BM25 keyword search quality and latency
+  - Vector semantic search quality and latency
+  - Hybrid (RRF-fused) search quality and latency
+  - Temporal-validity evaluation (expired vs currently-valid memories)
+  - Scope-isolation evaluation (query constrained to specific scopes)
 
-Results are printed to stderr for easy piping.`,
+Metrics reported: Recall@k, NDCG@k, MRR, latency percentiles (P50/P95).
+
+The default run uses a built-in fixture corpus so CI is deterministic
+without network access. Use --dataset for external evaluation sets.
+All output goes to stderr for easy piping.`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintf(os.Stderr, "=== Symaira Memory Benchmark ===\n\n")
-
-		cfg := GetConfig()
-		database := GetDB()
-
 		fmt.Fprintf(os.Stderr, "--- Token Reduction (Summarizer) ---\n")
 		benchTokenReduction()
 
-		fmt.Fprintf(os.Stderr, "\n--- Retrieval Latency (Vector Search) ---\n")
-		benchRetrievalLatency(database, cfg, benchRepetitions)
-
-		fmt.Fprintf(os.Stderr, "\n--- Hybrid Search Comparison ---\n")
-		benchHybridComparison(database, cfg, benchRepetitions)
-
-		fmt.Fprintf(os.Stderr, "\n=== Benchmark Complete ===\n")
+		fmt.Fprintf(os.Stderr, "\n--- Retrieval Benchmark ---\n")
+		opts := bench.Options{
+			Repetitions: benchRepetitions,
+			Output:      benchOutput,
+			FixturePath: benchFixture,
+			Dataset:     benchDataset,
+		}
+		if err := bench.Run(os.Stderr, opts); err != nil {
+			fmt.Fprintf(os.Stderr, "Benchmark failed: %v\n", err)
+			os.Exit(1)
+		}
 	},
 }
 
@@ -70,22 +83,6 @@ Assistant: You're welcome! Let me know if you need more details about any compon
 	fmt.Fprintf(os.Stderr, "  Summary tokens:     %d\n", summaryTokens)
 	fmt.Fprintf(os.Stderr, "  Reduction:          %.1f%%\n", reduction)
 	fmt.Fprintf(os.Stderr, "  Summary output:     %s\n", truncateStr(summary, 100))
-}
-
-func benchRetrievalLatency(database *db.DB, cfg interface{}, repetitions int) {
-	fmt.Fprintf(os.Stderr, "  (Latency measurement requires populated database)\n")
-	fmt.Fprintf(os.Stderr, "  Repetitions:        %d\n", repetitions)
-
-	_ = database
-	_ = cfg
-}
-
-func benchHybridComparison(database *db.DB, cfg interface{}, repetitions int) {
-	fmt.Fprintf(os.Stderr, "  (Hybrid comparison requires populated database)\n")
-	fmt.Fprintf(os.Stderr, "  Repetitions:        %d\n", repetitions)
-
-	_ = database
-	_ = cfg
 }
 
 func estimateBenchTokens(text string) int {
