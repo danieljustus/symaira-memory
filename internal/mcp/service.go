@@ -54,6 +54,23 @@ func (s *MemoryService) Search(query, scope string, limit int, entityName string
 	return s.db.SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, scope, limit, entityID, trustFilter, policyFilter)
 }
 
+func (s *MemoryService) SearchWithProfile(query, profileName string, limit int, entityName string, trustFilter db.TrustFilter, policyFilter db.PolicyFilter) ([]db.SearchResult, error) {
+	var entityID string
+	if entityName != "" {
+		entity, err := s.db.ResolveEntity(entityName)
+		if err != nil {
+			return nil, fmt.Errorf("resolve entity: %w", err)
+		}
+		if entity == nil {
+			return nil, &NotFoundError{Resource: "entity", Identifier: entityName}
+		}
+		entityID = entity.ID
+	}
+
+	emb := s.embeddings.GenerateVector(query)
+	return s.db.SearchMemoriesWithProfile(emb.Vector, emb.Source, profileName, limit, entityID, trustFilter, policyFilter)
+}
+
 func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string) (string, error) {
 	attr := memory.Attribution{
 		Author:    author,

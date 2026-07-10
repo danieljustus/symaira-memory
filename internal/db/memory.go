@@ -38,9 +38,12 @@ type Memory struct {
 }
 
 // SearchResult wraps a Memory with its similarity score without mutating the original.
+// SourceProfile and SourceScope carry provenance when a context profile was used.
 type SearchResult struct {
-	Memory *Memory `json:"memory"`
-	Score  float32 `json:"similarity_score"`
+	Memory        *Memory `json:"memory"`
+	Score         float32 `json:"similarity_score"`
+	SourceProfile string  `json:"source_profile,omitempty"` // non-empty when a context profile produced this result
+	SourceScope   string  `json:"source_scope,omitempty"`   // the effective scope this result came from
 }
 
 // RankingWeights holds configurable weights for composite retrieval scoring.
@@ -991,6 +994,59 @@ func (db *DB) SupersedeFact(supersededID, supersededByID string) error {
 		now, supersededByID, now, supersededID, now,
 	)
 	return err
+}
+
+// SearchMemoriesWithProfile resolves the given context profile into an ordered
+// list of scopes, searches each scope in precedence order, and returns results
+// tagged with provenance. When profileName is empty, it falls back to the
+// single-scope behaviour of SearchMemoriesFilteredWithTrust.
+func (db *DB) SearchMemoriesWithProfile(queryVec []float32, querySource string, profileName string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, weights ...RankingWeights) ([]SearchResult, error) {
+	if profileName == "" {
+		return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, "", limit, entityID, trustFilter, policyFilter, weights...)
+	}
+
+	scopes, err := db.ResolveContextProfile(profileName, DefaultMaxDepth)
+	if err != nil {
+		return nil, err
+	}
+
+	w := DefaultRankingWeights()
+	if len(weights) > 0 {
+		w = weights[0]
+	}
+
+	// Collect unique scopes to avoid redundant searches.
+	seen := make(map[string]bool)
+	var searchScopes []ResolvedScope
+	for _, s := range scopes {
+		if !seen[s.Scope] {
+			seen[s.Scope] = true
+			searchScopes = append(searchScopes, s)
+		}
+	}
+
+	var all []SearchResult
+	for _, rs := range searchScopes {
+		results, serr := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, rs.Scope, limit*2, entityID, trustFilter, policyFilter, w)
+		if serr != nil {
+			return nil, serr
+		}
+		for i := range results {
+			results[i].SourceProfile = profileName
+			results[i].SourceScope = rs.Scope
+		}
+		all = append(all, results...)
+	}
+
+	// Re-sort by score descending.
+	sort.Slice(all, func(i, j int) bool {
+		return all[i].Score > all[j].Score
+	})
+
+	if limit > len(all) {
+		limit = len(all)
+	}
+	return all[:limit], nil
 }
 
 // GetSupersededHistory returns all memories that were superseded by the given ID.
