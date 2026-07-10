@@ -30,7 +30,7 @@ In the Human-AI Symbiosis Era, the bottleneck of productivity is no longer compu
 - **Web Console**: Built-in browser dashboard served at `http://localhost:8787/` when running `symmemory serve`. Browse, search, and delete memories with a clean UI. No npm, no frameworks, no CDN — fully offline.
 - **Browser extension**: Chrome/Edge/Brave Manifest V3 extension injects memory context into ChatGPT, Claude Web, and Perplexity. Ships in `extension/`.
 - **TUI dashboard**: Terminal-based memory browser and curator built with Bubble Tea and Lip Gloss. Launch with `symmemory console`.
-- **PII Guard**: Automatic regex-based redaction of credit cards, email addresses, and API keys before anything touches disk.
+- **PII Guard**: Automatic regex-based redaction of credit cards, email addresses, API keys, URL credentials, vendor tokens (GitHub, GitLab, npm, Slack, Stripe, AWS, Firebase, HTTP Basic Auth, Docker config), and high-entropy secret assignments before anything touches disk.
 - **JWT authentication**: Generate and verify signed tokens for REST API access. HMAC-SHA256, configurable expiry and subject.
 - **Memory scoping**: Organize memories by scope (global, project, agent, user, session). Project scope auto-detects `.git` or `.symmemory.toml` in parent directories.
 - **Context profiles**: Define ordered scope-inheritance chains so a single search retrieves memories from multiple scopes in precedence order. Create profiles with `symmemory context-profile`, link scopes with `symmemory context-profile link`, and resolve the full chain with `symmemory context-profile show`.
@@ -206,7 +206,7 @@ secret = "vault://symaira/memory/jwt"
 
 ## Security & Privacy
 
-- **PII Guard**: All memory content passes through a regex filter that redacts credit cards, email addresses, and API tokens before storage.
+- **PII Guard**: All memory content passes through a regex filter that redacts credit cards, email addresses, API tokens, URL credentials (`https://user:pass@host`), vendor tokens (GitHub, GitLab, npm, Slack, Stripe, AWS, Firebase, HTTP Basic Auth, Docker config), and high-entropy secret assignments before storage.
 - **JWT Auth**: REST API endpoints require signed bearer tokens. Tokens are scoped to named subjects with configurable expiration.
 - **Encrypted backups**: Backup archives can be encrypted with AES-256-GCM using a password you provide. Decryption requires the same password.
 - **Local-first**: The database stays on your machine under `~/.local/share/symmemory/`. No telemetry, no external calls (Ollama is optional and local).

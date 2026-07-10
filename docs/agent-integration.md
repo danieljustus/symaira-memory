@@ -185,9 +185,12 @@ The project includes a Google Chrome/Brave/Edge browser extension inside the [ex
 
 ### PII Guard Regex Redaction
 Before any memory content is committed to the local database, it is automatically passed through the security filter ([pii.go](file:///Users/daniel/Dev/symaira-memory/internal/security/pii.go)). This system automatically redacts:
-*   Credit cards
+*   Credit cards (prefix-validated: Visa, Mastercard, Amex, Discover, UnionPay)
 *   Email addresses
-*   General API tokens (`Authorization: Bearer ...` or `sk-proj-...` keys)
+*   General API tokens (`Authorization: Bearer ...`, `sk-proj-...` keys, JWTs, SSH keys)
+*   URL credentials (`https://user:pass@host` for HTTP, FTP, MongoDB, PostgreSQL, MySQL, Redis)
+*   Vendor tokens: GitHub (`ghp_`, `gho_`, `ghs_`, `ghr_`), GitLab (`glpat-`), npm (`npm_`), Slack (`xox[abposr]-`), Stripe (`sk_live_`), AWS (`AKIA...`), Firebase (FCM server keys), HTTP Basic Auth headers, Docker config auth
+*   High-entropy secret assignments (conservative fallback for `api_key=...`, `token=...`, `password=...` patterns with ≥ 3.5 bits/char Shannon entropy)
 
 ### Active Workspace Scoping
 When a memory is recorded under `project` scope:
