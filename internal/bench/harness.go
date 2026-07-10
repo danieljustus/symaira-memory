@@ -22,30 +22,30 @@ type Options struct {
 
 // Report holds the complete benchmark results.
 type Report struct {
-	Timestamp       time.Time          `json:"timestamp"`
-	CorpusSize      int                `json:"corpus_size"`
-	QueryCount      int                `json:"query_count"`
-	Repetitions     int                `json:"repetitions"`
-	EmbeddingSource string             `json:"embedding_source"`
-	BM25            RetrievalMetrics   `json:"bm25"`
-	Vector          RetrievalMetrics   `json:"vector"`
-	Hybrid          RetrievalMetrics   `json:"hybrid"`
-	Temporal        []TemporalReport   `json:"temporal,omitempty"`
-	Scope           []ScopeReport      `json:"scope,omitempty"`
+	Timestamp       time.Time        `json:"timestamp"`
+	CorpusSize      int              `json:"corpus_size"`
+	QueryCount      int              `json:"query_count"`
+	Repetitions     int              `json:"repetitions"`
+	EmbeddingSource string           `json:"embedding_source"`
+	BM25            RetrievalMetrics `json:"bm25"`
+	Vector          RetrievalMetrics `json:"vector"`
+	Hybrid          RetrievalMetrics `json:"hybrid"`
+	Temporal        []TemporalReport `json:"temporal,omitempty"`
+	Scope           []ScopeReport    `json:"scope,omitempty"`
 }
 
 // TemporalReport holds temporal-validity evaluation results for a single mode.
 type TemporalReport struct {
-	Mode           string  `json:"mode"`
-	ValidFraction  float64 `json:"valid_fraction"`
-	Description    string  `json:"description"`
+	Mode          string  `json:"mode"`
+	ValidFraction float64 `json:"valid_fraction"`
+	Description   string  `json:"description"`
 }
 
 // ScopeReport holds scope-isolation evaluation results for a single mode.
 type ScopeReport struct {
-	Mode           string  `json:"mode"`
-	AllInScope     bool    `json:"all_in_scope"`
-	Description    string  `json:"description"`
+	Mode        string `json:"mode"`
+	AllInScope  bool   `json:"all_in_scope"`
+	Description string `json:"description"`
 }
 
 // Run executes the benchmark harness and writes results to w.

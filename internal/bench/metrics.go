@@ -8,18 +8,18 @@ import (
 
 // RetrievalMetrics holds the computed quality metrics for a single retrieval mode.
 type RetrievalMetrics struct {
-	Mode           string         `json:"mode"`            // "bm25", "vector", "hybrid"
-	RecallAt5      float64        `json:"recall_at_5"`
-	RecallAt10     float64        `json:"recall_at_10"`
-	NDCGAt5        float64        `json:"ndcg_at_5"`
-	NDCGAt10       float64        `json:"ndcg_at_10"`
-	MRR            float64        `json:"mrr"`
-	MeanLatencyMs  float64        `json:"mean_latency_ms"`
-	P50LatencyMs   float64        `json:"p50_latency_ms"`
-	P95LatencyMs   float64        `json:"p95_latency_ms"`
-	QueryCount     int            `json:"query_count"`
-	ValidFraction  float64        `json:"valid_fraction,omitempty"`  // temporal validity slice
-	ScopeFraction  float64        `json:"scope_fraction,omitempty"`  // scope isolation slice
+	Mode          string  `json:"mode"` // "bm25", "vector", "hybrid"
+	RecallAt5     float64 `json:"recall_at_5"`
+	RecallAt10    float64 `json:"recall_at_10"`
+	NDCGAt5       float64 `json:"ndcg_at_5"`
+	NDCGAt10      float64 `json:"ndcg_at_10"`
+	MRR           float64 `json:"mrr"`
+	MeanLatencyMs float64 `json:"mean_latency_ms"`
+	P50LatencyMs  float64 `json:"p50_latency_ms"`
+	P95LatencyMs  float64 `json:"p95_latency_ms"`
+	QueryCount    int     `json:"query_count"`
+	ValidFraction float64 `json:"valid_fraction,omitempty"` // temporal validity slice
+	ScopeFraction float64 `json:"scope_fraction,omitempty"` // scope isolation slice
 }
 
 // RecallAtK computes the fraction of relevant documents that appear in the top-k results.

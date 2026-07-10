@@ -18,34 +18,34 @@ type FixtureMemory struct {
 
 // GroundTruth maps a query to the set of memory IDs that are considered relevant.
 type GroundTruth struct {
-	Query        string
-	RelevantIDs  []string // IDs of relevant memories
-	Scope        string   // if non-empty, restricts the expected scope
-	Description  string   // human-readable description of this evaluation case
+	Query       string
+	RelevantIDs []string // IDs of relevant memories
+	Scope       string   // if non-empty, restricts the expected scope
+	Description string   // human-readable description of this evaluation case
 }
 
 // TemporalSlice defines a query for evaluating temporal-validity awareness.
 type TemporalSlice struct {
-	Query           string
-	CurrentlyValid  []string // IDs expected to be currently valid
-	Expired         []string // IDs expected to be expired (valid_to < now)
-	Description     string
+	Query          string
+	CurrentlyValid []string // IDs expected to be currently valid
+	Expired        []string // IDs expected to be expired (valid_to < now)
+	Description    string
 }
 
 // ScopeSlice defines a query for evaluating scope isolation.
 type ScopeSlice struct {
-	Query          string
-	Scope          string // scope to constrain the query to
-	ExpectedIDs    []string // IDs expected in the results for this scope
-	Description    string
+	Query       string
+	Scope       string   // scope to constrain the query to
+	ExpectedIDs []string // IDs expected in the results for this scope
+	Description string
 }
 
 // Corpus holds the complete benchmark fixture.
 type Corpus struct {
-	Memories      []FixtureMemory
-	Queries       []GroundTruth
+	Memories       []FixtureMemory
+	Queries        []GroundTruth
 	TemporalSlices []TemporalSlice
-	ScopeSlices   []ScopeSlice
+	ScopeSlices    []ScopeSlice
 }
 
 // fixedTime creates a fixed UTC time for deterministic fixtures.
@@ -63,16 +63,16 @@ func DefaultCorpus() *Corpus {
 		Queries:  defaultQueries(),
 		TemporalSlices: []TemporalSlice{
 			{
-				Query:         "server port configuration",
+				Query:          "server port configuration",
 				CurrentlyValid: []string{"temp-port-active"},
-				Expired:       []string{"temp-port-old"},
-				Description:   "Only the currently-valid port memory should rank above expired ones",
+				Expired:        []string{"temp-port-old"},
+				Description:    "Only the currently-valid port memory should rank above expired ones",
 			},
 			{
-				Query:         "database path setting",
+				Query:          "database path setting",
 				CurrentlyValid: []string{"temp-db-active"},
-				Expired:       []string{"temp-db-old"},
-				Description:   "Only the current database path should be top-ranked",
+				Expired:        []string{"temp-db-old"},
+				Description:    "Only the current database path should be top-ranked",
 			},
 		},
 		ScopeSlices: []ScopeSlice{

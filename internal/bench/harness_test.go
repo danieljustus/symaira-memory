@@ -212,7 +212,7 @@ func TestComputeMetrics(t *testing.T) {
 
 	queryResults := map[int][]string{
 		0: {"a", "b", "x"}, // both relevant found
-		1: {"x", "c"},       // relevant at rank 2
+		1: {"x", "c"},      // relevant at rank 2
 	}
 
 	latencies := []time.Duration{
