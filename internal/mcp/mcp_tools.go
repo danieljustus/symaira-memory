@@ -32,8 +32,10 @@ type MemoryResponse struct {
 }
 
 type SearchResultResponse struct {
-	Memory MemoryResponse `json:"memory"`
-	Score  float32        `json:"score"`
+	Memory        MemoryResponse `json:"memory"`
+	Score         float32        `json:"score"`
+	SourceProfile string         `json:"source_profile,omitempty"`
+	SourceScope   string         `json:"source_scope,omitempty"`
 }
 
 func memoryResponse(m *db.Memory) MemoryResponse {
@@ -59,8 +61,10 @@ func memoryResponse(m *db.Memory) MemoryResponse {
 
 func searchResultResponse(r db.SearchResult) SearchResultResponse {
 	return SearchResultResponse{
-		Memory: memoryResponse(r.Memory),
-		Score:  r.Score,
+		Memory:        memoryResponse(r.Memory),
+		Score:         r.Score,
+		SourceProfile: r.SourceProfile,
+		SourceScope:   r.SourceScope,
 	}
 }
 
@@ -85,7 +89,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_search",
 		Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"}},"required":["query"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"profile":{"type":"string","description":"Optional context profile name for inherited scope resolution. When provided, searches across scopes defined by the profile in precedence order."},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"}},"required":["query"]}`),
 		Handler:     s.handleMemorySearch,
 	})
 
@@ -209,6 +213,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 	var args struct {
 		Query             string `json:"query"`
 		Scope             string `json:"scope"`
+		Profile           string `json:"profile"`
 		Limit             int    `json:"limit"`
 		Entity            string `json:"entity"`
 		MinConfidence     string `json:"min_confidence"`
@@ -251,7 +256,13 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		ClientID:        args.ClientID,
 	}
 
-	results, err := s.service.Search(args.Query, args.Scope, limit, args.Entity, trustFilter, policyFilter)
+	var results []db.SearchResult
+	var err error
+	if args.Profile != "" {
+		results, err = s.service.SearchWithProfile(args.Query, args.Profile, limit, args.Entity, trustFilter, policyFilter)
+	} else {
+		results, err = s.service.Search(args.Query, args.Scope, limit, args.Entity, trustFilter, policyFilter)
+	}
 	if err != nil {
 		if nf, ok := err.(*NotFoundError); ok {
 			return nil, fmt.Errorf("%s", nf.Error())
