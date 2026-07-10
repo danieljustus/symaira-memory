@@ -178,7 +178,7 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 
 	var ftsQuery string
 	if scope != "" {
-		ftsQuery = "scope:" + scope + " AND " + strings.Join(queryTerms, " OR ")
+		ftsQuery = "scope:" + scope + " AND (" + strings.Join(queryTerms, " OR ") + ")"
 	} else {
 		ftsQuery = strings.Join(queryTerms, " OR ")
 	}
