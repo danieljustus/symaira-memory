@@ -132,6 +132,14 @@ func (s *MemoryService) ResolveEntityCandidates(query, entityType string, aliasH
 	return s.db.ResolveEntityCandidates(query, entityType, aliasHints, limit)
 }
 
+func (s *MemoryService) GetEntityByID(id string) (*db.Entity, error) {
+	return s.db.GetEntityByID(id)
+}
+
+func (s *MemoryService) SaveEntityRelationProvenance(r *db.EntityRelation) (*db.EntityRelation, error) {
+	return s.db.SaveEntityRelationProvenance(r)
+}
+
 func (s *MemoryService) SaveEntityRelation(r *db.EntityRelation) error {
 	return s.db.SaveEntityRelation(r)
 }
