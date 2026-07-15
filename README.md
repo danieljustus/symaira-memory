@@ -113,7 +113,7 @@ For a full reference of all commands and flags, run `symmemory --help`.
 
 ## Agent Integration
 
-Symaira Memory speaks the Model Context Protocol (MCP) natively. AI agents connect over stdio JSON-RPC 2.0 and gain four tools: `memory_get`, `memory_set`, `memory_search`, and `memory_list`.
+Symaira Memory speaks the Model Context Protocol (MCP) natively. AI agents connect over stdio JSON-RPC 2.0 and gain tools for memory (`memory_get`, `memory_set`, `memory_search`, `memory_list`) and entities (`entity_list`, `entity_resolve`, `entity_relate`, `graph_neighbors`).
 
 ### Quick Setup
 

@@ -115,6 +115,13 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	})
 
 	srv.RegisterTool(&mcpserver.Tool{
+		Name:        "entity_resolve",
+		Description: "Return deterministic, explainable entity candidates for a name or alias query — scored and ranked, with the match reason for each. Use this instead of entity_relate/graph_neighbors' implicit lookup when a caller needs to see or disambiguate multiple possible matches before acting (e.g. mapping an external record to an existing entity) rather than silently picking one.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Name or alias to resolve"},"type":{"type":"string","description":"Optional: restrict candidates to this exact entity type (person, project, org, other)"},"aliases":{"type":"string","description":"Optional comma-separated alias hints to also compare against (never stored; hints shaped like an email or phone number are dropped)"},"limit":{"type":"integer","description":"Optional maximum number of candidates to return (default 10)"}},"required":["query"]}`),
+		Handler:     s.handleEntityResolve,
+	})
+
+	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "graph_neighbors",
 		Description: "Return the entities and relations reachable from a starting entity via a breadth-first traversal, as {nodes, edges}. Use this to answer 'what connects to X'.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"entity":{"type":"string","description":"Name or alias of the starting entity"},"depth":{"type":"integer","description":"Traversal depth, 1-3 (default 1)"}},"required":["entity"]}`),
@@ -356,6 +363,45 @@ func (s *Server) handleEntityList(ctx context.Context, input json.RawMessage) (a
 	}
 
 	data, _ := json.MarshalIndent(entities, "", "  ")
+	return string(data), nil
+}
+
+func (s *Server) handleEntityResolve(ctx context.Context, input json.RawMessage) (any, error) {
+	var args struct {
+		Query   string `json:"query"`
+		Type    string `json:"type"`
+		Aliases string `json:"aliases"`
+		Limit   int    `json:"limit"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments for 'entity_resolve': failed to parse arguments: %w", err)
+	}
+	if args.Query == "" {
+		return nil, fmt.Errorf("invalid arguments for 'entity_resolve': 'query' is required")
+	}
+	if args.Limit == 0 {
+		args.Limit = 10
+	}
+
+	var aliasHints []string
+	if args.Aliases != "" {
+		for _, a := range strings.Split(args.Aliases, ",") {
+			a = strings.TrimSpace(a)
+			if a != "" {
+				aliasHints = append(aliasHints, a)
+			}
+		}
+	}
+
+	candidates, err := s.service.ResolveEntityCandidates(args.Query, args.Type, aliasHints, args.Limit)
+	if err != nil {
+		return mcpError("Failed to resolve entity candidates", err)
+	}
+	if len(candidates) == 0 {
+		return "No matching entities found.", nil
+	}
+
+	data, _ := json.MarshalIndent(candidates, "", "  ")
 	return string(data), nil
 }
 

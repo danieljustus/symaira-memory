@@ -4,7 +4,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
+
+	"github.com/danieljustus/symaira-memory/internal/entity"
 )
 
 // Entity represents a person, project, organization, or other named entity
@@ -95,6 +99,91 @@ func (db *DB) ResolveEntity(nameOrAlias string) (*Entity, error) {
 		return nil, nil
 	}
 	return nil, err
+}
+
+// EntityCandidate is a scored, explainable entity match returned by
+// ResolveEntityCandidates. Unlike ResolveEntity, it can represent ambiguity
+// by returning multiple candidates and never mutates entity state.
+type EntityCandidate struct {
+	EntityID    string   `json:"entity_id"`
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Aliases     []string `json:"aliases"`
+	Score       float64  `json:"score"`
+	MatchKind   string   `json:"match_kind"`
+	MatchReason string   `json:"match_reason"`
+}
+
+// ResolveEntityCandidates returns every entity matching query — or one of
+// the optional aliasHints — by exact or normalized name/alias comparison,
+// ranked by match strength (highest score first). entityType, when
+// non-empty, strictly restricts results to that exact type. aliasHints are
+// comparison hints only: they are never stored, and any hint that looks like
+// an email address or phone number is dropped before matching so contact
+// identifiers never become implicit Memory data. Matching is read-only and
+// never mutates entity aliases or timestamps.
+func (db *DB) ResolveEntityCandidates(query string, entityType string, aliasHints []string, limit int) ([]EntityCandidate, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, fmt.Errorf("query must not be empty")
+	}
+	if len(query) > entity.MaxHintLength {
+		return nil, fmt.Errorf("query exceeds maximum length of %d characters", entity.MaxHintLength)
+	}
+
+	hints := make([]string, 0, len(aliasHints)+1)
+	hints = append(hints, query)
+	for _, a := range aliasHints {
+		a = strings.TrimSpace(a)
+		if a == "" || len(a) > entity.MaxHintLength || entity.IsPII(a) {
+			continue
+		}
+		hints = append(hints, a)
+	}
+
+	entities, err := db.ListEntities()
+	if err != nil {
+		return nil, err
+	}
+
+	var candidates []EntityCandidate
+	for _, e := range entities {
+		if entityType != "" && e.Type != entityType {
+			continue
+		}
+		kind, reason, score, ok := entity.BestMatch(hints, e.Name, e.Aliases)
+		if !ok {
+			continue
+		}
+		candidates = append(candidates, EntityCandidate{
+			EntityID:    e.ID,
+			Name:        e.Name,
+			Type:        e.Type,
+			Aliases:     e.Aliases,
+			Score:       score,
+			MatchKind:   string(kind),
+			MatchReason: reason,
+		})
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].Score != candidates[j].Score {
+			return candidates[i].Score > candidates[j].Score
+		}
+		if candidates[i].MatchKind != candidates[j].MatchKind {
+			return candidates[i].MatchKind < candidates[j].MatchKind
+		}
+		ni, nj := entity.Normalize(candidates[i].Name), entity.Normalize(candidates[j].Name)
+		if ni != nj {
+			return ni < nj
+		}
+		return candidates[i].EntityID < candidates[j].EntityID
+	})
+
+	if limit > 0 && len(candidates) > limit {
+		candidates = candidates[:limit]
+	}
+	return candidates, nil
 }
 
 // GetEntityByName retrieves an entity by its exact name (case-insensitive).

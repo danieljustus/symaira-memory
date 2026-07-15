@@ -17,6 +17,9 @@ var (
 	entityAliases        string
 	entityDescription    string
 	entityNeighborsDepth int
+	entityResolveType    string
+	entityResolveAliases string
+	entityResolveLimit   int
 )
 
 func init() {
@@ -28,11 +31,15 @@ func init() {
 	entityCmd.AddCommand(entityRelateCmd)
 	entityCmd.AddCommand(entityUnrelateCmd)
 	entityCmd.AddCommand(entityNeighborsCmd)
+	entityCmd.AddCommand(entityResolveCmd)
 
 	entityAddCmd.Flags().StringVar(&entityType, "type", "other", "Entity type: person, project, org, other")
 	entityAddCmd.Flags().StringVar(&entityAliases, "aliases", "", "Comma-separated aliases")
 	entityAddCmd.Flags().StringVar(&entityDescription, "description", "", "Entity description")
 	entityNeighborsCmd.Flags().IntVar(&entityNeighborsDepth, "depth", 1, fmt.Sprintf("Traversal depth, 1-%d", db.MaxGraphDepth))
+	entityResolveCmd.Flags().StringVar(&entityResolveType, "type", "", "Restrict candidates to this exact entity type")
+	entityResolveCmd.Flags().StringVar(&entityResolveAliases, "aliases", "", "Comma-separated alias hints to also compare (never stored; PII-shaped hints are dropped)")
+	entityResolveCmd.Flags().IntVar(&entityResolveLimit, "limit", 10, "Maximum number of candidates to return")
 
 	rootCmd.AddCommand(entityCmd)
 }
@@ -307,6 +314,36 @@ var entityNeighborsCmd = &cobra.Command{
 		fmt.Printf("\nEdges (%d):\n", len(edges))
 		for _, e := range edges {
 			fmt.Printf("  %s --%s--> %s\n", e.FromEntityID, e.RelationType, e.ToEntityID)
+		}
+		return nil
+	},
+}
+
+var entityResolveCmd = &cobra.Command{
+	Use:   "resolve [query]",
+	Short: "Find candidate entities matching a name or alias, with match scores and reasons",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		query := args[0]
+
+		var aliasHints []string
+		if entityResolveAliases != "" {
+			for _, a := range strings.Split(entityResolveAliases, ",") {
+				a = strings.TrimSpace(a)
+				if a != "" {
+					aliasHints = append(aliasHints, a)
+				}
+			}
+		}
+
+		candidates, err := GetDB().ResolveEntityCandidates(query, entityResolveType, aliasHints, entityResolveLimit)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity candidates")
+		}
+
+		formatter := NewOutputFormatter(GetOutputFormat(cmd))
+		if err := formatter.Output(candidates, "entity-resolve"); err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}
 		return nil
 	},
