@@ -1167,3 +1167,76 @@ func TestSyncedMemorySearchableAfterEmbeddingBackfill(t *testing.T) {
 		t.Errorf("synced memory not found via semantic search (LSH may not match for local hash vectors; embedding is %d-dim)", len(emb))
 	}
 }
+
+func TestSearchMemoriesFiltersEmbeddingSourceAtCandidateQuery(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Database.Path = t.TempDir() + "/test.db"
+	database, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("Open failed: %v", err)
+	}
+	defer database.Close()
+
+	// Use a single shared embedding so every row lands in the same LSH bucket.
+	sharedVec := make([]float32, EmbeddingDim)
+	sharedVec[0] = 1.0
+
+	now := time.Now().UTC()
+	older := now.Add(-2 * time.Hour)
+
+	// Insert 2000 rows with a different embedding source than the query.
+	// They share the same LSH hash as the target row, so before the SQL filter
+	// they would consume the entire candidate budget and push the older target
+	// row out of the result set.
+	tx, err := database.BeginTransaction()
+	if err != nil {
+		t.Fatalf("BeginTransaction failed: %v", err)
+	}
+	for i := 0; i < 2000; i++ {
+		m := &Memory{
+			ID:              fmt.Sprintf("ollama-%d", i),
+			Content:         fmt.Sprintf("ollama content %d", i),
+			Scope:           "global",
+			Embedding:       sharedVec,
+			EmbeddingSource: "ollama",
+			EmbeddingModel:  "ollama-model",
+			CreatedAt:       now.Add(-time.Duration(i) * time.Second),
+		}
+		if err := database.SaveMemoryTx(tx, m); err != nil {
+			_ = tx.Rollback()
+			t.Fatalf("SaveMemoryTx failed: %v", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	// Insert the target row with the query source, older than the ollama rows.
+	target := &Memory{
+		ID:              "target-hash",
+		Content:         "target hash fallback content",
+		Scope:           "global",
+		Embedding:       sharedVec,
+		EmbeddingSource: "hash-fallback",
+		EmbeddingModel:  "hash-model",
+		CreatedAt:       older,
+	}
+	if err := database.SaveMemory(target); err != nil {
+		t.Fatalf("SaveMemory failed: %v", err)
+	}
+
+	results, err := database.SearchMemories(sharedVec, "hash-fallback", "global", 10)
+	if err != nil {
+		t.Fatalf("SearchMemories failed: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Memory.ID != "target-hash" {
+		t.Errorf("expected target-hash, got %s", results[0].Memory.ID)
+	}
+	if results[0].Memory.EmbeddingSource != "hash-fallback" {
+		t.Errorf("expected embedding_source hash-fallback, got %s", results[0].Memory.EmbeddingSource)
+	}
+}
+

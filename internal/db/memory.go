@@ -584,8 +584,9 @@ func (db *DB) SearchMemories(queryVec []float32, querySource string, scope strin
 
 // SearchMemoriesFiltered extends SearchMemories with an optional entity filter.
 // When entityID is non-empty, only memories linked to that entity are returned.
-// Only memories whose embedding_source matches querySource are scored; rows
-// from a different embedding space are silently skipped.
+// Memories with a non-null embedding whose embedding_source matches querySource
+// are filtered at the candidate-query level; rows from a different embedding
+// space are never hydrated or scored.
 func (db *DB) SearchMemoriesFiltered(queryVec []float32, querySource string, scope string, limit int, entityID string, weights ...RankingWeights) ([]SearchResult, error) {
 	return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, limit, entityID, TrustFilter{}, PolicyFilter{}, weights...)
 }
@@ -628,10 +629,11 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 
 		var query string
 		if scope != "" {
-			query = "SELECT id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
-			args = append([]interface{}{scope}, args...)
+			query = "SELECT id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND embedding_source = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ")"
+			args = append([]interface{}{scope, querySource}, args...)
 		} else {
-			query = "SELECT id FROM memories WHERE consolidation_status != 'archived' AND lsh_hash IN (" + inClause + ")"
+			query = "SELECT id FROM memories WHERE consolidation_status != 'archived' AND embedding_source = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ")"
+			args = append([]interface{}{querySource}, args...)
 		}
 		if entityID != "" {
 			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
@@ -690,7 +692,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 				rows.Close()
 				return nil, err
 			}
-			if len(m.Embedding) > 0 && m.EmbeddingSource == querySource {
+			if len(m.Embedding) > 0 {
 				if !passesTrustFilter(m, trustFilter) {
 					continue
 				}
