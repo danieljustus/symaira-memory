@@ -173,7 +173,7 @@ func TestSearchCommandFlags(t *testing.T) {
 func TestSetCommandFlags(t *testing.T) {
 	found := false
 	for _, cmd := range rootCmd.Commands() {
-		if cmd.Use == "set" {
+		if cmd.Name() == "set" {
 			found = true
 			for _, name := range []string{"value", "scope"} {
 				if cmd.Flags().Lookup(name) == nil {
@@ -190,7 +190,7 @@ func TestSetCommandFlags(t *testing.T) {
 func TestListCommandFlags(t *testing.T) {
 	found := false
 	for _, cmd := range rootCmd.Commands() {
-		if cmd.Use == "list" {
+		if cmd.Name() == "list" {
 			found = true
 			if cmd.Flags().Lookup("scope") == nil {
 				t.Error("expected 'scope' flag on list command")

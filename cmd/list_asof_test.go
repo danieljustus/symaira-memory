@@ -28,12 +28,11 @@ func TestListCmd_AsOf_ReturnsHistoricalVersion(t *testing.T) {
 	if err := listCmd.Flags().Set("as-of", t0.Add(30*time.Minute).Format(time.RFC3339)); err != nil {
 		t.Fatalf("failed to set as-of flag: %v", err)
 	}
-	if err := listCmd.Flags().Set("format", "json"); err != nil {
-		t.Fatalf("failed to set format flag: %v", err)
-	}
+	oldOutput := outputFormat
+	outputFormat = "json"
 	defer func() {
+		outputFormat = oldOutput
 		listCmd.Flags().Set("as-of", "")
-		listCmd.Flags().Set("format", "text")
 	}()
 
 	output := captureCmdOutput(func() {

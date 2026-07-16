@@ -14,13 +14,11 @@ import (
 var (
 	dreamDryRun bool
 	dreamScope  string
-	dreamFormat string
 )
 
 func init() {
 	dreamCmd.Flags().BoolVar(&dreamDryRun, "dry-run", false, "Show what would be consolidated without applying changes")
 	dreamCmd.Flags().StringVar(&dreamScope, "scope", "", "Filter by scope (e.g., global, agent, project)")
-	dreamCmd.Flags().StringVar(&dreamFormat, "format", "text", "Output format: text or json")
 	rootCmd.AddCommand(dreamCmd)
 }
 
@@ -42,7 +40,7 @@ Examples:
   symmemory dream
   symmemory dream --dry-run
   symmemory dream --scope agent
-  symmemory dream --format json`,
+  symmemory dream --output json`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := GetConfig()
 		db := GetDB()
@@ -79,7 +77,11 @@ Examples:
 			return nil
 		}
 
-		if dreamFormat == "json" {
+		format := GetOutputFormat(cmd)
+		if format != "json" {
+			format = "text"
+		}
+		if format == "json" {
 			output := make([]dreamOutput, 0, len(summaries))
 			for _, s := range summaries {
 				output = append(output, dreamOutput{

@@ -166,8 +166,8 @@ func TestHookClaudeCodeOutputStructure(t *testing.T) {
 	if !ok {
 		t.Fatal("expected 'command' to be a string")
 	}
-	if cmd != "symmemory context --format md" {
-		t.Errorf("expected command 'symmemory context --format md', got %q", cmd)
+	if cmd != "symmemory context --output md" {
+		t.Errorf("expected command 'symmemory context --output md', got %q", cmd)
 	}
 }
 
@@ -228,8 +228,8 @@ func TestHookClaudeCodeMergeIsIdempotent(t *testing.T) {
 		t.Fatalf("failed to read settings file: %v", err)
 	}
 
-	// Count occurrences of "symmemory context --format md"
-	count := strings.Count(string(data), "symmemory context --format md")
+	// Count occurrences of "symmemory context --output md"
+	count := strings.Count(string(data), "symmemory context --output md")
 	if count != 1 {
 		t.Errorf("expected hook to appear exactly once after two merges, got %d occurrences", count)
 	}
@@ -344,7 +344,7 @@ func TestBuildClaudeHookBlock(t *testing.T) {
 	if entry["type"] != "command" {
 		t.Errorf("expected type 'command', got %v", entry["type"])
 	}
-	if entry["command"] != "symmemory context --format md" {
+	if entry["command"] != "symmemory context --output md" {
 		t.Errorf("unexpected command: %v", entry["command"])
 	}
 }
@@ -387,7 +387,7 @@ func TestMergeClaudeHookIdempotent(t *testing.T) {
 		t.Fatalf("failed to read settings: %v", err)
 	}
 
-	count := strings.Count(string(data), "symmemory context --format md")
+	count := strings.Count(string(data), "symmemory context --output md")
 	if count != 1 {
 		t.Errorf("expected hook once, found %d times", count)
 	}

@@ -13,14 +13,12 @@ var (
 	benchRepetitions int
 	benchFixture     string
 	benchDataset     string
-	benchOutput      string
 )
 
 func init() {
 	benchCmd.Flags().IntVarP(&benchRepetitions, "repetitions", "n", 10, "Number of repetitions for latency measurement")
 	benchCmd.Flags().StringVar(&benchFixture, "fixture", "", "Path to custom JSON/YAML fixture file (optional)")
 	benchCmd.Flags().StringVar(&benchDataset, "dataset", "", "External dataset name for opt-in evaluation (optional)")
-	benchCmd.Flags().StringVar(&benchOutput, "output", "text", "Output format: text or json")
 	rootCmd.AddCommand(benchCmd)
 }
 
@@ -45,6 +43,10 @@ All output goes to stderr for easy piping.`,
 		benchTokenReduction()
 
 		fmt.Fprintf(os.Stderr, "\n--- Retrieval Benchmark ---\n")
+		benchOutput := GetOutputFormat(cmd)
+		if benchOutput != "json" {
+			benchOutput = "text"
+		}
 		opts := bench.Options{
 			Repetitions: benchRepetitions,
 			Output:      benchOutput,

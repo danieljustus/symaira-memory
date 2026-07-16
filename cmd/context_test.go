@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 func TestContextCommandRegistered(t *testing.T) {
@@ -45,13 +46,18 @@ func TestContextCommandFlags(t *testing.T) {
 	}{
 		{"query flag", "query", ""},
 		{"budget flag", "budget", "0"},
-		{"format flag", "format", "md"},
+		{"output flag inherited", "output", "table"},
 		{"scope flag", "scope", ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			flag := ctxCmd.Flags().Lookup(tt.flagName)
+			var flag *pflag.Flag
+			if tt.flagName == "output" {
+				flag = ctxCmd.InheritedFlags().Lookup(tt.flagName)
+			} else {
+				flag = ctxCmd.Flags().Lookup(tt.flagName)
+			}
 			if flag == nil {
 				t.Errorf("expected %q flag on context command", tt.flagName)
 				return
@@ -60,6 +66,12 @@ func TestContextCommandFlags(t *testing.T) {
 				t.Errorf("expected default %q for flag %q, got %q", tt.defaultValue, tt.flagName, flag.DefValue)
 			}
 		})
+	}
+}
+
+func TestContextOutputFormatDefaultIsMarkdown(t *testing.T) {
+	if got := contextOutputFormat(contextCmd); got != "md" {
+		t.Errorf("expected default context output format 'md', got %q", got)
 	}
 }
 

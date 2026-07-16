@@ -78,7 +78,7 @@ go build -o symmemory main.go
 
 ```bash
 # Save a fact
-symmemory set --value "Alice prefers dark mode in all applications." --scope global
+symmemory set "Alice prefers dark mode in all applications." --scope global
 
 # List all stored memories
 symmemory list

@@ -15,7 +15,6 @@ var (
 	searchScope             string
 	searchLimit             int
 	searchEntity            string
-	searchFormat            string
 	searchMinConfidence     string
 	searchVerification      string
 	searchExcludeSuperseded bool
@@ -30,7 +29,6 @@ func init() {
 	searchCmd.Flags().StringVarP(&searchScope, "scope", "s", "", "Filter search by scope level")
 	searchCmd.Flags().IntVarP(&searchLimit, "limit", "l", 5, "Maximum number of search results to return")
 	searchCmd.Flags().StringVar(&searchEntity, "entity", "", "Filter search by entity name")
-	searchCmd.Flags().StringVar(&searchFormat, "format", "text", "Output format: json or text")
 	searchCmd.Flags().StringVar(&searchMinConfidence, "min-confidence", "", "Minimum confidence level: low, medium, high")
 	searchCmd.Flags().StringVar(&searchVerification, "verification", "", "Filter by verification status: verified, unverified, stale")
 	searchCmd.Flags().BoolVar(&searchExcludeSuperseded, "exclude-superseded", false, "Exclude memories that have been superseded")
