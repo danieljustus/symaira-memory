@@ -5,12 +5,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var getFormat string
 var getIncludeEmbedding bool
 var getWithEvidence bool
 
 func init() {
-	getCmd.Flags().StringVar(&getFormat, "format", "text", "Output format: json or text")
 	getCmd.Flags().BoolVar(&getIncludeEmbedding, "include-embedding", false, "Include raw embedding vectors in JSON output (omitted by default)")
 	getCmd.Flags().BoolVar(&getWithEvidence, "with-evidence", false, "Include grounded evidence spans backing this memory, if any (omitted by default)")
 	rootCmd.AddCommand(getCmd)
@@ -23,10 +21,10 @@ var getCmd = &cobra.Command{
   symmemory get mem_abc123def456
 
   # Output as JSON for scripting
-  symmemory get mem_abc123def456 --format json
+  symmemory get mem_abc123def456 --output json
 
   # Include grounded evidence spans
-  symmemory get mem_abc123def456 --with-evidence --format json`,
+  symmemory get mem_abc123def456 --with-evidence --output json`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		id := args[0]

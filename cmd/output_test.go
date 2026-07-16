@@ -243,33 +243,41 @@ func TestOutputUnknownTemplate(t *testing.T) {
 // Flag registration
 // --------------------------------------------------------------------------
 
-func TestListCommandHasFormatFlag(t *testing.T) {
-	flag := listCmd.Flags().Lookup("format")
+func TestOutputFlagRegisteredOnRoot(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("output")
 	if flag == nil {
-		t.Fatal("expected 'format' flag on list command")
+		t.Fatal("expected 'output' persistent flag on root command")
 	}
-	if flag.DefValue != "text" {
-		t.Errorf("expected default 'text', got %q", flag.DefValue)
+	if flag.DefValue != "table" {
+		t.Errorf("expected default 'table', got %q", flag.DefValue)
+	}
+	if flag.Shorthand != "o" {
+		t.Errorf("expected shorthand 'o', got %q", flag.Shorthand)
 	}
 }
 
-func TestSearchCommandHasFormatFlag(t *testing.T) {
-	flag := searchCmd.Flags().Lookup("format")
+func TestFormatFlagIsHiddenAlias(t *testing.T) {
+	flag := rootCmd.PersistentFlags().Lookup("format")
 	if flag == nil {
-		t.Fatal("expected 'format' flag on search command")
+		t.Fatal("expected hidden 'format' alias on root command")
 	}
-	if flag.DefValue != "text" {
-		t.Errorf("expected default 'text', got %q", flag.DefValue)
+	if flag.DefValue != "table" {
+		t.Errorf("expected default 'table', got %q", flag.DefValue)
+	}
+	if !flag.Hidden {
+		t.Error("expected 'format' flag to be hidden")
 	}
 }
 
-func TestGetCommandHasFormatFlag(t *testing.T) {
-	flag := getCmd.Flags().Lookup("format")
-	if flag == nil {
-		t.Fatal("expected 'format' flag on get command")
+func TestNoLocalFormatFlags(t *testing.T) {
+	if listCmd.Flags().Lookup("format") != nil {
+		t.Error("expected no local 'format' flag on list command")
 	}
-	if flag.DefValue != "text" {
-		t.Errorf("expected default 'text', got %q", flag.DefValue)
+	if searchCmd.Flags().Lookup("format") != nil {
+		t.Error("expected no local 'format' flag on search command")
+	}
+	if getCmd.Flags().Lookup("format") != nil {
+		t.Error("expected no local 'format' flag on get command")
 	}
 }
 

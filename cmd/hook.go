@@ -61,7 +61,7 @@ func buildClaudeHookBlock() map[string]interface{} {
 			"SessionStart": []interface{}{
 				map[string]interface{}{
 					"type":    "command",
-					"command": "symmemory context --format md",
+					"command": "symmemory context --output md",
 				},
 			},
 		},
@@ -119,7 +119,7 @@ func mergeClaudeHook(settingsPath string, hookBlock map[string]interface{}) erro
 	// Append our hook
 	newHook := map[string]interface{}{
 		"type":    "command",
-		"command": "symmemory context --format md",
+		"command": "symmemory context --output md",
 	}
 	sessionStart = append(sessionStart, newHook)
 	hooksRaw["SessionStart"] = sessionStart

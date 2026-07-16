@@ -17,7 +17,6 @@ import (
 var (
 	contextQuery  string
 	contextBudget int
-	contextFormat string
 	contextScope  string
 )
 
@@ -29,9 +28,11 @@ into an AI agent prompt. The output is token-budgeted and available in
 Markdown or JSON format. When the database is unavailable or empty, an
 empty/minimal block is emitted so that hooks never break.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		format := contextOutputFormat(cmd)
+
 		cfg, err := config.Load()
 		if err != nil {
-			emitContextEmpty(contextFormat)
+			emitContextEmpty(format)
 			return nil
 		}
 
@@ -47,7 +48,7 @@ empty/minimal block is emitted so that hooks never break.`,
 
 		database, err := db.Open(cfg)
 		if err != nil {
-			emitContextEmpty(contextFormat)
+			emitContextEmpty(format)
 			return nil
 		}
 		defer database.Close()
@@ -62,7 +63,7 @@ empty/minimal block is emitted so that hooks never break.`,
 
 		result, err := assembler.Assemble(contextQuery, "", "")
 		if err != nil {
-			emitContextEmpty(contextFormat)
+			emitContextEmpty(format)
 			return nil
 		}
 
@@ -79,7 +80,7 @@ empty/minimal block is emitted so that hooks never break.`,
 			}
 		}
 
-		if contextFormat == "json" {
+		if format == "json" {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			return enc.Encode(result)
@@ -95,9 +96,18 @@ empty/minimal block is emitted so that hooks never break.`,
 func init() {
 	contextCmd.Flags().StringVar(&contextQuery, "query", "", "Semantic query to drive retrieval")
 	contextCmd.Flags().IntVar(&contextBudget, "budget", 0, "Token budget (0 = use config default)")
-	contextCmd.Flags().StringVar(&contextFormat, "format", "md", "Output format: md or json")
 	contextCmd.Flags().StringVar(&contextScope, "scope", "", "Scope level (auto-detected if empty)")
 	rootCmd.AddCommand(contextCmd)
+}
+
+// contextOutputFormat returns the effective output format for the context command.
+// The global flag defaults to "table"; for context the default rendering is markdown.
+func contextOutputFormat(cmd *cobra.Command) string {
+	format := GetOutputFormat(cmd)
+	if format == "json" {
+		return "json"
+	}
+	return "md"
 }
 
 func emitContextEmpty(format string) {

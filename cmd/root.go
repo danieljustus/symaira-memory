@@ -92,20 +92,18 @@ func Execute() {
 }
 
 // GetOutputFormat returns the resolved output format for the current command.
-// It checks the global --output flag first; if not set or "table", it falls
-// back to the command-local --format flag when present.
+// The canonical persistent flag is --output; --format is a deprecated hidden alias.
 func GetOutputFormat(cmd *cobra.Command) string {
-	if outputFormat != "" && outputFormat != "table" {
-		return outputFormat
-	}
-	if f := cmd.Flags().Lookup("format"); f != nil {
-		return f.Value.String()
+	if outputFormat == "" {
+		return "table"
 	}
 	return outputFormat
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&outputFormat, "output", "table", "Output format: table or json")
+	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")
+	rootCmd.PersistentFlags().StringVar(&outputFormat, "format", "table", "Output format: table or json")
+	_ = rootCmd.PersistentFlags().MarkHidden("format")
 	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false, "Disable ANSI color codes in output (also respects NO_COLOR env var)")
 	rootCmd.AddCommand(versionCmd)
 }

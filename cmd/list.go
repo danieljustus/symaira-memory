@@ -10,14 +10,12 @@ import (
 var (
 	listScope  string
 	listEntity string
-	listFormat string
 	listAsOf   string
 )
 
 func init() {
 	listCmd.Flags().StringVarP(&listScope, "scope", "s", "", "Filter list by scopes level")
 	listCmd.Flags().StringVar(&listEntity, "entity", "", "Filter list by entity name")
-	listCmd.Flags().StringVar(&listFormat, "format", "text", "Output format: json or text")
 	listCmd.Flags().StringVar(&listAsOf, "as-of", "", "Show memory state as of this RFC3339 timestamp instead of current state (not combinable with --entity)")
 	rootCmd.AddCommand(listCmd)
 }
@@ -32,7 +30,7 @@ var listCmd = &cobra.Command{
   symmemory list --scope project
 
   # Filter by entity and output as JSON
-  symmemory list --entity "BackendAPI" --format json
+  symmemory list --entity "BackendAPI" --output json
 
   # Show memory state as of a past point in time
   symmemory list --as-of 2026-01-01T00:00:00Z`,

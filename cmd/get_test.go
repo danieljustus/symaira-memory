@@ -37,14 +37,13 @@ func TestGetCommandWithEvidenceJSON(t *testing.T) {
 		t.Fatalf("failed to save evidence: %v", err)
 	}
 
-	if err := getCmd.Flags().Set("format", "json"); err != nil {
-		t.Fatalf("failed to set format flag: %v", err)
-	}
+	oldOutput := outputFormat
+	outputFormat = "json"
 	if err := getCmd.Flags().Set("with-evidence", "true"); err != nil {
 		t.Fatalf("failed to set with-evidence flag: %v", err)
 	}
 	defer func() {
-		getCmd.Flags().Set("format", "text")
+		outputFormat = oldOutput
 		getCmd.Flags().Set("with-evidence", "false")
 	}()
 
@@ -88,10 +87,9 @@ func TestGetCommandWithoutEvidenceFlagOmitsEvidence(t *testing.T) {
 		t.Fatalf("failed to save evidence: %v", err)
 	}
 
-	if err := getCmd.Flags().Set("format", "json"); err != nil {
-		t.Fatalf("failed to set format flag: %v", err)
-	}
-	defer getCmd.Flags().Set("format", "text")
+	oldOutput := outputFormat
+	outputFormat = "json"
+	defer func() { outputFormat = oldOutput }()
 
 	output := captureCmdOutput(func() {
 		if err := getCmd.RunE(getCmd, []string{m.ID}); err != nil {
