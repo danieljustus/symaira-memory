@@ -2018,6 +2018,30 @@ func TestRequireAuthNilJWTProvider(t *testing.T) {
 	}
 }
 
+func TestRequireRoleNilJWTProvider(t *testing.T) {
+	// Auth-disabled (jwts == nil) open access must also apply to role-gated
+	// routes, not just plain-auth ones: RequireRole sees a nil payload from
+	// RequireAuth in exactly this case and must not treat it as unauthenticated.
+	s := helperServer(t)
+	s.auth.jwts = nil
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader(`{"content":"test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Requested-With", "XMLHttpRequest") // satisfy CSRF check; unrelated to the auth path under test
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for role-gated route when jwts is nil (auth disabled), got %d", resp.StatusCode)
+	}
+}
+
 func TestRequireAuthTableDriven(t *testing.T) {
 	// Lines 79-88: missing/invalid Bearer prefix, invalid token, expired token.
 	s := helperServer(t)

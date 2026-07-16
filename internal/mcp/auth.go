@@ -95,12 +95,16 @@ func (a *AuthMiddleware) RequireAuth(next http.Handler) http.Handler {
 }
 
 // RequireRole returns a middleware that requires a valid JWT with at least the given role.
+// It must be wrapped inside RequireAuth: RequireAuth only calls next with a nil payload in
+// context when jwts is nil (auth disabled, open access) — every genuinely unauthenticated
+// request is already rejected before reaching here. So a nil payload at this point means
+// "skip the role check", not "deny".
 func (a *AuthMiddleware) RequireRole(minRole security.Role) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			payload := payloadFromContext(r.Context())
 			if payload == nil {
-				writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "authentication required", nil)
+				next.ServeHTTP(w, r)
 				return
 			}
 
