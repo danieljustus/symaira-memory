@@ -1,9 +1,12 @@
 package security
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -985,5 +988,67 @@ func TestPersistFallbackSecretsCreatesDirectory(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0700 {
 		t.Errorf("expected directory permissions 0700, got %o", info.Mode().Perm())
+	}
+}
+
+// TestJWTProviderConcurrentVerifyAndRotate exercises VerifyToken concurrently
+// with RotateSecret, RevokeToken and AddFallbackSecret — the exact mix an HTTP
+// server serving concurrent requests would produce. Run with -race: prior to
+// the mutex, this reliably triggered concurrent map read/write and slice
+// header races on secret, secrets, secretExpiries and revoked.
+func TestJWTProviderConcurrentVerifyAndRotate(t *testing.T) {
+	provider := jwtProviderWithSecret(t, "race-test-secret")
+
+	token, err := provider.GenerateToken("race-agent", time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+
+	stop := make(chan struct{})
+	var readers sync.WaitGroup
+	var verifyErrs int32
+	for i := 0; i < 8; i++ {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if _, err := provider.VerifyToken(token); err != nil {
+					atomic.AddInt32(&verifyErrs, 1)
+				}
+			}
+		}()
+	}
+
+	var writers sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		writers.Add(1)
+		go func(i int) {
+			defer writers.Done()
+			for j := 0; j < 25; j++ {
+				provider.RotateSecret(fmt.Sprintf("rotated-secret-%d-%d", i, j))
+				provider.AddFallbackSecret(fmt.Sprintf("fallback-secret-%d-%d", i, j))
+				provider.RevokeToken(fmt.Sprintf("unrelated-jti-%d-%d", i, j))
+			}
+		}(i)
+	}
+
+	writers.Wait()
+	close(stop)
+	readers.Wait()
+
+	// The original signing secret stays a live fallback for the default 24h
+	// grace period, and none of the revoked JTIs match the verified token, so
+	// every concurrent verification should have succeeded throughout.
+	if n := atomic.LoadInt32(&verifyErrs); n != 0 {
+		t.Errorf("expected 0 verification errors during concurrent rotation, got %d", n)
+	}
+
+	if _, err := provider.VerifyToken(token); err != nil {
+		t.Errorf("token should still verify after concurrent rotation settles: %v", err)
 	}
 }

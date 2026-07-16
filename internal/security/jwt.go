@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
@@ -32,7 +33,12 @@ type RevocationStore interface {
 }
 
 // JWTProvider manages API token issuance, validation, revocation, and key rotation.
+//
+// mu guards secret, secrets, secretExpiries and revoked: VerifyToken runs
+// concurrently per HTTP request while RevokeToken/RotateSecret/AddFallbackSecret
+// mutate the same state, so unsynchronized access would race.
 type JWTProvider struct {
+	mu             sync.RWMutex
 	secret         []byte
 	secrets        [][]byte // fallback keys for rotation grace period
 	secretExpiries []time.Time
@@ -375,13 +381,19 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 
 	unsignedToken := parts[0] + "." + parts[1]
 
+	jp.mu.RLock()
+	primarySecret := jp.secret
+	fallbackSecrets := jp.secrets
+	fallbackExpiries := jp.secretExpiries
+	jp.mu.RUnlock()
+
 	// Try the primary secret first, then fallback secrets for rotation grace period.
 	validSig := false
 	now := time.Now()
-	secrets := append([][]byte{jp.secret}, jp.secrets...)
+	secrets := append([][]byte{primarySecret}, fallbackSecrets...)
 	for i, s := range secrets {
-		if i > 0 && i-1 < len(jp.secretExpiries) {
-			if exp := jp.secretExpiries[i-1]; !exp.IsZero() && exp.Before(now) {
+		if i > 0 && i-1 < len(fallbackExpiries) {
+			if exp := fallbackExpiries[i-1]; !exp.IsZero() && exp.Before(now) {
 				continue
 			}
 		}
@@ -406,7 +418,10 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 	}
 
 	// Check in-memory revocation list
-	if revokedAt, ok := jp.revoked[payload.JWTID]; ok && time.Now().After(revokedAt) {
+	jp.mu.RLock()
+	revokedAt, isRevoked := jp.revoked[payload.JWTID]
+	jp.mu.RUnlock()
+	if isRevoked && time.Now().After(revokedAt) {
 		return nil, errors.New("token has been revoked")
 	}
 
@@ -429,7 +444,9 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 // When a persistent store is available, the revocation is also persisted for
 // cross-process consistency.
 func (jp *JWTProvider) RevokeToken(jti string) {
+	jp.mu.Lock()
 	jp.revoked[jti] = time.Now()
+	jp.mu.Unlock()
 	if jp.revStore != nil {
 		_ = jp.revStore.RevokeToken(jti)
 	}
@@ -438,7 +455,9 @@ func (jp *JWTProvider) RevokeToken(jti string) {
 // AddFallbackSecret registers an additional signing key for rotation.
 // Tokens signed with the fallback key are accepted during the grace period.
 func (jp *JWTProvider) AddFallbackSecret(secret string) {
+	jp.mu.Lock()
 	jp.secrets = append(jp.secrets, []byte(secret))
+	jp.mu.Unlock()
 }
 
 // RotateSecret replaces the primary signing key and keeps the current key
@@ -449,7 +468,8 @@ func (jp *JWTProvider) RotateSecret(newSecret string) {
 	now := time.Now()
 	expiresAt := now.Add(jp.gracePeriod)
 
-	jp.secrets = append(jp.secrets, []byte(jp.secret))
+	jp.mu.Lock()
+	jp.secrets = append(jp.secrets, jp.secret)
 	jp.secretExpiries = append(jp.secretExpiries, expiresAt)
 	jp.secret = []byte(newSecret)
 
@@ -473,16 +493,21 @@ func (jp *JWTProvider) RotateSecret(newSecret string) {
 	}
 	jp.secrets = keptSecrets
 	jp.secretExpiries = keptExpiries
+	newPrimary := jp.secret
+	jp.mu.Unlock()
 
 	if jp.cfg != nil {
-		if err := persistFallbackSecrets(jp.cfg, keptEntries, jp.secret); err != nil {
+		if err := persistFallbackSecrets(jp.cfg, keptEntries, newPrimary); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to persist fallback JWT secrets: %v\n", err)
 		}
 	}
 }
 
 func (jp *JWTProvider) sign(text string) string {
-	return jp.signWith(text, jp.secret)
+	jp.mu.RLock()
+	secret := jp.secret
+	jp.mu.RUnlock()
+	return jp.signWith(text, secret)
 }
 
 func (jp *JWTProvider) signWith(text string, secret []byte) string {
