@@ -1239,4 +1239,3 @@ func TestSearchMemoriesFiltersEmbeddingSourceAtCandidateQuery(t *testing.T) {
 		t.Errorf("expected embedding_source hash-fallback, got %s", results[0].Memory.EmbeddingSource)
 	}
 }
-
