@@ -3,10 +3,8 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"math"
 	"sort"
 	"strings"
-	"sync"
 	"unicode"
 )
 
@@ -68,78 +66,6 @@ func Tokenize(text string) []string {
 		}
 	}
 	return tokens
-}
-
-type bm25Doc struct {
-	id     string
-	terms  map[string]int // term → count
-	docLen int
-}
-
-type bm25Index struct {
-	mu        sync.RWMutex
-	docs      map[string]*bm25Doc
-	docFreqs  map[string]int
-	totalDocs int
-	avgDocLen float64
-}
-
-func newBM25Index() *bm25Index {
-	return &bm25Index{
-		docs:     make(map[string]*bm25Doc),
-		docFreqs: make(map[string]int),
-	}
-}
-
-func (idx *bm25Index) addDoc(id, content string) {
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-
-	terms := Tokenize(content)
-	termCounts := make(map[string]int)
-	for _, t := range terms {
-		termCounts[t]++
-	}
-	idx.docs[id] = &bm25Doc{
-		id:     id,
-		terms:  termCounts,
-		docLen: len(terms),
-	}
-	for t := range termCounts {
-		idx.docFreqs[t]++
-	}
-	idx.totalDocs++
-	var totalLen int
-	for _, d := range idx.docs {
-		totalLen += d.docLen
-	}
-	idx.avgDocLen = float64(totalLen) / float64(idx.totalDocs)
-}
-
-func (idx *bm25Index) score(queryTerms []string) map[string]float64 {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
-
-	const k1 = 1.5
-	const b = 0.75
-	scores := make(map[string]float64)
-	for id, doc := range idx.docs {
-		var score float64
-		for _, qt := range queryTerms {
-			tf, ok := doc.terms[qt]
-			if !ok {
-				continue
-			}
-			df := idx.docFreqs[qt]
-			idf := math.Log((float64(idx.totalDocs)-float64(df)+0.5)/(float64(df)+0.5) + 1.0)
-			tfNorm := (float64(tf) * (k1 + 1)) / (float64(tf) + k1*(1-b+b*float64(doc.docLen)/idx.avgDocLen))
-			score += idf * tfNorm
-		}
-		if score > 0 {
-			scores[id] = score
-		}
-	}
-	return scores
 }
 
 // HybridResult extends SearchResult with hybrid scoring details.
