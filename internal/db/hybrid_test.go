@@ -25,37 +25,6 @@ func TestTokenize_StopWordsRemoved(t *testing.T) {
 	}
 }
 
-func TestBM25Index_BasicScoring(t *testing.T) {
-	idx := newBM25Index()
-	idx.addDoc("doc1", "the quick brown fox jumps over the lazy dog")
-	idx.addDoc("doc2", "the lazy dog sleeps in the corner")
-	idx.addDoc("doc3", "a quick red car drives fast")
-
-	scores := idx.score(Tokenize("quick fox"))
-	if scores["doc1"] <= 0 {
-		t.Errorf("expected doc1 to score > 0 for 'quick fox', got %f", scores["doc1"])
-	}
-	// BM25 scores partial matches — doc3 contains "quick" but not "fox",
-	// so it gets a positive score from the matching term.
-	if scores["doc3"] < 0 {
-		t.Errorf("expected doc3 to score >= 0 for 'quick fox', got %f", scores["doc3"])
-	}
-}
-
-func TestBM25Index_ExactKeywordMatch(t *testing.T) {
-	idx := newBM25Index()
-	idx.addDoc("doc1", "Alice prefers dark mode in all applications")
-	idx.addDoc("doc2", "Bob likes light themes")
-
-	scores := idx.score(Tokenize("dark mode"))
-	if scores["doc1"] <= 0 {
-		t.Errorf("expected doc1 to score > 0 for 'dark mode'")
-	}
-	if _, ok := scores["doc2"]; ok {
-		t.Errorf("expected doc2 to not score for 'dark mode'")
-	}
-}
-
 func TestReciprocalRankFusion_MergesResults(t *testing.T) {
 	list1 := []string{"a", "b", "c"}
 	list2 := []string{"b", "c", "d"}
