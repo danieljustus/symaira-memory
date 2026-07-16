@@ -91,6 +91,10 @@ Once the MCP server is initialized, the following tools are registered with the 
 | `memory_set` | `content` (string, required)<br>`scope` (string, optional)<br>`metadata` (JSON string, optional) | Saves a new memory/fact. Runs offline pattern fact extraction, executes PII redactions, and automatically parses project directories. |
 | `memory_search` | `query` (string, required)<br>`scope` (string, optional)<br>`profile` (string, optional)<br>`limit` (string, optional) | Semantic search of memories using cosine similarity over local vector embeddings. When `profile` is provided, searches across the scopes defined by that context profile in precedence order instead of a single `scope` filter. |
 | `memory_list` | `scope` (string, optional) | Lists all stored memories, optionally filtering by scope level. |
+| `entity_list` | *(none)* | Lists all known entities (people, projects, organizations). Use this to discover which entities exist before linking memories or filtering searches. |
+| `entity_resolve` | `query` (string, required)<br>`type` (string, optional)<br>`aliases` (string, optional)<br>`limit` (integer, optional) | Returns deterministic, explainable entity candidates for a name or alias query, scored and ranked with the match reason for each. Use this instead of `entity_relate`/`graph_neighbors`' implicit lookup when a caller needs to disambiguate multiple possible matches before acting. |
+| `entity_relate` | `from` / `to` (string, optional, name or alias)<br>`from_id` / `to_id` (string, optional, stable entity ID)<br>`relation` (string, required)<br>`action` (string, optional: `create` or `delete`)<br>`source` / `source_ref` (string, optional, idempotency key)<br>`verification` (string, optional: `verified` or `unverified`)<br>`evidence` (JSON string, optional) | Creates or deletes a directed, typed relationship between two entities, by name or by stable entity ID. Passing `source`/`source_ref`/`verification`/`evidence` attaches provenance for idempotent creation by external integrations — retrying the same source+source_ref+triple returns the existing relation, and an already-verified relation is never silently overwritten. |
+| `graph_neighbors` | `entity` (string, required)<br>`depth` (integer, optional, 1-3, default 1) | Returns the entities and relations reachable from a starting entity via breadth-first traversal, as `{nodes, edges}`. Use this to answer "what connects to X". |
 
 ---
 
@@ -107,7 +111,7 @@ The daemon exposes standard REST API routes for database queries and updates. Fo
 
 *   **`GET /api/status`**
     *   *Purpose*: Health check.
-    *   *Response*: `{"status":"healthy","version":"0.12.0","server":"symaira-memory"}`
+    *   *Response*: `{"status":"healthy","version":"0.13.0","server":"symaira-memory"}`
 *   **`POST /api/search`**
     *   *Purpose*: Semantic cosine-similarity search.
     *   *Payload*: `{"query": "database connection settings", "scope": "project", "limit": 3}`
