@@ -1,36 +1,222 @@
 package db
 
 import (
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // MaxGraphDepth bounds how far GraphNeighbors will traverse, so a query
 // against a large, densely connected graph cannot run away.
 const MaxGraphDepth = 3
 
+// Relation provenance verification states.
+const (
+	VerificationVerified   = "verified"
+	VerificationUnverified = "unverified"
+)
+
+// MaxEvidenceBytes bounds the raw evidence JSON blob so a caller cannot
+// attach an unbounded payload (e.g. a full transcript) to a relation.
+const MaxEvidenceBytes = 4096
+
+// MaxSourceDocIDLength bounds the evidence source_doc_id field.
+const MaxSourceDocIDLength = 200
+
 // EntityRelation is a directed, typed relationship between two entities,
-// e.g. "Daniel works-with Musterland Bank".
+// e.g. "Daniel works-with Musterland Bank". ID, Source, SourceRef,
+// Verification, Evidence and UpdatedAt are additive provenance fields:
+// relations created before they existed read back with ID backfilled and
+// the rest at their zero value.
 type EntityRelation struct {
+	ID           string    `json:"id"`
 	FromEntityID string    `json:"from_entity_id"`
 	ToEntityID   string    `json:"to_entity_id"`
 	RelationType string    `json:"relation_type"`
+	Source       string    `json:"source,omitempty"`
+	SourceRef    string    `json:"source_ref,omitempty"`
+	Verification string    `json:"verification,omitempty"`
+	Evidence     string    `json:"evidence,omitempty"`
 	CreatedBy    string    `json:"created_by,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+// RelationEvidence is optional, bounded provenance detail attached to a
+// relation: a reference to the source document plus an optional time span
+// (e.g. audio/video timestamps) or character span (e.g. transcript
+// offsets). Fields are pointers so "absent" is distinguishable from zero.
+type RelationEvidence struct {
+	SourceDocID string   `json:"source_doc_id,omitempty"`
+	TimeStart   *float64 `json:"time_start,omitempty"`
+	TimeEnd     *float64 `json:"time_end,omitempty"`
+	CharStart   *int     `json:"char_start,omitempty"`
+	CharEnd     *int     `json:"char_end,omitempty"`
+}
+
+// ValidateRelationEvidence parses and validates a raw evidence JSON blob,
+// rejecting invalid, malformed or oversized input before it ever reaches
+// the database. An empty (or whitespace-only) string is valid and means "no
+// evidence attached". On success it returns the canonicalized JSON to
+// store — unknown fields are dropped so arbitrary payloads cannot be
+// smuggled in through extra keys.
+func ValidateRelationEvidence(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	if len(raw) > MaxEvidenceBytes {
+		return "", fmt.Errorf("evidence exceeds maximum size of %d bytes", MaxEvidenceBytes)
+	}
+
+	var ev RelationEvidence
+	if err := json.Unmarshal([]byte(raw), &ev); err != nil {
+		return "", fmt.Errorf("invalid evidence JSON: %w", err)
+	}
+	if len(ev.SourceDocID) > MaxSourceDocIDLength {
+		return "", fmt.Errorf("evidence source_doc_id exceeds maximum length of %d characters", MaxSourceDocIDLength)
+	}
+	if ev.CharStart != nil && *ev.CharStart < 0 {
+		return "", fmt.Errorf("evidence char_start must be non-negative")
+	}
+	if ev.CharEnd != nil && *ev.CharEnd < 0 {
+		return "", fmt.Errorf("evidence char_end must be non-negative")
+	}
+	if ev.CharStart != nil && ev.CharEnd != nil && *ev.CharEnd < *ev.CharStart {
+		return "", fmt.Errorf("evidence char_end must be >= char_start")
+	}
+	if ev.TimeStart != nil && *ev.TimeStart < 0 {
+		return "", fmt.Errorf("evidence time_start must be non-negative")
+	}
+	if ev.TimeEnd != nil && *ev.TimeEnd < 0 {
+		return "", fmt.Errorf("evidence time_end must be non-negative")
+	}
+	if ev.TimeStart != nil && ev.TimeEnd != nil && *ev.TimeEnd < *ev.TimeStart {
+		return "", fmt.Errorf("evidence time_end must be >= time_start")
+	}
+
+	canon, err := json.Marshal(ev)
+	if err != nil {
+		return "", fmt.Errorf("failed to canonicalize evidence: %w", err)
+	}
+	return string(canon), nil
+}
+
+// VerifiedRelationConflictError indicates a provenance-aware relation write
+// would have overwritten an already-verified relation with different
+// provenance. The caller must resolve the conflict explicitly instead of it
+// happening silently.
+type VerifiedRelationConflictError struct {
+	FromEntityID string
+	ToEntityID   string
+	RelationType string
+}
+
+func (e *VerifiedRelationConflictError) Error() string {
+	return fmt.Sprintf("relation %s --%s--> %s is already verified with different provenance; refusing to overwrite", e.FromEntityID, e.RelationType, e.ToEntityID)
 }
 
 // SaveEntityRelation creates a directed relation between two entities. It is
-// idempotent: creating the same (from, to, type) triple again is a no-op.
+// idempotent: creating the same (from, to, type) triple again is a no-op
+// that leaves any existing row (including its provenance) untouched.
 func (db *DB) SaveEntityRelation(r *EntityRelation) error {
 	if r.CreatedAt.IsZero() {
 		r.CreatedAt = time.Now().UTC()
 	}
+	if r.UpdatedAt.IsZero() {
+		r.UpdatedAt = r.CreatedAt
+	}
+	if r.ID == "" {
+		r.ID = uuid.New().String()
+	}
 	_, err := db.conn.Exec(
-		`INSERT OR IGNORE INTO entity_relations (from_entity_id, to_entity_id, relation_type, created_by, created_at)
-			VALUES (?, ?, ?, ?, ?)`,
-		r.FromEntityID, r.ToEntityID, r.RelationType, r.CreatedBy, r.CreatedAt,
+		`INSERT OR IGNORE INTO entity_relations
+			(id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.FromEntityID, r.ToEntityID, r.RelationType, r.Source, r.SourceRef, r.Verification, r.Evidence, r.CreatedBy, r.CreatedAt, r.UpdatedAt,
 	)
 	return err
+}
+
+// SaveEntityRelationProvenance creates or updates a directed relation with
+// caller-supplied provenance (source, source_ref, verification, evidence).
+// Idempotency is scoped to (source, source_ref) on top of the (from, to,
+// type) triple: retrying the exact same call returns the existing relation
+// unchanged. When the triple already exists with different provenance, an
+// already-verified relation is never silently overwritten —
+// *VerifiedRelationConflictError is returned instead. An existing
+// unverified (or provenance-less legacy) relation is enriched in place.
+// r.Evidence is validated via ValidateRelationEvidence before any mutation.
+func (db *DB) SaveEntityRelationProvenance(r *EntityRelation) (*EntityRelation, error) {
+	if r.Verification != "" && r.Verification != VerificationVerified && r.Verification != VerificationUnverified {
+		return nil, fmt.Errorf("invalid verification %q: must be %q, %q, or empty", r.Verification, VerificationVerified, VerificationUnverified)
+	}
+	canonEvidence, err := ValidateRelationEvidence(r.Evidence)
+	if err != nil {
+		return nil, err
+	}
+
+	existing, err := db.getRelationByTriple(r.FromEntityID, r.ToEntityID, r.RelationType)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+
+	if existing == nil {
+		saved := *r
+		saved.Evidence = canonEvidence
+		if saved.ID == "" {
+			saved.ID = uuid.New().String()
+		}
+		saved.CreatedAt = now
+		saved.UpdatedAt = now
+		_, err := db.conn.Exec(
+			`INSERT INTO entity_relations
+				(id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			saved.ID, saved.FromEntityID, saved.ToEntityID, saved.RelationType, saved.Source, saved.SourceRef, saved.Verification, saved.Evidence, saved.CreatedBy, saved.CreatedAt, saved.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return &saved, nil
+	}
+
+	// Identical retry: same source + source_ref on the same triple. Return
+	// the existing relation unchanged rather than mutating it again.
+	if existing.Source == r.Source && existing.SourceRef == r.SourceRef {
+		return existing, nil
+	}
+
+	if existing.Verification == VerificationVerified {
+		return nil, &VerifiedRelationConflictError{FromEntityID: r.FromEntityID, ToEntityID: r.ToEntityID, RelationType: r.RelationType}
+	}
+
+	updated := *existing
+	updated.Source = r.Source
+	updated.SourceRef = r.SourceRef
+	updated.Verification = r.Verification
+	updated.Evidence = canonEvidence
+	if r.CreatedBy != "" {
+		updated.CreatedBy = r.CreatedBy
+	}
+	updated.UpdatedAt = now
+
+	_, err = db.conn.Exec(
+		`UPDATE entity_relations SET source = ?, source_ref = ?, verification = ?, evidence = ?, created_by = ?, updated_at = ?
+			WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?`,
+		updated.Source, updated.SourceRef, updated.Verification, updated.Evidence, updated.CreatedBy, updated.UpdatedAt,
+		r.FromEntityID, r.ToEntityID, r.RelationType,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &updated, nil
 }
 
 // DeleteEntityRelation removes a specific directed relation.
@@ -42,10 +228,53 @@ func (db *DB) DeleteEntityRelation(fromEntityID, toEntityID, relationType string
 	return err
 }
 
+// GetEntityRelationByID retrieves a relation by its stable ID. Returns nil,
+// nil if not found.
+func (db *DB) GetEntityRelationByID(id string) (*EntityRelation, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at
+			FROM entity_relations WHERE id = ?`,
+		id,
+	)
+	var r EntityRelation
+	err := row.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
+// DeleteEntityRelationByID removes a relation by its stable ID.
+func (db *DB) DeleteEntityRelationByID(id string) error {
+	_, err := db.conn.Exec("DELETE FROM entity_relations WHERE id = ?", id)
+	return err
+}
+
+func (db *DB) getRelationByTriple(fromEntityID, toEntityID, relationType string) (*EntityRelation, error) {
+	row := db.conn.QueryRow(
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at
+			FROM entity_relations WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?`,
+		fromEntityID, toEntityID, relationType,
+	)
+	var r EntityRelation
+	err := row.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
+}
+
 // OutgoingRelations returns every relation where entityID is the source.
 func (db *DB) OutgoingRelations(entityID string) ([]*EntityRelation, error) {
 	return db.queryRelations(
-		"SELECT from_entity_id, to_entity_id, relation_type, created_by, created_at FROM entity_relations WHERE from_entity_id = ? ORDER BY relation_type, to_entity_id",
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at
+			FROM entity_relations WHERE from_entity_id = ? ORDER BY relation_type, to_entity_id`,
 		entityID,
 	)
 }
@@ -53,7 +282,8 @@ func (db *DB) OutgoingRelations(entityID string) ([]*EntityRelation, error) {
 // IncomingRelations returns every relation where entityID is the target.
 func (db *DB) IncomingRelations(entityID string) ([]*EntityRelation, error) {
 	return db.queryRelations(
-		"SELECT from_entity_id, to_entity_id, relation_type, created_by, created_at FROM entity_relations WHERE to_entity_id = ? ORDER BY relation_type, from_entity_id",
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at
+			FROM entity_relations WHERE to_entity_id = ? ORDER BY relation_type, from_entity_id`,
 		entityID,
 	)
 }
@@ -140,7 +370,7 @@ func (db *DB) queryRelations(query, entityID string) ([]*EntityRelation, error) 
 	var relations []*EntityRelation
 	for rows.Next() {
 		var r EntityRelation
-		if err := rows.Scan(&r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.CreatedBy, &r.CreatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
 		relations = append(relations, &r)

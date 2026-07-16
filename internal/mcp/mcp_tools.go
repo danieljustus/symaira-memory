@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -109,9 +110,16 @@ func (s *Server) MCPServer() *mcpserver.Server {
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "entity_relate",
-		Description: "Create or delete a directed, typed relationship between two entities (e.g. 'Alice works-with Bob'). Use action='delete' to remove a relation.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"from":{"type":"string","description":"Name or alias of the source entity"},"relation":{"type":"string","description":"Relation type, free-form (e.g. 'works-with', 'manages', 'depends-on')"},"to":{"type":"string","description":"Name or alias of the target entity"},"action":{"type":"string","description":"'create' (default) or 'delete'"}},"required":["from","relation","to"]}`),
+		Description: "Create or delete a directed, typed relationship between two entities (e.g. 'Alice works-with Bob'), by name or by stable entity ID. Use action='delete' to remove a relation. Pass source/source_ref/verification/evidence to attach provenance for idempotent creation by external integrations — retrying the same source+source_ref+triple returns the existing relation, and an already-verified relation is never silently overwritten.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"from":{"type":"string","description":"Name or alias of the source entity (mutually exclusive with from_id)"},"to":{"type":"string","description":"Name or alias of the target entity (mutually exclusive with to_id)"},"from_id":{"type":"string","description":"Stable ID of the source entity (mutually exclusive with from)"},"to_id":{"type":"string","description":"Stable ID of the target entity (mutually exclusive with to)"},"relation":{"type":"string","description":"Relation type, free-form (e.g. 'works-with', 'manages', 'attended')"},"action":{"type":"string","description":"'create' (default) or 'delete'"},"source":{"type":"string","description":"Optional caller-supplied source identifier for idempotent provenance (e.g. 'symdesk'); required together with source_ref"},"source_ref":{"type":"string","description":"Optional opaque caller reference for idempotency (e.g. a meeting ID; never an absolute path); required together with source"},"verification":{"type":"string","description":"Optional provenance verification status: 'verified' or 'unverified'"},"evidence":{"type":"string","description":"Optional bounded evidence JSON: {source_doc_id, char_start, char_end, time_start, time_end}"}},"required":["relation"]}`),
 		Handler:     s.handleEntityRelate,
+	})
+
+	srv.RegisterTool(&mcpserver.Tool{
+		Name:        "entity_resolve",
+		Description: "Return deterministic, explainable entity candidates for a name or alias query — scored and ranked, with the match reason for each. Use this instead of entity_relate/graph_neighbors' implicit lookup when a caller needs to see or disambiguate multiple possible matches before acting (e.g. mapping an external record to an existing entity) rather than silently picking one.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Name or alias to resolve"},"type":{"type":"string","description":"Optional: restrict candidates to this exact entity type (person, project, org, other)"},"aliases":{"type":"string","description":"Optional comma-separated alias hints to also compare against (never stored; hints shaped like an email or phone number are dropped)"},"limit":{"type":"integer","description":"Optional maximum number of candidates to return (default 10)"}},"required":["query"]}`),
+		Handler:     s.handleEntityResolve,
 	})
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -359,40 +367,145 @@ func (s *Server) handleEntityList(ctx context.Context, input json.RawMessage) (a
 	return string(data), nil
 }
 
+func (s *Server) handleEntityResolve(ctx context.Context, input json.RawMessage) (any, error) {
+	var args struct {
+		Query   string `json:"query"`
+		Type    string `json:"type"`
+		Aliases string `json:"aliases"`
+		Limit   int    `json:"limit"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments for 'entity_resolve': failed to parse arguments: %w", err)
+	}
+	if args.Query == "" {
+		return nil, fmt.Errorf("invalid arguments for 'entity_resolve': 'query' is required")
+	}
+	if args.Limit == 0 {
+		args.Limit = 10
+	}
+
+	var aliasHints []string
+	if args.Aliases != "" {
+		for _, a := range strings.Split(args.Aliases, ",") {
+			a = strings.TrimSpace(a)
+			if a != "" {
+				aliasHints = append(aliasHints, a)
+			}
+		}
+	}
+
+	candidates, err := s.service.ResolveEntityCandidates(args.Query, args.Type, aliasHints, args.Limit)
+	if err != nil {
+		return mcpError("Failed to resolve entity candidates", err)
+	}
+	if len(candidates) == 0 {
+		return "No matching entities found.", nil
+	}
+
+	data, _ := json.MarshalIndent(candidates, "", "  ")
+	return string(data), nil
+}
+
 func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
-		From     string `json:"from"`
-		Relation string `json:"relation"`
-		To       string `json:"to"`
-		Action   string `json:"action"`
+		From         string `json:"from"`
+		To           string `json:"to"`
+		FromID       string `json:"from_id"`
+		ToID         string `json:"to_id"`
+		Relation     string `json:"relation"`
+		Action       string `json:"action"`
+		Source       string `json:"source"`
+		SourceRef    string `json:"source_ref"`
+		Verification string `json:"verification"`
+		Evidence     string `json:"evidence"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'entity_relate': failed to parse arguments: %w", err)
 	}
-	if args.From == "" || args.Relation == "" || args.To == "" {
-		return nil, fmt.Errorf("invalid arguments for 'entity_relate': 'from', 'relation', and 'to' are required")
+	if args.Relation == "" {
+		return nil, fmt.Errorf("invalid arguments for 'entity_relate': 'relation' is required")
 	}
 	if args.Action == "" {
 		args.Action = "create"
 	}
 
-	fromEntity, err := s.service.ResolveEntity(args.From)
-	if err != nil {
-		return mcpError("Failed to resolve source entity", err)
+	hasIDs := args.FromID != "" || args.ToID != ""
+	hasNames := args.From != "" || args.To != ""
+	if hasIDs && hasNames {
+		return nil, fmt.Errorf("invalid arguments for 'entity_relate': provide either 'from'/'to' names or 'from_id'/'to_id', not both")
 	}
-	if fromEntity == nil {
-		return nil, fmt.Errorf("entity not found: %s", args.From)
+
+	var fromEntity, toEntity *db.Entity
+	var err error
+
+	if hasIDs {
+		if args.FromID == "" || args.ToID == "" {
+			return nil, fmt.Errorf("invalid arguments for 'entity_relate': 'from_id' and 'to_id' must both be set")
+		}
+		fromEntity, err = s.service.GetEntityByID(args.FromID)
+		if err != nil {
+			return mcpError("Failed to fetch source entity", err)
+		}
+		if fromEntity == nil {
+			return nil, fmt.Errorf("entity not found: %s", args.FromID)
+		}
+		toEntity, err = s.service.GetEntityByID(args.ToID)
+		if err != nil {
+			return mcpError("Failed to fetch target entity", err)
+		}
+		if toEntity == nil {
+			return nil, fmt.Errorf("entity not found: %s", args.ToID)
+		}
+	} else {
+		if args.From == "" || args.To == "" {
+			return nil, fmt.Errorf("invalid arguments for 'entity_relate': 'from' and 'to' are required")
+		}
+		fromEntity, err = s.service.ResolveEntity(args.From)
+		if err != nil {
+			return mcpError("Failed to resolve source entity", err)
+		}
+		if fromEntity == nil {
+			return nil, fmt.Errorf("entity not found: %s", args.From)
+		}
+		toEntity, err = s.service.ResolveEntity(args.To)
+		if err != nil {
+			return mcpError("Failed to resolve target entity", err)
+		}
+		if toEntity == nil {
+			return nil, fmt.Errorf("entity not found: %s", args.To)
+		}
 	}
-	toEntity, err := s.service.ResolveEntity(args.To)
-	if err != nil {
-		return mcpError("Failed to resolve target entity", err)
-	}
-	if toEntity == nil {
-		return nil, fmt.Errorf("entity not found: %s", args.To)
+
+	hasProvenance := args.Source != "" || args.SourceRef != "" || args.Verification != "" || args.Evidence != ""
+	if hasProvenance && (args.Source == "") != (args.SourceRef == "") {
+		return nil, fmt.Errorf("invalid arguments for 'entity_relate': 'source' and 'source_ref' must be provided together")
 	}
 
 	switch args.Action {
 	case "create":
+		if hasIDs || hasProvenance {
+			rel := &db.EntityRelation{
+				FromEntityID: fromEntity.ID,
+				ToEntityID:   toEntity.ID,
+				RelationType: args.Relation,
+				Source:       args.Source,
+				SourceRef:    args.SourceRef,
+				Verification: args.Verification,
+				Evidence:     args.Evidence,
+				CreatedBy:    "mcp",
+			}
+			saved, err := s.service.SaveEntityRelationProvenance(rel)
+			if err != nil {
+				var conflict *db.VerifiedRelationConflictError
+				if errors.As(err, &conflict) {
+					return nil, fmt.Errorf("invalid arguments for 'entity_relate': %w", err)
+				}
+				return mcpError("Failed to save relation", err)
+			}
+			data, _ := json.MarshalIndent(saved, "", "  ")
+			return string(data), nil
+		}
+
 		rel := &db.EntityRelation{
 			FromEntityID: fromEntity.ID,
 			ToEntityID:   toEntity.ID,

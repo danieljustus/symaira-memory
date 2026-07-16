@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -17,6 +18,18 @@ var (
 	entityAliases        string
 	entityDescription    string
 	entityNeighborsDepth int
+	entityResolveType    string
+	entityResolveAliases string
+	entityResolveLimit   int
+
+	entityRelateFromID       string
+	entityRelateToID         string
+	entityRelateRelationFlag string
+	entityRelateSource       string
+	entityRelateSourceRef    string
+	entityRelateVerification string
+	entityRelateEvidenceJSON string
+	entityUnrelateRelationID string
 )
 
 func init() {
@@ -28,11 +41,24 @@ func init() {
 	entityCmd.AddCommand(entityRelateCmd)
 	entityCmd.AddCommand(entityUnrelateCmd)
 	entityCmd.AddCommand(entityNeighborsCmd)
+	entityCmd.AddCommand(entityResolveCmd)
 
-	entityAddCmd.Flags().StringVar(&entityType, "type", "other", "Entity type: person, project, org, other")
+	entityAddCmd.Flags().StringVar(&entityType, "type", "other", "Entity type: person, project, org, event, other")
 	entityAddCmd.Flags().StringVar(&entityAliases, "aliases", "", "Comma-separated aliases")
 	entityAddCmd.Flags().StringVar(&entityDescription, "description", "", "Entity description")
 	entityNeighborsCmd.Flags().IntVar(&entityNeighborsDepth, "depth", 1, fmt.Sprintf("Traversal depth, 1-%d", db.MaxGraphDepth))
+	entityResolveCmd.Flags().StringVar(&entityResolveType, "type", "", "Restrict candidates to this exact entity type")
+	entityResolveCmd.Flags().StringVar(&entityResolveAliases, "aliases", "", "Comma-separated alias hints to also compare (never stored; PII-shaped hints are dropped)")
+	entityResolveCmd.Flags().IntVar(&entityResolveLimit, "limit", 10, "Maximum number of candidates to return")
+
+	entityRelateCmd.Flags().StringVar(&entityRelateFromID, "from-id", "", "Source entity ID (ID-based mode; alternative to the positional [from] name)")
+	entityRelateCmd.Flags().StringVar(&entityRelateToID, "to-id", "", "Target entity ID (ID-based mode; alternative to the positional [to] name)")
+	entityRelateCmd.Flags().StringVar(&entityRelateRelationFlag, "relation", "", "Relation type (ID-based mode; alternative to the positional [relation] argument)")
+	entityRelateCmd.Flags().StringVar(&entityRelateSource, "source", "", "Caller-supplied source identifier for idempotent provenance (e.g. 'symdesk')")
+	entityRelateCmd.Flags().StringVar(&entityRelateSourceRef, "source-ref", "", "Opaque caller reference for idempotency (e.g. a meeting ID; never an absolute path)")
+	entityRelateCmd.Flags().StringVar(&entityRelateVerification, "verification", "", "Provenance verification status: verified or unverified")
+	entityRelateCmd.Flags().StringVar(&entityRelateEvidenceJSON, "evidence-json", "", `Optional bounded evidence JSON: {"source_doc_id","char_start","char_end","time_start","time_end"}`)
+	entityUnrelateCmd.Flags().StringVar(&entityUnrelateRelationID, "relation-id", "", "Relation ID to remove (ID-based mode; alternative to the positional [from] [relation] [to])")
 
 	rootCmd.AddCommand(entityCmd)
 }
@@ -199,25 +225,93 @@ var entityShowCmd = &cobra.Command{
 
 var entityRelateCmd = &cobra.Command{
 	Use:   "relate [from] [relation] [to]",
-	Short: "Create a directed relation between two entities",
-	Args:  cobra.ExactArgs(3),
+	Short: "Create a directed relation between two entities, by name or by stable ID with provenance",
+	Args:  cobra.MaximumNArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		from, relation, to := args[0], args[1], args[2]
-
-		fromEntity, err := GetDB().ResolveEntity(from)
-		if err != nil {
-			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
-		}
-		if fromEntity == nil {
-			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", from)
+		useIDs := entityRelateFromID != "" || entityRelateToID != ""
+		if useIDs && len(args) > 0 {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "use either --from-id/--to-id/--relation or the positional [from] [relation] [to] arguments, not both")
 		}
 
-		toEntity, err := GetDB().ResolveEntity(to)
-		if err != nil {
-			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
+		var fromEntity, toEntity *db.Entity
+		var relation string
+		var err error
+
+		if useIDs {
+			if entityRelateFromID == "" || entityRelateToID == "" {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "--from-id and --to-id must both be set")
+			}
+			relation = entityRelateRelationFlag
+			if relation == "" {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "--relation is required with --from-id/--to-id")
+			}
+			fromEntity, err = GetDB().GetEntityByID(entityRelateFromID)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to fetch source entity")
+			}
+			if fromEntity == nil {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", entityRelateFromID)
+			}
+			toEntity, err = GetDB().GetEntityByID(entityRelateToID)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to fetch target entity")
+			}
+			if toEntity == nil {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", entityRelateToID)
+			}
+		} else {
+			if len(args) != 3 {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "requires exactly 3 positional arguments [from] [relation] [to], or --from-id/--relation/--to-id")
+			}
+			from, rel, to := args[0], args[1], args[2]
+			relation = rel
+			fromEntity, err = GetDB().ResolveEntity(from)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
+			}
+			if fromEntity == nil {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", from)
+			}
+			toEntity, err = GetDB().ResolveEntity(to)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity")
+			}
+			if toEntity == nil {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", to)
+			}
 		}
-		if toEntity == nil {
-			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", to)
+
+		hasProvenance := entityRelateSource != "" || entityRelateSourceRef != "" || entityRelateVerification != "" || entityRelateEvidenceJSON != ""
+		if hasProvenance && (entityRelateSource == "") != (entityRelateSourceRef == "") {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "--source and --source-ref must be provided together")
+		}
+
+		if hasProvenance {
+			rel := &db.EntityRelation{
+				FromEntityID: fromEntity.ID,
+				ToEntityID:   toEntity.ID,
+				RelationType: relation,
+				Source:       entityRelateSource,
+				SourceRef:    entityRelateSourceRef,
+				Verification: entityRelateVerification,
+				Evidence:     entityRelateEvidenceJSON,
+				CreatedBy:    "cli",
+			}
+			saved, err := GetDB().SaveEntityRelationProvenance(rel)
+			if err != nil {
+				var conflict *db.VerifiedRelationConflictError
+				if errors.As(err, &conflict) {
+					return exitcodes.Wrapf(err, exitcodes.ExitConflict, exitcodes.KindConflict, "relation is already verified with different provenance")
+				}
+				return exitcodes.Wrapf(err, exitcodes.ExitData, exitcodes.KindValidation, "failed to save relation")
+			}
+
+			if GetOutputFormat(cmd) == "json" {
+				formatter := NewOutputFormatter(GetOutputFormat(cmd))
+				return formatter.Output(saved, "entity-relation")
+			}
+			fmt.Printf("Related: %s --%s--> %s [id=%s]\n", fromEntity.Name, relation, toEntity.Name, saved.ID)
+			return nil
 		}
 
 		rel := &db.EntityRelation{
@@ -231,6 +325,10 @@ var entityRelateCmd = &cobra.Command{
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to save relation")
 		}
 
+		if GetOutputFormat(cmd) == "json" {
+			formatter := NewOutputFormatter(GetOutputFormat(cmd))
+			return formatter.Output(rel, "entity-relation")
+		}
 		fmt.Printf("Related: %s --%s--> %s\n", fromEntity.Name, relation, toEntity.Name)
 		return nil
 	},
@@ -238,9 +336,36 @@ var entityRelateCmd = &cobra.Command{
 
 var entityUnrelateCmd = &cobra.Command{
 	Use:   "unrelate [from] [relation] [to]",
-	Short: "Remove a directed relation between two entities",
-	Args:  cobra.ExactArgs(3),
+	Short: "Remove a directed relation between two entities, by name or by stable relation ID",
+	Args:  cobra.MaximumNArgs(3),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if entityUnrelateRelationID != "" {
+			if len(args) > 0 {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "use either --relation-id or the positional [from] [relation] [to] arguments, not both")
+			}
+
+			existing, err := GetDB().GetEntityRelationByID(entityUnrelateRelationID)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to fetch relation")
+			}
+			if existing == nil {
+				return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "relation not found: %s", entityUnrelateRelationID)
+			}
+			if err := GetDB().DeleteEntityRelationByID(entityUnrelateRelationID); err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to delete relation")
+			}
+
+			if GetOutputFormat(cmd) == "json" {
+				formatter := NewOutputFormatter(GetOutputFormat(cmd))
+				return formatter.Output(existing, "entity-relation")
+			}
+			fmt.Printf("Unrelated: relation %s removed\n", existing.ID)
+			return nil
+		}
+
+		if len(args) != 3 {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "requires exactly 3 positional arguments [from] [relation] [to], or --relation-id")
+		}
 		from, relation, to := args[0], args[1], args[2]
 
 		fromEntity, err := GetDB().ResolveEntity(from)
@@ -307,6 +432,36 @@ var entityNeighborsCmd = &cobra.Command{
 		fmt.Printf("\nEdges (%d):\n", len(edges))
 		for _, e := range edges {
 			fmt.Printf("  %s --%s--> %s\n", e.FromEntityID, e.RelationType, e.ToEntityID)
+		}
+		return nil
+	},
+}
+
+var entityResolveCmd = &cobra.Command{
+	Use:   "resolve [query]",
+	Short: "Find candidate entities matching a name or alias, with match scores and reasons",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		query := args[0]
+
+		var aliasHints []string
+		if entityResolveAliases != "" {
+			for _, a := range strings.Split(entityResolveAliases, ",") {
+				a = strings.TrimSpace(a)
+				if a != "" {
+					aliasHints = append(aliasHints, a)
+				}
+			}
+		}
+
+		candidates, err := GetDB().ResolveEntityCandidates(query, entityResolveType, aliasHints, entityResolveLimit)
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to resolve entity candidates")
+		}
+
+		formatter := NewOutputFormatter(GetOutputFormat(cmd))
+		if err := formatter.Output(candidates, "entity-resolve"); err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
 		}
 		return nil
 	},

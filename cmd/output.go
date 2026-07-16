@@ -184,6 +184,10 @@ Evidence:
 {{- else}}{{- range .}}[{{.ID | truncate 8}}] {{.Name}} ({{.Type}}) {{.Description | truncate 60}}
 {{end}}{{- end}}`,
 
+	"entity-resolve": `{{- if not .}}No matching entities found.
+{{- else}}{{- range .}}[{{printf "%.2f" .Score}}] {{.Name}} ({{.Type}}) — {{.MatchKind}}: {{.MatchReason}}
+{{end}}{{- end}}`,
+
 	"rule-list": `{{- if not .}}No rules found.
 {{- else}}{{- range .}}[{{.ID | truncate 8}}] ({{.Scope}}) {{.Content | truncate 80}}
 {{end}}{{- end}}`,

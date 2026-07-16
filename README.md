@@ -34,6 +34,7 @@ In the Human-AI Symbiosis Era, the bottleneck of productivity is no longer compu
 - **JWT authentication**: Generate and verify signed tokens for REST API access. HMAC-SHA256, configurable expiry and subject.
 - **Memory scoping**: Organize memories by scope (global, project, agent, user, session). Project scope auto-detects `.git` or `.symmemory.toml` in parent directories.
 - **Context profiles**: Define ordered scope-inheritance chains so a single search retrieves memories from multiple scopes in precedence order. Create profiles with `symmemory context-profile`, link scopes with `symmemory context-profile link`, and resolve the full chain with `symmemory context-profile show`.
+- **Entities and provenance-aware relations**: Track people, projects, organizations, and events (`person`, `project`, `org`, `event`, `other`) with `symmemory entity`. `symmemory entity resolve` returns ranked, explainable candidate matches instead of one arbitrary guess. `symmemory entity relate --from-id --to-id --source --source-ref --verification --evidence-json` creates idempotent, ID-stable relations with caller-supplied provenance that survives entity renames.
 - **Behavioral rules**: Store procedural instructions for AI agents, automatically injected into prompts. Manage with `symmemory rule`.
 - **Encrypted backup / restore**: Export your SQLite database to compressed `.tar.gz` archives with optional AES-256-GCM encryption.
 - **Extractive dialogue summarizer**: Reduce LLM context cost by 60-70% via keyword-weighted sentence extraction.
@@ -113,7 +114,7 @@ For a full reference of all commands and flags, run `symmemory --help`.
 
 ## Agent Integration
 
-Symaira Memory speaks the Model Context Protocol (MCP) natively. AI agents connect over stdio JSON-RPC 2.0 and gain four tools: `memory_get`, `memory_set`, `memory_search`, and `memory_list`.
+Symaira Memory speaks the Model Context Protocol (MCP) natively. AI agents connect over stdio JSON-RPC 2.0 and gain tools for memory (`memory_get`, `memory_set`, `memory_search`, `memory_list`) and entities (`entity_list`, `entity_resolve`, `entity_relate`, `graph_neighbors`).
 
 ### Quick Setup
 
