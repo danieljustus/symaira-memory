@@ -113,3 +113,59 @@ func TestSetCommandOutputsHumanTextByDefault(t *testing.T) {
 		t.Errorf("expected human success message, got %q", buf.String())
 	}
 }
+
+func TestSetCommandAcceptsPositionalArgument(t *testing.T) {
+	oldHome := os.Getenv("HOME")
+	tempDir, err := os.MkdirTemp("", "symmemory-home-test-positional-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", oldHome)
+
+	database := helperTestDB(t)
+	cfg := config.Defaults()
+	SetConfig(cfg)
+	SetDB(database)
+
+	oldValue := setValue
+	oldScope := setScope
+	setValue = ""
+	setScope = "global"
+	defer func() {
+		setValue = oldValue
+		setScope = oldScope
+	}()
+
+	oldOutput := outputFormat
+	outputFormat = "json"
+	defer func() { outputFormat = oldOutput }()
+
+	output := captureCmdOutput(func() {
+		if err := setCmd.RunE(setCmd, []string{"positional memory content"}); err != nil {
+			t.Fatalf("setCmd.RunE returned error: %v", err)
+		}
+	})
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("set output is not valid JSON: %v\noutput: %s", err, output)
+	}
+	if parsed["content"] != "positional memory content" {
+		t.Errorf("expected content 'positional memory content', got %v", parsed["content"])
+	}
+	if parsed["scope"] != "global" {
+		t.Errorf("expected scope global, got %v", parsed["scope"])
+	}
+}
+
+func TestSetCommandRejectsBothValueAndPositional(t *testing.T) {
+	oldValue := setValue
+	setValue = "flag content"
+	defer func() { setValue = oldValue }()
+
+	if err := setCmd.RunE(setCmd, []string{"positional content"}); err == nil {
+		t.Fatal("expected error when both --value and a positional argument are provided")
+	}
+}

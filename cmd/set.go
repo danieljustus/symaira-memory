@@ -27,24 +27,38 @@ func init() {
 	setCmd.Flags().StringVar(&setAuthor, "author", "", "Author attribution (default: cli:$USER)")
 	setCmd.Flags().StringVar(&setSession, "session", "", "Session ID attribution")
 	setCmd.Flags().StringVar(&setEntities, "entities", "", "Comma-separated entity names to link (e.g. \"Irene,Premium BnB\")")
-	_ = setCmd.MarkFlagRequired("value")
 	rootCmd.AddCommand(setCmd)
 }
 
 var setCmd = &cobra.Command{
-	Use:   "set",
+	Use:   "set [content]",
 	Short: "Save a new fact or context snippet into persistent memory",
 	Long: `Save a new fact or context snippet to local SQLite storage. 
 Automatically triggers embedding generation, PII redaction, and project scope detection.`,
 	Example: `  # Save a global memory
-  symmemory set --value "Alice prefers dark mode in all applications."
+  symmemory set "Alice prefers dark mode in all applications."
 
   # Save a project-scoped memory linked to entities
-  symmemory set -v "The API uses JWT auth with 15-minute expiry" -s project --entities "BackendAPI,AuthModule"
+  symmemory set "The API uses JWT auth with 15-minute expiry" -s project --entities "BackendAPI,AuthModule"
 
   # Save a user-scoped memory with custom author
-  symmemory set -v "Prefers concise commit messages" -s user --author "team-lead"`,
+  symmemory set "Prefers concise commit messages" -s user --author "team-lead"
+
+  # The legacy --value flag is still supported
+  symmemory set --value "Alice prefers dark mode in all applications."`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		content := setValue
+		if len(args) > 0 {
+			if setValue != "" {
+				return exitcodes.Wrapf(nil, exitcodes.ExitData, exitcodes.KindValidation, "provide memory content either as a positional argument or with --value, not both")
+			}
+			content = args[0]
+		}
+		if content == "" {
+			return exitcodes.Wrapf(nil, exitcodes.ExitData, exitcodes.KindValidation, "memory content is required: pass it as a positional argument or use --value")
+		}
+
 		author := setAuthor
 		if author == "" {
 			if u, err := user.Current(); err == nil && u.Username != "" {
@@ -72,7 +86,7 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 			}
 		}
 
-		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, setValue, setScope, meta, true, attr, entities, "cli")
+		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, content, setScope, meta, true, attr, entities, "cli")
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to store memory")
 		}
