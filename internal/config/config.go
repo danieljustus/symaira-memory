@@ -36,6 +36,9 @@ type JWTConfig struct {
 type SecurityConfig struct {
 	PIIEnabled     *bool    `json:"pii_enabled"`
 	TrustedProxies []string `json:"trusted_proxies"`
+	// RequireProfile denies write access to JWT subjects without a stored profile.
+	// When false (default), unknown subjects keep default access but a warning is logged.
+	RequireProfile bool `json:"require_profile"`
 }
 
 type ServerConfig struct {
@@ -107,7 +110,8 @@ func Defaults() *Config {
 			Model: "nomic-embed-text",
 		},
 		Security: SecurityConfig{
-			PIIEnabled: &trueVal,
+			PIIEnabled:     &trueVal,
+			RequireProfile: false,
 		},
 		Server: ServerConfig{
 			HTTPPort: 0,

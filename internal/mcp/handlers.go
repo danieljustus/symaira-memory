@@ -15,9 +15,6 @@ import (
 )
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
 		"status":            "healthy",
@@ -28,12 +25,6 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	if _, ok := s.requireAuth(w, r); !ok {
-		return
-	}
 	if r.Method != "POST" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return
@@ -96,13 +87,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	payload, ok := s.requireRole(w, r, security.RoleReadWrite)
-	if !ok {
-		return
-	}
+	payload := payloadFromContext(r.Context())
 	if r.Method != "POST" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return
@@ -139,12 +124,6 @@ func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	if _, ok := s.requireAuth(w, r); !ok {
-		return
-	}
 	scope := r.URL.Query().Get("scope")
 
 	limit := 100
@@ -177,12 +156,6 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	if _, ok := s.requireAuth(w, r); !ok {
-		return
-	}
 	if r.Method != "GET" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return
@@ -269,13 +242,7 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	payload, ok := s.requireRole(w, r, security.RoleReadWrite)
-	if !ok {
-		return
-	}
+	payload := payloadFromContext(r.Context())
 	if r.Method != "POST" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return
@@ -332,12 +299,6 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	if _, ok := s.requireAuth(w, r); !ok {
-		return
-	}
 	if r.Method != "GET" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return
@@ -373,12 +334,6 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	if _, ok := s.requireRole(w, r, security.RoleReadWrite); !ok {
-		return
-	}
 	if r.Method != "DELETE" && r.Method != "POST" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return
@@ -405,12 +360,6 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	if _, ok := s.requireAuth(w, r); !ok {
-		return
-	}
 	if r.Method != "GET" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return
@@ -428,12 +377,6 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEntities(w http.ResponseWriter, r *http.Request) {
-	if s.enableCORS(w, r) {
-		return
-	}
-	if _, ok := s.requireAuth(w, r); !ok {
-		return
-	}
 	if r.Method != "GET" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return

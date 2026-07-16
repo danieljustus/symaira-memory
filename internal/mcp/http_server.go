@@ -46,98 +46,52 @@ func (s *Server) StartHTTPServer(port int) error {
 	}
 }
 
+// routeAuth is the access level a route requires. The mux wraps each
+// route's handler with the matching AuthMiddleware chain so RequireAuth /
+// RequireRole stay the single implementation of auth semantics.
+type routeAuth int
+
+const (
+	authNone routeAuth = iota
+	authRequired
+	authReadWrite
+)
+
 func (s *Server) httpMux() http.Handler {
 	mux := http.NewServeMux()
 
 	routes := []struct {
 		pattern string
 		handler http.HandlerFunc
+		auth    routeAuth
 	}{
-		{"/api/status", s.handleStatus},
-		{"/api/search", s.handleSearch},
-		{"/api/set", s.handleSet},
-		{"/api/list", s.handleList},
-		{"/api/sync/changes", s.handleSyncChanges},
-		{"/api/sync/apply", s.handleSyncApply},
-		{"/api/get", s.handleGet},
-		{"/api/delete", s.handleDelete},
-		{"/api/rules", s.handleRules},
-		{"/api/entities", s.handleEntities},
-		{"/", s.handleStatic},
+		{"/api/status", s.handleStatus, authNone},
+		{"/api/search", s.handleSearch, authRequired},
+		{"/api/set", s.handleSet, authReadWrite},
+		{"/api/list", s.handleList, authRequired},
+		{"/api/sync/changes", s.handleSyncChanges, authRequired},
+		{"/api/sync/apply", s.handleSyncApply, authReadWrite},
+		{"/api/get", s.handleGet, authRequired},
+		{"/api/delete", s.handleDelete, authReadWrite},
+		{"/api/rules", s.handleRules, authRequired},
+		{"/api/entities", s.handleEntities, authRequired},
 	}
 	for _, rt := range routes {
-		mux.HandleFunc(rt.pattern, rt.handler)
+		var h http.Handler = rt.handler
+		switch rt.auth {
+		case authReadWrite:
+			h = s.auth.RequireAuth(s.auth.RequireRole(security.RoleReadWrite)(h))
+		case authRequired:
+			h = s.auth.RequireAuth(h)
+		}
+		mux.Handle(rt.pattern, s.cors.Handler(h))
 	}
+	mux.HandleFunc("/", s.handleStatic)
 
 	var handler http.Handler = mux
 	handler = csrfProtectionHandler(handler)
 	handler = securityHeadersHandler(handler)
 	return requestLoggingMiddleware(handler)
-}
-
-func (s *Server) enableCORS(w http.ResponseWriter, r *http.Request) bool {
-	origin := r.Header.Get("Origin")
-	allowed := false
-	for _, o := range s.cors.allowedOrigins {
-		if matchOrigin(origin, o) {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		if origin != "" {
-			writeJSONError(w, http.StatusForbidden, CodeForbidden, "origin not allowed", nil)
-			return true
-		}
-	} else {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-	}
-	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, DELETE")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
-		return true
-	}
-	return false
-}
-
-func (s *Server) requireAuth(w http.ResponseWriter, r *http.Request) (*security.JWTPayload, bool) {
-	if s.auth.jwts == nil {
-		return nil, true
-	}
-	auth := r.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, "Bearer ") {
-		writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "missing or invalid Authorization header", nil)
-		return nil, false
-	}
-	token := strings.TrimPrefix(auth, "Bearer ")
-	payload, err := s.auth.jwts.VerifyToken(token)
-	if err != nil {
-		writeJSONError(w, http.StatusUnauthorized, CodeForbidden, "invalid or expired token", err)
-		return nil, false
-	}
-	return payload, true
-}
-
-func (s *Server) requireRole(w http.ResponseWriter, r *http.Request, minRole security.Role) (*security.JWTPayload, bool) {
-	payload, ok := s.requireAuth(w, r)
-	if !ok {
-		return nil, false
-	}
-	profile := s.auth.profile
-	if profile == nil && payload != nil && payload.Subject != "" && s.auth.db != nil {
-		p, err := s.auth.db.GetProfileByName(payload.Subject)
-		if err == nil {
-			profile = p
-		}
-	}
-	if profile != nil {
-		if !security.ParseRole(profile.Role).CanWrite() && minRole == security.RoleReadWrite {
-			writeJSONError(w, http.StatusForbidden, CodeForbidden, "insufficient permissions: read-only profile", nil)
-			return nil, false
-		}
-	}
-	return payload, true
 }
 
 func csrfProtectionHandler(next http.Handler) http.Handler {
