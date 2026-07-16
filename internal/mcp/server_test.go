@@ -2150,6 +2150,109 @@ func TestRequireRoleDBProfileReadWriteAllowsAccess(t *testing.T) {
 	}
 }
 
+func helperServerWithRequireProfile(t *testing.T, requireProfile bool) *Server {
+	t.Helper()
+	database := helperDB(t)
+	jwtProvider, err := security.NewJWTProvider(config.Defaults(), nil)
+	if err != nil {
+		t.Fatalf("failed to create JWT provider: %v", err)
+	}
+	cfg := config.Defaults()
+	cfg.Security.RequireProfile = requireProfile
+	return NewServer(database, jwtProvider, "test", cfg)
+}
+
+func TestRequireRoleDBLookupErrorFailsClosed(t *testing.T) {
+	// A DB error during profile lookup must deny write access, not silently
+	// fall through to full access as if no profile existed.
+	s := helperServer(t)
+	token := helperAuthToken(t, s)
+
+	_, err := s.DB().Conn().Exec(
+		`INSERT INTO profiles (id, name, type, role, description, metadata, created_at, updated_at)
+		 VALUES ('profile-bad-json', 'test', 'agent', 'readwrite', '', 'not-valid-json', ?, ?)`,
+		time.Now().UTC(), time.Now().UTC(),
+	)
+	if err != nil {
+		t.Fatalf("failed to insert bad-json profile: %v", err)
+	}
+
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader(`{"content":"test"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 when profile lookup errors (fail closed), got %d", resp.StatusCode)
+	}
+}
+
+func TestRequireRoleUnknownSubjectPermissiveByDefault(t *testing.T) {
+	// Default config (require_profile=false): an unknown subject keeps default
+	// write access, preserving pre-#348 behavior for repos that opt out.
+	s := helperServerWithRequireProfile(t, false)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader(`{"content":"test"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for unknown subject under permissive default, got %d", resp.StatusCode)
+	}
+}
+
+func TestRequireRoleUnknownSubjectDeniedWhenRequireProfileEnabled(t *testing.T) {
+	// With require_profile=true, an unknown subject must be denied write access.
+	s := helperServerWithRequireProfile(t, true)
+	token := helperAuthToken(t, s)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	req, _ := http.NewRequest("POST", ts.URL+"/api/set", strings.NewReader(`{"content":"test"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 for unknown subject when require_profile is enabled, got %d", resp.StatusCode)
+	}
+
+	// Read access must still be granted — require_profile only gates writes.
+	req2, _ := http.NewRequest("GET", ts.URL+"/api/list", nil)
+	req2.Header.Set("Authorization", "Bearer "+token)
+	resp2, err := http.DefaultClient.Do(req2)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	if resp2.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for read access with require_profile enabled, got %d", resp2.StatusCode)
+	}
+}
+
 func TestMatchOriginTableDriven(t *testing.T) {
 	// Lines 145-152: wildcard "*", scheme wildcard, and exact match.
 	tests := []struct {

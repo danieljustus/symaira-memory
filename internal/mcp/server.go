@@ -35,7 +35,7 @@ type Server struct {
 func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version string, cfg *config.Config) *Server {
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
 	service := NewMemoryService(database, embeddings, true)
-	auth := NewAuthMiddleware(jwtProvider, database)
+	auth := NewAuthMiddleware(jwtProvider, database, cfg.Security.RequireProfile)
 	cors := NewCORSMiddleware([]string{"chrome-extension://*", "moz-extension://*"})
 
 	return &Server{

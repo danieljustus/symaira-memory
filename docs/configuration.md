@@ -52,3 +52,19 @@ url = "http://localhost:11434/api/generate"  # LLM API endpoint URL
 ```
 
 If `consolidation.url` is not set, it falls back to the Ollama URL from `[ollama]` config. If `consolidation.model` is not set, it falls back to the Ollama model. This allows consolidation to use a different LLM endpoint than the embeddings pipeline.
+
+### Security Settings
+
+Configure HTTP daemon access control in `~/.config/symmemory/config.toml`:
+
+```toml
+[security]
+pii_enabled = true              # Redact PII from stored memory content (default: true)
+trusted_proxies = []             # CIDR ranges trusted to set client-IP headers (default: none)
+require_profile = false          # Deny write access to JWT subjects with no stored profile (default: false)
+```
+
+`require_profile` controls what happens when a valid JWT's subject (`--subject` passed to `symmemory token generate`) has no matching profile saved via `symmemory profile` (or `SaveProfile`):
+
+- `false` (default): the request keeps default access, but a warning is logged (`JWT subject has no matching profile`). This preserves the existing behavior for setups that generate ad hoc tokens without maintaining a profile per subject.
+- `true`: write endpoints (`memory_set`, `delete`, `sync/apply`) are denied with a 403 for subjects without a stored profile. Read access is unaffected. A profile lookup failure (a real database error, not merely "not found") is always denied regardless of this setting — role enforcement fails closed rather than silently granting full access.

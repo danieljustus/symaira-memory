@@ -124,12 +124,9 @@ func (s *Server) requireRole(w http.ResponseWriter, r *http.Request, minRole sec
 	if !ok {
 		return nil, false
 	}
-	profile := s.auth.profile
-	if profile == nil && payload != nil && payload.Subject != "" && s.auth.db != nil {
-		p, err := s.auth.db.GetProfileByName(payload.Subject)
-		if err == nil {
-			profile = p
-		}
+	profile, ok := resolveProfileForRole(w, payload, s.auth.profile, s.auth.db, s.auth.requireProfile, minRole)
+	if !ok {
+		return nil, false
 	}
 	if profile != nil {
 		if !security.ParseRole(profile.Role).CanWrite() && minRole == security.RoleReadWrite {
