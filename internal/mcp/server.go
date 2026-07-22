@@ -23,15 +23,15 @@ const (
 )
 
 type Server struct {
-	service           *MemoryService
-	auth              *AuthMiddleware
-	cors              *CORSMiddleware
-	jwts              *security.JWTProvider
-	version           string
-	cfg               *config.Config
-	profile           *db.Profile
-	rateLimiter       *RateLimiter
-	workingMemoryTTL  time.Duration
+	service          *MemoryService
+	auth             *AuthMiddleware
+	cors             *CORSMiddleware
+	jwts             *security.JWTProvider
+	version          string
+	cfg              *config.Config
+	profile          *db.Profile
+	rateLimiter      *RateLimiter
+	workingMemoryTTL time.Duration
 }
 
 func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version string, cfg *config.Config) *Server {

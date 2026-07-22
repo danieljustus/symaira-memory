@@ -34,9 +34,9 @@ type Memory struct {
 	ValidFrom           *time.Time        `json:"valid_from,omitempty"`
 	ValidTo             *time.Time        `json:"valid_to,omitempty"`
 	SupersededBy        string            `json:"superseded_by,omitempty"`
-	Tier                string            `json:"tier"`                                  // "long_term" (default) or "working"
-	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`                  // when tier=working, evict after this time
-	Evidence            []EvidenceSpan    `json:"evidence,omitempty"` // populated only on demand (e.g. --with-evidence), not by GetMemory/scanMemory
+	Tier                string            `json:"tier"`                 // "long_term" (default) or "working"
+	ExpiresAt           *time.Time        `json:"expires_at,omitempty"` // when tier=working, evict after this time
+	Evidence            []EvidenceSpan    `json:"evidence,omitempty"`   // populated only on demand (e.g. --with-evidence), not by GetMemory/scanMemory
 }
 
 // SearchResult wraps a Memory with its similarity score without mutating the original.
