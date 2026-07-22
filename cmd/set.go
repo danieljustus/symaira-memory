@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/user"
 	"strings"
+	"time"
 
 	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
@@ -19,6 +20,7 @@ var (
 	setAuthor   string
 	setSession  string
 	setEntities string
+	setWorking  bool
 )
 
 func init() {
@@ -27,6 +29,7 @@ func init() {
 	setCmd.Flags().StringVar(&setAuthor, "author", "", "Author attribution (default: cli:$USER)")
 	setCmd.Flags().StringVar(&setSession, "session", "", "Session ID attribution")
 	setCmd.Flags().StringVar(&setEntities, "entities", "", "Comma-separated entity names to link (e.g. \"Irene,Premium BnB\")")
+	setCmd.Flags().BoolVar(&setWorking, "working", false, "Store as working memory with TTL-based eviction")
 	rootCmd.AddCommand(setCmd)
 }
 
@@ -86,7 +89,20 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 			}
 		}
 
-		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, content, setScope, meta, true, attr, entities, "cli")
+		var ttl time.Duration
+		if setWorking {
+			cfg := GetConfig()
+			if cfg != nil && cfg.WorkingMemory.TTL != "" {
+				if d, err := time.ParseDuration(cfg.WorkingMemory.TTL); err == nil {
+					ttl = d
+				}
+			}
+			if ttl == 0 {
+				ttl = 24 * time.Hour
+			}
+		}
+
+		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, content, setScope, meta, true, attr, entities, "cli", setWorking, ttl)
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to store memory")
 		}
@@ -101,6 +117,8 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 				Session        string            `json:"session,omitempty"`
 				Entities       []string          `json:"entities,omitempty"`
 				SecondaryFacts []string          `json:"secondary_facts,omitempty"`
+				Tier           string            `json:"tier,omitempty"`
+				ExpiresAt      *time.Time        `json:"expires_at,omitempty"`
 			}{
 				ID:             m.ID,
 				Content:        m.Content,
@@ -110,6 +128,8 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 				Session:        m.CreatedSession,
 				Entities:       m.Entities,
 				SecondaryFacts: secondaryIDs,
+				Tier:           m.Tier,
+				ExpiresAt:      m.ExpiresAt,
 			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
@@ -134,6 +154,12 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 		}
 		if len(m.Entities) > 0 {
 			fmt.Printf("  Entities: %s\n", strings.Join(m.Entities, ", "))
+		}
+		if m.Tier != "" && m.Tier != "long_term" {
+			fmt.Printf("  Tier:     %s\n", m.Tier)
+		}
+		if m.ExpiresAt != nil {
+			fmt.Printf("  Expires:  %s\n", m.ExpiresAt.Format(time.RFC3339))
 		}
 		return nil
 	},

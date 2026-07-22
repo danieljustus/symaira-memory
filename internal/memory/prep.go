@@ -275,12 +275,21 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 // Returns the saved memory and any extracted secondary fact descriptions.
 // The entities parameter contains entity names to link to the saved memory.
 // sourceTool identifies the client (e.g. "cli", "mcp", "http").
-func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string, sourceTool string) (*db.Memory, []string, error) {
+func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string, sourceTool string, working bool, ttl time.Duration) (*db.Memory, []string, error) {
 	m, err := Prepare(content, scope, meta, piiEnabled, attr, sourceTool)
 	if err != nil {
 		return nil, nil, err
 	}
 	m.ID = uuid.New().String()
+
+	if working {
+		m.Tier = "working"
+		expires := time.Now().UTC().Add(ttl)
+		m.ExpiresAt = &expires
+	} else {
+		m.Tier = "long_term"
+	}
+
 	emb := embeddings.GenerateVector(m.Content)
 	m.Embedding = emb.Vector
 	m.EmbeddingSource = emb.Source

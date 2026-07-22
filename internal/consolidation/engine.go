@@ -246,6 +246,166 @@ func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dry
 	return summaries, nil
 }
 
+// RunConsolidationForMemories consolidates the provided list of memories.
+// Unlike RunConsolidation which fetches raw memories from the DB, this method
+// works on the caller-supplied list (used for working-memory compaction).
+func (eng *Engine) RunConsolidationForMemories(ctx context.Context, memories []*db.Memory, dryRun bool) ([]ScopeChangeSummary, error) {
+	if len(memories) == 0 {
+		return nil, nil
+	}
+
+	grouped := make(map[string][]*db.Memory)
+	for _, m := range memories {
+		grouped[m.Scope] = append(grouped[m.Scope], m)
+	}
+
+	var summaries []ScopeChangeSummary
+
+	for scope, scopeMemories := range grouped {
+		summary := ScopeChangeSummary{
+			Scope:             scope,
+			ReplacedIDToNewID: make(map[string]string),
+		}
+
+		if len(scopeMemories) <= 1 {
+			m := scopeMemories[0]
+			updatedMemory := *m
+			updatedMemory.ConsolidationStatus = "consolidated"
+			updatedMemory.UpdatedAt = time.Now().UTC()
+
+			summary.NewMemories = append(summary.NewMemories, &updatedMemory)
+			summary.ArchivedMemoryIDs = append(summary.ArchivedMemoryIDs, m.ID)
+			summary.ReplacedIDToNewID[m.ID] = m.ID
+
+			if !dryRun {
+				tx, err := eng.database.BeginTransaction()
+				if err != nil {
+					return nil, fmt.Errorf("failed to begin transaction: %w", err)
+				}
+				if err := eng.database.SaveMemoryTx(tx, &updatedMemory); err != nil {
+					tx.Rollback()
+					return nil, fmt.Errorf("failed to update raw memory to consolidated: %w", err)
+				}
+				if err := tx.Commit(); err != nil {
+					return nil, fmt.Errorf("failed to commit transaction: %w", err)
+				}
+			}
+			summaries = append(summaries, summary)
+			continue
+		}
+
+		res, err := eng.consolidateWithLLM(ctx, scope, scopeMemories)
+		if err != nil {
+			return nil, fmt.Errorf("llm consolidation failed for scope %s: %w", scope, err)
+		}
+
+		txMemMap := make(map[string]*db.Memory)
+
+		for _, item := range res.Consolidated {
+			content := item.Content
+			if eng.piiEnabled {
+				content = security.Redact(content)
+			}
+
+			var vector []float32
+			var embSource, embModel string
+			if eng.embeddings != nil {
+				emb := eng.embeddings.GenerateVector(content)
+				vector = emb.Vector
+				embSource = emb.Source
+				embModel = emb.Model
+			}
+
+			newID := uuid.New().String()
+			now := time.Now().UTC()
+
+			meta := item.Metadata
+			if meta == nil {
+				meta = make(map[string]string)
+			}
+
+			newMem := &db.Memory{
+				ID:                  newID,
+				Content:             content,
+				Scope:               scope,
+				Metadata:            meta,
+				Embedding:           vector,
+				EmbeddingSource:     embSource,
+				EmbeddingModel:      embModel,
+				CreatedAt:           now,
+				UpdatedAt:           now,
+				ConsolidationStatus: "consolidated",
+			}
+
+			summary.NewMemories = append(summary.NewMemories, newMem)
+			txMemMap[newID] = newMem
+
+			for _, replID := range item.ReplacesIDs {
+				summary.ArchivedMemoryIDs = append(summary.ArchivedMemoryIDs, replID)
+				summary.ReplacedIDToNewID[replID] = newID
+			}
+		}
+
+		summary.ArchivedMemoryIDs = append(summary.ArchivedMemoryIDs, res.DiscardedIDs...)
+
+		if !dryRun {
+			tx, err := eng.database.BeginTransaction()
+			if err != nil {
+				return nil, fmt.Errorf("failed to begin transaction: %w", err)
+			}
+
+			for _, m := range summary.NewMemories {
+				if err := eng.database.SaveMemoryTx(tx, m); err != nil {
+					tx.Rollback()
+					return nil, fmt.Errorf("failed to save consolidated memory: %w", err)
+				}
+			}
+
+			for oldID, newID := range summary.ReplacedIDToNewID {
+				if err := eng.database.ReparentMemoryEvidenceTx(tx, oldID, newID); err != nil {
+					tx.Rollback()
+					return nil, fmt.Errorf("failed to propagate evidence from %s to %s: %w", oldID, newID, err)
+				}
+			}
+
+			for _, m := range scopeMemories {
+				status := "archived"
+				parentID := summary.ReplacedIDToNewID[m.ID]
+
+				isDiscarded := false
+				for _, discID := range res.DiscardedIDs {
+					if discID == m.ID {
+						isDiscarded = true
+						break
+					}
+				}
+
+				isReplaced := parentID != ""
+				if !isReplaced && !isDiscarded {
+					continue
+				}
+
+				if isDiscarded {
+					parentID = ""
+				}
+
+				if err := eng.database.UpdateMemoryStatusTx(tx, m.ID, status, parentID); err != nil {
+					tx.Rollback()
+					return nil, fmt.Errorf("failed to archive original memory %s: %w", m.ID, err)
+				}
+			}
+
+			if err := tx.Commit(); err != nil {
+				return nil, fmt.Errorf("failed to commit transaction: %w", err)
+			}
+		}
+
+		summaries = append(summaries, summary)
+	}
+
+	return summaries, nil
+}
+
 func (eng *Engine) consolidateWithLLM(ctx context.Context, scope string, memories []*db.Memory) (*ConsolidationResult, error) {
 	var builder strings.Builder
 	builder.WriteString("<memory_content>\n")

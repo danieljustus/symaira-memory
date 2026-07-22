@@ -8,12 +8,17 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-corekit/logkit"
+	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/consolidation"
 	"github.com/danieljustus/symaira-memory/internal/db"
+	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/mcp"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/danieljustus/symaira-memory/internal/working"
 	"github.com/spf13/cobra"
 )
 
@@ -78,6 +83,9 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 			server.SetPIIEnabled(*cfg.Security.PIIEnabled)
 		}
 		if servePort > 0 {
+			if cfg.WorkingMemory.TTL != "" {
+				go runBackgroundCompaction(cfg, GetDB())
+			}
 			if err := server.StartHTTPServer(servePort); err != nil {
 				if errors.Is(err, http.ErrServerClosed) {
 					return nil
@@ -108,4 +116,27 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 			}
 		}
 	},
+}
+
+func runBackgroundCompaction(cfg *config.Config, database *db.DB) {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	piiEnabled := cfg.Security.PIIEnabled != nil && *cfg.Security.PIIEnabled
+	engine := consolidation.NewEngine(database, embeddings, cfg.Consolidation.URL, cfg.Consolidation.Model, cfg.Consolidation.Provider, piiEnabled)
+	evictor := working.NewEvictor(database, embeddings, engine, piiEnabled)
+
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		result, err := evictor.CompactWorkingMemories(ctx, false)
+		cancel()
+		if err != nil {
+			slog.Error("background compaction failed", "error", err)
+			continue
+		}
+		if result.EvictedCount > 0 {
+			slog.Info("background compaction completed", "expired", result.ExpiredCount, "evicted", result.EvictedCount)
+		}
+	}
 }
