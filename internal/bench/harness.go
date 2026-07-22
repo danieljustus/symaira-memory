@@ -14,10 +14,12 @@ import (
 
 // Options configures a benchmark run.
 type Options struct {
-	Repetitions int    // Number of repetitions for latency measurement (default: 10)
-	Output      string // Output format: "text" or "json" (default: "text")
-	FixturePath string // Path to custom JSON fixture file (optional)
-	Dataset     string // External dataset name for opt-in datasets (optional)
+	Repetitions      int     // Number of repetitions for latency measurement (default: 10)
+	Output           string  // Output format: "text" or "json" (default: "text")
+	FixturePath      string  // Path to custom JSON fixture file (optional)
+	Dataset          string  // External dataset name for opt-in datasets (optional; alias for Corpus)
+	Corpus           string  // Corpus to evaluate: "builtin" (default) or "longmemeval"
+	AbstainThreshold float64 // Score threshold for abstention evaluation (default 0)
 }
 
 // Report holds the complete benchmark results.
@@ -30,8 +32,9 @@ type Report struct {
 	BM25            RetrievalMetrics `json:"bm25"`
 	Vector          RetrievalMetrics `json:"vector"`
 	Hybrid          RetrievalMetrics `json:"hybrid"`
-	Temporal        []TemporalReport `json:"temporal,omitempty"`
-	Scope           []ScopeReport    `json:"scope,omitempty"`
+	Temporal        []TemporalReport   `json:"temporal,omitempty"`
+	Scope           []ScopeReport      `json:"scope,omitempty"`
+	Abstention      []AbstentionReport `json:"abstention,omitempty"`
 }
 
 // TemporalReport holds temporal-validity evaluation results for a single mode.
@@ -60,7 +63,26 @@ func Run(w io.Writer, opts Options) error {
 	}
 
 	// Load corpus
-	corpus := DefaultCorpus()
+	corpusName := opts.Corpus
+	if corpusName == "" {
+		corpusName = opts.Dataset
+	}
+	var corpus *Corpus
+	switch corpusName {
+	case "", "builtin":
+		corpus = DefaultCorpus()
+	case "longmemeval":
+		if opts.FixturePath == "" {
+			return fmt.Errorf("corpus longmemeval requires a dataset file path (--path)")
+		}
+		loaded, err := LoadLongMemEval(opts.FixturePath)
+		if err != nil {
+			return err
+		}
+		corpus = loaded
+	default:
+		return fmt.Errorf("unknown corpus %q: must be \"builtin\" or \"longmemeval\"", corpusName)
+	}
 
 	// Create temporary database
 	tempDir, err := os.MkdirTemp("", "symmemory-bench-*")
@@ -130,6 +152,11 @@ func Run(w io.Writer, opts Options) error {
 
 	// --- Scope isolation evaluation ---
 	report.Scope = evaluateScope(database, corpus, embeddings)
+
+	// --- Abstention evaluation (only for corpora with unanswerable queries) ---
+	if HasUnanswerableQueries(corpus) {
+		report.Abstention = evaluateAbstention(database, corpus, embeddings, opts.AbstainThreshold)
+	}
 
 	// --- Output ---
 	switch opts.Output {
@@ -325,6 +352,20 @@ func evaluateScope(database *db.DB, corpus *Corpus, embeddings *extractor.Embedd
 	return reports
 }
 
+// evaluateAbstention runs every query in hybrid mode and measures how often the
+// system abstains (top fused score below threshold) exactly when it should.
+func evaluateAbstention(database *db.DB, corpus *Corpus, embeddings *extractor.EmbeddingsGenerator, threshold float64) []AbstentionReport {
+	topScores := make(map[int]float64, len(corpus.Queries))
+	for i, gt := range corpus.Queries {
+		vec := embeddings.GenerateVector(gt.Query)
+		results, err := database.HybridSearch(vec.Vector, vec.Source, gt.Query, "", 10, 0.7, 0.3)
+		if err == nil && len(results) > 0 {
+			topScores[i] = results[0].FusedScore
+		}
+	}
+	return []AbstentionReport{ComputeAbstention("hybrid", threshold, corpus.Queries, topScores)}
+}
+
 // writeTextReport writes a human-readable benchmark report to w.
 func writeTextReport(w io.Writer, report Report) error {
 	fmt.Fprintf(w, "=== Symaira Memory Retrieval Benchmark ===\n\n")
@@ -350,6 +391,14 @@ func writeTextReport(w io.Writer, report Report) error {
 	fmt.Fprintf(w, "\n--- Scope Isolation ---\n")
 	for _, s := range report.Scope {
 		fmt.Fprintf(w, "  %s\n", s.Description)
+	}
+
+	if len(report.Abstention) > 0 {
+		fmt.Fprintf(w, "\n--- Abstention ---\n")
+		for _, a := range report.Abstention {
+			fmt.Fprintf(w, "  [mode=%s] threshold=%.3f: %d/%d correct (accuracy %.3f)\n",
+				a.Mode, a.Threshold, a.Correct, a.Total, a.Accuracy)
+		}
 	}
 
 	fmt.Fprintf(w, "\n=== Benchmark Complete ===\n")

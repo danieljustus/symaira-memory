@@ -22,6 +22,7 @@ type GroundTruth struct {
 	RelevantIDs []string // IDs of relevant memories
 	Scope       string   // if non-empty, restricts the expected scope
 	Description string   // human-readable description of this evaluation case
+	Answerable  bool     // false for unanswerable queries used in abstention evaluation
 }
 
 // TemporalSlice defines a query for evaluating temporal-validity awareness.

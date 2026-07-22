@@ -10,15 +10,20 @@ import (
 )
 
 var (
-	benchRepetitions int
-	benchFixture     string
-	benchDataset     string
+	benchRepetitions     int
+	benchFixture         string
+	benchDataset         string
+	benchCorpus          string
+	benchAbstainThreshold float64
 )
 
 func init() {
 	benchCmd.Flags().IntVarP(&benchRepetitions, "repetitions", "n", 10, "Number of repetitions for latency measurement")
 	benchCmd.Flags().StringVar(&benchFixture, "fixture", "", "Path to custom JSON/YAML fixture file (optional)")
-	benchCmd.Flags().StringVar(&benchDataset, "dataset", "", "External dataset name for opt-in evaluation (optional)")
+	benchCmd.Flags().StringVar(&benchFixture, "path", "", "Path to a locally downloaded dataset file (e.g. LongMemEval JSON)")
+	benchCmd.Flags().StringVar(&benchDataset, "dataset", "", "External dataset name for opt-in evaluation (optional; alias for --corpus)")
+	benchCmd.Flags().StringVar(&benchCorpus, "corpus", "", "Corpus to evaluate: builtin (default) or longmemeval")
+	benchCmd.Flags().Float64Var(&benchAbstainThreshold, "abstain-threshold", 0, "Score threshold for abstention evaluation on corpora with unanswerable queries")
 	rootCmd.AddCommand(benchCmd)
 }
 
@@ -48,10 +53,12 @@ All output goes to stderr for easy piping.`,
 			benchOutput = "text"
 		}
 		opts := bench.Options{
-			Repetitions: benchRepetitions,
-			Output:      benchOutput,
-			FixturePath: benchFixture,
-			Dataset:     benchDataset,
+			Repetitions:      benchRepetitions,
+			Output:           benchOutput,
+			FixturePath:      benchFixture,
+			Dataset:          benchDataset,
+			Corpus:           benchCorpus,
+			AbstainThreshold: benchAbstainThreshold,
 		}
 		if err := bench.Run(os.Stderr, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "Benchmark failed: %v\n", err)
