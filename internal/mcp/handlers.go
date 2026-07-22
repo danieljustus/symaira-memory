@@ -229,8 +229,15 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 		nextCursor = base64.StdEncoding.EncodeToString([]byte(last.UpdatedAt.Format(time.RFC3339Nano)))
 	}
 
+	deleted, err := s.service.GetDeletedSince(since)
+	if err != nil {
+		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to fetch tombstones", err)
+		return
+	}
+
 	resp := map[string]interface{}{
 		"memories":    memories,
+		"deleted":     deleted,
 		"server_time": time.Now().UTC().Format(time.RFC3339),
 	}
 	if nextCursor != "" {
@@ -249,14 +256,15 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Memories []*db.Memory `json:"memories"`
+		Memories []*db.Memory       `json:"memories"`
+		Deleted  []db.DeletedMemory `json:"deleted"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "Bad request body", err)
 		return
 	}
 
-	var applied, skipped, skippedInvalidScope, skippedInvalidID int
+	var applied, skipped, skippedInvalidScope, skippedInvalidID, deleted int
 	actor := "api"
 	if payload != nil && payload.Subject != "" {
 		actor = payload.Subject
@@ -274,7 +282,7 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 			skippedInvalidScope++
 			continue
 		}
-		isNew, err := s.service.UpsertMemoryIfNewer(m)
+		isNew, err := s.service.SyncUpsertMemoryIfNewer(m)
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to apply memory", err)
 			return
@@ -286,16 +294,98 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	for _, d := range body.Deleted {
+		if d.ID == "" {
+			continue
+		}
+		if _, err := uuid.Parse(d.ID); err != nil {
+			skippedInvalidID++
+			continue
+		}
+		removed, err := s.service.ApplyRemoteDelete(d.ID, d.DeletedAt)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to apply delete", err)
+			return
+		}
+		if removed {
+			deleted++
+		}
+	}
+
 	_ = s.service.LogAudit("sync.apply", "", "", "", actor,
-		fmt.Sprintf("applied=%d skipped=%d invalidScope=%d invalidID=%d", applied, skipped, skippedInvalidScope, skippedInvalidID))
+		fmt.Sprintf("applied=%d skipped=%d deleted=%d invalidScope=%d invalidID=%d", applied, skipped, deleted, skippedInvalidScope, skippedInvalidID))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{
 		"applied":             applied,
 		"skipped":             skipped,
+		"deleted":             deleted,
 		"skippedInvalidScope": skippedInvalidScope,
 		"skippedInvalidID":    skippedInvalidID,
 	})
+}
+
+// handleSyncRelay stores and serves opaque, client-side-encrypted sync blobs.
+// The relay never inspects payloads: it applies last-writer-wins on the
+// caller-supplied updated_at and returns ciphertext as-is.
+func (s *Server) handleSyncRelay(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		var since time.Time
+		if sinceStr := r.URL.Query().Get("since"); sinceStr != "" {
+			parsed, err := time.Parse(time.RFC3339Nano, sinceStr)
+			if err != nil {
+				writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "invalid since parameter; expected RFC3339", err)
+				return
+			}
+			since = parsed
+		}
+		limit := 500
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 10000 {
+				limit = l
+			}
+		}
+		blobs, err := s.service.GetRelayBlobsSince(since, limit)
+		if err != nil {
+			writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to fetch relay blobs", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"blobs":       blobs,
+			"server_time": time.Now().UTC().Format(time.RFC3339Nano),
+		})
+	case "POST":
+		var body struct {
+			Blobs []db.RelayBlob `json:"blobs"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "Bad request body", err)
+			return
+		}
+		var stored, skipped int
+		for _, b := range body.Blobs {
+			if b.ID == "" || len(b.Blob) == 0 {
+				skipped++
+				continue
+			}
+			ok, err := s.service.StoreRelayBlob(b)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to store relay blob", err)
+				return
+			}
+			if ok {
+				stored++
+			} else {
+				skipped++
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"stored": stored, "skipped": skipped})
+	default:
+		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
+	}
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
