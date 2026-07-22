@@ -83,7 +83,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_set",
 		Description: "Save a new persistent memory or fact. Use this tool autonomously when the user expresses a clear preference, constraint, architectural decision, or guideline that should persist across sessions.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","description":"The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},"scope":{"type":"string","description":"Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},"metadata":{"type":"string","description":"Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},"session_id":{"type":"string","description":"Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},"entities":{"type":"string","description":"Optional comma-separated entity names to link (e.g., 'Irene,Premium BnB'). Entities are auto-created if they don't exist."}},"required":["content"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","description":"The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},"scope":{"type":"string","description":"Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},"metadata":{"type":"string","description":"Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},"session_id":{"type":"string","description":"Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},"entities":{"type":"string","description":"Optional comma-separated entity names to link (e.g., 'Irene,Premium BnB'). Entities are auto-created if they don't exist."},"working":{"type":"boolean","description":"Store as working memory with TTL-based eviction (default false)"}},"required":["content"]}`),
 		Handler:     s.handleMemorySet,
 	})
 
@@ -184,6 +184,7 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 		Metadata  string `json:"metadata"`
 		SessionID string `json:"session_id"`
 		Entities  string `json:"entities"`
+		Working   bool   `json:"working"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_set': failed to parse arguments: %w", err)
@@ -209,7 +210,8 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 		}
 	}
 
-	id, err := s.service.Set(args.Content, args.Scope, meta, args.SessionID, "mcp", entityNames, "mcp")
+	ttl := s.workingMemoryTTL
+	id, err := s.service.Set(args.Content, args.Scope, meta, args.SessionID, "mcp", entityNames, "mcp", args.Working, ttl)
 	if err != nil {
 		return nil, fmt.Errorf("%s", err.Error())
 	}

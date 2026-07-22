@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -22,14 +23,15 @@ const (
 )
 
 type Server struct {
-	service     *MemoryService
-	auth        *AuthMiddleware
-	cors        *CORSMiddleware
-	jwts        *security.JWTProvider
-	version     string
-	cfg         *config.Config
-	profile     *db.Profile
-	rateLimiter *RateLimiter
+	service          *MemoryService
+	auth             *AuthMiddleware
+	cors             *CORSMiddleware
+	jwts             *security.JWTProvider
+	version          string
+	cfg              *config.Config
+	profile          *db.Profile
+	rateLimiter      *RateLimiter
+	workingMemoryTTL time.Duration
 }
 
 func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version string, cfg *config.Config) *Server {
@@ -38,14 +40,25 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version strin
 	auth := NewAuthMiddleware(jwtProvider, database, cfg.Security.RequireProfile)
 	cors := NewCORSMiddleware([]string{"chrome-extension://*", "moz-extension://*"})
 
+	var workingTTL time.Duration
+	if cfg.WorkingMemory.TTL != "" {
+		if d, err := time.ParseDuration(cfg.WorkingMemory.TTL); err == nil {
+			workingTTL = d
+		}
+	}
+	if workingTTL == 0 {
+		workingTTL = 24 * time.Hour
+	}
+
 	return &Server{
-		service:     service,
-		auth:        auth,
-		cors:        cors,
-		jwts:        jwtProvider,
-		version:     version,
-		cfg:         cfg,
-		rateLimiter: NewRateLimiter(DefaultRateLimitConfig(), cfg.Security.TrustedProxies...),
+		service:          service,
+		auth:             auth,
+		cors:             cors,
+		jwts:             jwtProvider,
+		version:          version,
+		cfg:              cfg,
+		rateLimiter:      NewRateLimiter(DefaultRateLimitConfig(), cfg.Security.TrustedProxies...),
+		workingMemoryTTL: workingTTL,
 	}
 }
 

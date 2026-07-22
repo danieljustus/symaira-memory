@@ -14,6 +14,7 @@ type ContextLayer string
 
 const (
 	LayerWorkingContext ContextLayer = "working_context"
+	LayerWorkingMemory  ContextLayer = "working_memory"
 	LayerSummary        ContextLayer = "summary"
 	LayerRetrieval      ContextLayer = "retrieval"
 )
@@ -32,10 +33,11 @@ type AssembledContext struct {
 }
 
 type Assembler struct {
-	database   *db.DB
-	summarizer *summarizer.ExtractiveSummarizer
-	embeddings *extractor.EmbeddingsGenerator
-	cfg        *config.ContextConfig
+	database            *db.DB
+	summarizer          *summarizer.ExtractiveSummarizer
+	embeddings          *extractor.EmbeddingsGenerator
+	cfg                 *config.ContextConfig
+	workingMemoryConfig *config.WorkingMemoryConfig
 }
 
 func NewAssembler(database *db.DB, embeddings *extractor.EmbeddingsGenerator, cfg *config.ContextConfig) *Assembler {
@@ -49,6 +51,10 @@ func NewAssembler(database *db.DB, embeddings *extractor.EmbeddingsGenerator, cf
 		embeddings: embeddings,
 		cfg:        cfg,
 	}
+}
+
+func (a *Assembler) SetWorkingMemoryConfig(cfg *config.WorkingMemoryConfig) {
+	a.workingMemoryConfig = cfg
 }
 
 func (a *Assembler) Assemble(query string, sessionText string, sessionID string) (*AssembledContext, error) {
@@ -73,6 +79,28 @@ func (a *Assembler) Assemble(query string, sessionText string, sessionID string)
 				Tokens:  workingTokens,
 			})
 			usedTokens += workingTokens
+		}
+	}
+
+	if a.workingMemoryConfig != nil && a.workingMemoryConfig.IncludeInContext && usedTokens < budget {
+		remaining := budget - usedTokens
+		maxItems := a.workingMemoryConfig.MaxItems
+		if maxItems <= 0 {
+			maxItems = 50
+		}
+		workingMems, err := a.database.GetWorkingMemories("", maxItems)
+		if err == nil && len(workingMems) > 0 {
+			workingMemContent := formatWorkingMemories(workingMems)
+			workingMemTokens := estimateTokens(workingMemContent)
+			if usedTokens+workingMemTokens <= budget {
+				ctx.Pieces = append(ctx.Pieces, AssembledPiece{
+					Layer:   LayerWorkingMemory,
+					Content: workingMemContent,
+					Tokens:  workingMemTokens,
+				})
+				usedTokens += workingMemTokens
+			}
+			_ = remaining
 		}
 	}
 
@@ -167,6 +195,18 @@ func formatRetrievalResults(results []db.SearchResult) string {
 			break
 		}
 		fmt.Fprintf(&sb, "- %s\n", r.Memory.Content)
+	}
+	return sb.String()
+}
+
+func formatWorkingMemories(mems []*db.Memory) string {
+	var sb strings.Builder
+	sb.WriteString("Active working memories:\n")
+	for i, m := range mems {
+		if i >= 20 {
+			break
+		}
+		fmt.Fprintf(&sb, "- %s\n", m.Content)
 	}
 	return sb.String()
 }

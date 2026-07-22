@@ -17,6 +17,7 @@ type Config struct {
 	Retention     RetentionConfig     `json:"retention"`
 	HybridSearch  HybridSearchConfig  `json:"hybrid_search"`
 	Import        ImportConfig        `json:"import"`
+	WorkingMemory WorkingMemoryConfig `json:"working_memory"`
 }
 
 type DatabaseConfig struct {
@@ -101,6 +102,13 @@ type ImportToolConfig struct {
 	Options map[string]string `json:"options"`
 }
 
+// WorkingMemoryConfig controls the working-memory tier lifecycle.
+type WorkingMemoryConfig struct {
+	TTL              string `json:"ttl"`                // expiration duration for working memories (default "24h")
+	MaxItems         int    `json:"max_items"`          // max working memories in context assembly (default 50)
+	IncludeInContext bool   `json:"include_in_context"` // include working memories in assembled context (default true)
+}
+
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	trueVal := true
@@ -151,6 +159,11 @@ func Defaults() *Config {
 		},
 		Import: ImportConfig{
 			ExtractOnImport: true,
+		},
+		WorkingMemory: WorkingMemoryConfig{
+			TTL:              "24h",
+			MaxItems:         50,
+			IncludeInContext: true,
 		},
 	}
 }

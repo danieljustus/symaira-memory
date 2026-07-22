@@ -99,6 +99,7 @@ func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 		Metadata  map[string]string `json:"metadata"`
 		SessionID string            `json:"session_id"`
 		Entities  []string          `json:"entities"`
+		Working   bool              `json:"working"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
 		writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "Bad request body", err)
@@ -110,7 +111,8 @@ func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 		author = payload.Subject
 	}
 
-	id, err := s.service.Set(args.Content, args.Scope, args.Metadata, args.SessionID, author, args.Entities, "http")
+	ttl := s.workingMemoryTTL
+	id, err := s.service.Set(args.Content, args.Scope, args.Metadata, args.SessionID, author, args.Entities, "http", args.Working, ttl)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to save memory", err)
 		return

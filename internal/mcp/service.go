@@ -71,12 +71,12 @@ func (s *MemoryService) SearchWithProfile(query, profileName string, limit int, 
 	return s.db.SearchMemoriesWithProfile(emb.Vector, emb.Source, profileName, limit, entityID, trustFilter, policyFilter)
 }
 
-func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string) (string, error) {
+func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string, working bool, ttl time.Duration) (string, error) {
 	attr := memory.Attribution{
 		Author:    author,
 		SessionID: sessionID,
 	}
-	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, content, scope, metadata, s.piiEnabled, attr, entities, sourceTool)
+	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, content, scope, metadata, s.piiEnabled, attr, entities, sourceTool, working, ttl)
 	if err != nil {
 		return "", err
 	}

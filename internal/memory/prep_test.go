@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -233,7 +234,7 @@ func TestStoreWithEntityLinking(t *testing.T) {
 	attr := Attribution{Author: "test-user", SessionID: "sess-1"}
 	entities := []string{"Alice", "Bob"}
 
-	m, extractedStr, err := Store(database, embeddings, patternExtractor, "Alice and Bob discussed the project", "global", nil, false, attr, entities, "test")
+	m, extractedStr, err := Store(database, embeddings, patternExtractor, "Alice and Bob discussed the project", "global", nil, false, attr, entities, "test", false, 0)
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -284,7 +285,7 @@ func TestStoreCreatesEntityIfNew(t *testing.T) {
 	attr := Attribution{Author: "test"}
 	entities := []string{"NewEntity"}
 
-	m, _, err := Store(database, embeddings, patternExtractor, "Test with new entity", "global", nil, false, attr, entities, "test")
+	m, _, err := Store(database, embeddings, patternExtractor, "Test with new entity", "global", nil, false, attr, entities, "test", false, 0)
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -318,7 +319,7 @@ func TestStoreSkipsEmptyEntityNames(t *testing.T) {
 	attr := Attribution{Author: "test"}
 	entities := []string{"", "  ", "ValidEntity"}
 
-	_, _, err := Store(database, embeddings, patternExtractor, "Test entity skipping", "global", nil, false, attr, entities, "test")
+	_, _, err := Store(database, embeddings, patternExtractor, "Test entity skipping", "global", nil, false, attr, entities, "test", false, 0)
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -340,7 +341,7 @@ func TestStoreWithPIIRedaction(t *testing.T) {
 
 	attr := Attribution{Author: "test"}
 
-	m, _, err := Store(database, embeddings, patternExtractor, "Contact alice@example.com for info", "global", nil, true, attr, nil, "test")
+	m, _, err := Store(database, embeddings, patternExtractor, "Contact alice@example.com for info", "global", nil, true, attr, nil, "test", false, 0)
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -366,7 +367,7 @@ func TestStoreWithPIIMetadataRedaction(t *testing.T) {
 		"contact": "bob@example.com",
 	}
 
-	m, _, err := Store(database, embeddings, patternExtractor, "clean content", "global", meta, true, attr, nil, "test")
+	m, _, err := Store(database, embeddings, patternExtractor, "clean content", "global", meta, true, attr, nil, "test", false, 0)
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -392,7 +393,7 @@ func TestStoreDeduplicatesSecondaryFacts(t *testing.T) {
 	attr := Attribution{Author: "test"}
 	content := "I prefer Go for backend"
 
-	m, extractedStr, err := Store(database, embeddings, patternExtractor, content, "global", nil, false, attr, nil, "test")
+	m, extractedStr, err := Store(database, embeddings, patternExtractor, content, "global", nil, false, attr, nil, "test", false, 0)
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -442,5 +443,58 @@ func TestFormatStoreSuccess(t *testing.T) {
 	}
 	if !strings.Contains(msg, "fact1") {
 		t.Errorf("expected message to contain extracted fact, got '%s'", msg)
+	}
+}
+
+func TestStore_WorkingTier(t *testing.T) {
+	database := helperMemDB(t)
+	cfg := config.Defaults()
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	patternExtractor := extractor.NewPatternExtractor()
+
+	attr := Attribution{Author: "test-user", SessionID: "sess-1"}
+
+	m, _, err := Store(database, embeddings, patternExtractor, "Current task: implement feature X", "project", nil, false, attr, nil, "test", true, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	if m.Tier != "working" {
+		t.Errorf("expected Tier=working, got %q", m.Tier)
+	}
+	if m.ExpiresAt == nil {
+		t.Fatal("expected ExpiresAt to be set")
+	}
+
+	got, err := database.GetMemory(m.ID)
+	if err != nil {
+		t.Fatalf("GetMemory failed: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected memory to be saved")
+	}
+	if got.Tier != "working" {
+		t.Errorf("expected persisted Tier=working, got %q", got.Tier)
+	}
+}
+
+func TestStore_DefaultTier(t *testing.T) {
+	database := helperMemDB(t)
+	cfg := config.Defaults()
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	patternExtractor := extractor.NewPatternExtractor()
+
+	attr := Attribution{Author: "test-user", SessionID: "sess-1"}
+
+	m, _, err := Store(database, embeddings, patternExtractor, "Alice prefers dark mode", "global", nil, false, attr, nil, "test", false, 0)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	if m.Tier != "long_term" {
+		t.Errorf("expected Tier=long_term, got %q", m.Tier)
+	}
+	if m.ExpiresAt != nil {
+		t.Errorf("expected ExpiresAt=nil for long_term, got %v", *m.ExpiresAt)
 	}
 }
