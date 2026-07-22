@@ -276,7 +276,7 @@ func TestGraphNeighborsAsOf_ExcludesExpiredRelations(t *testing.T) {
 	expiredUntil := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 	if err := database.SaveEntityRelation(&EntityRelation{
 		FromEntityID: ids["Alice"], ToEntityID: ids["Bob"], RelationType: "works-with",
-		ValidUntil:   &expiredUntil,
+		ValidUntil: &expiredUntil,
 	}); err != nil {
 		t.Fatalf("save expired: %v", err)
 	}
@@ -520,7 +520,7 @@ func TestGraphNeighborsAsOf_ExactBoundary_validFromEqualsAsOf(t *testing.T) {
 	ts := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	if err := database.SaveEntityRelation(&EntityRelation{
 		FromEntityID: ids["Alice"], ToEntityID: ids["Bob"], RelationType: "works-with",
-		ValidFrom:    &ts,
+		ValidFrom: &ts,
 	}); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -544,7 +544,7 @@ func TestGraphNeighborsAsOf_ExactBoundary_validUntilEqualsAsOf(t *testing.T) {
 	ts := time.Date(2026, 6, 15, 12, 0, 0, 0, time.UTC)
 	if err := database.SaveEntityRelation(&EntityRelation{
 		FromEntityID: ids["Alice"], ToEntityID: ids["Bob"], RelationType: "works-with",
-		ValidUntil:   &ts,
+		ValidUntil: &ts,
 	}); err != nil {
 		t.Fatalf("save: %v", err)
 	}

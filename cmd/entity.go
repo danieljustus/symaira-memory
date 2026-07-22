@@ -444,9 +444,9 @@ var entityNeighborsCmd = &cobra.Command{
 		var nodes []*db.Entity
 		var edges []*db.EntityRelation
 		if entityNeighborsAsOf != "" {
-			asOf, err := db.ParseRelationDate(entityNeighborsAsOf)
-			if err != nil {
-				return exitcodes.Wrapf(err, exitcodes.ExitNoInput, exitcodes.KindValidation, "invalid --as-of: %v", err)
+			asOf, parseErr := db.ParseRelationDate(entityNeighborsAsOf)
+			if parseErr != nil {
+				return exitcodes.Wrapf(parseErr, exitcodes.ExitNoInput, exitcodes.KindValidation, "invalid --as-of: %v", parseErr)
 			}
 			nodes, edges, err = GetDB().GraphNeighborsAsOf(entity.ID, entityNeighborsDepth, &asOf)
 		} else {
