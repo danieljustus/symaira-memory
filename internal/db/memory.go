@@ -18,6 +18,7 @@ type Memory struct {
 	Scope               string            `json:"scope"`               // global, project, agent, user, session
 	Metadata            map[string]string `json:"metadata"`            // key-value metadata
 	Embedding           []float32         `json:"embedding,omitempty"` // semantic embedding
+	EmbeddingBinary     []byte            `json:"-"`                   // 96-byte sign-bit binary vector for Hamming prefilter
 	EmbeddingSource     string            `json:"embedding_source,omitempty"`
 	EmbeddingModel      string            `json:"embedding_model,omitempty"`
 	ContentHash         string            `json:"content_hash,omitempty"`
@@ -80,7 +81,7 @@ func ComputeContentHash(content string) string {
 }
 
 // saveMemoryExec is the shared implementation for SaveMemory and SaveMemoryTx.
-func saveMemoryExec(execer SQLExecer, m *Memory) error {
+func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	metadataJSON, err := json.Marshal(m.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
@@ -93,6 +94,10 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 
 	embeddingDim := len(m.Embedding)
 	lshHash := ComputeLSH(m.Embedding)
+	var embBin []byte
+	if quantizeBinary && len(m.Embedding) > 0 {
+		embBin = BinarizeVector(m.Embedding)
+	}
 
 	// Compute content hash if not already set.
 	contentHash := m.ContentHash
@@ -138,13 +143,14 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 		expiresAt.Valid = true
 	}
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_binary, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
 			metadata=excluded.metadata,
 			embedding=excluded.embedding,
+			embedding_binary=excluded.embedding_binary,
 			embedding_dim=excluded.embedding_dim,
 			embedding_source=excluded.embedding_source,
 			embedding_model=excluded.embedding_model,
@@ -168,18 +174,18 @@ func saveMemoryExec(execer SQLExecer, m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt)
 	return err
 }
 
 // SaveMemory inserts or updates a memory.
 func (db *DB) SaveMemory(m *Memory) error {
-	return saveMemoryExec(db.conn, m)
+	return saveMemoryExec(db.conn, m, db.quantizeBinary)
 }
 
 // SaveMemoryTx inserts or updates a memory within a transaction.
 func (db *DB) SaveMemoryTx(tx *sql.Tx, m *Memory) error {
-	return saveMemoryExec(tx, m)
+	return saveMemoryExec(tx, m, db.quantizeBinary)
 }
 
 // UpdateMemoryStatusTx updates the consolidation status and parent ID of a memory within a transaction.
@@ -204,14 +210,15 @@ func (db *DB) DeleteMemory(id string) error {
 func (db *DB) GetMemory(id string) (*Memory, error) {
 	var m Memory
 	var metaStr, embStr string
+	var embBin []byte
 	var consolidatedInto sql.NullString
 	var validFrom, validTo sql.NullTime
 	var supersededBy sql.NullString
 	var expiresAt sql.NullTime
 	err := db.conn.QueryRow(
-		"SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE id = ?",
+		"SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE id = ?",
 		id,
-	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy, &m.Tier, &expiresAt)
+	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &embBin, &m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy, &m.Tier, &expiresAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -227,6 +234,7 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
 		return nil, err
 	}
+	m.EmbeddingBinary = embBin
 
 	entities, err := db.EntitiesForMemory(m.ID)
 	if err == nil && len(entities) > 0 {
@@ -257,11 +265,12 @@ func populateMemoryFields(m *Memory, metaStr string, consolidatedInto sql.NullSt
 func scanMemory(rows *sql.Rows) (*Memory, error) {
 	var m Memory
 	var metaStr, embStr string
+	var embBin []byte
 	var consolidatedInto sql.NullString
 	var validFrom, validTo sql.NullTime
 	var supersededBy sql.NullString
 	var expiresAt sql.NullTime
-	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy, &m.Tier, &expiresAt); err != nil {
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &embBin, &m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy, &m.Tier, &expiresAt); err != nil {
 		return nil, err
 	}
 	if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
@@ -273,6 +282,7 @@ func scanMemory(rows *sql.Rows) (*Memory, error) {
 	if err := json.Unmarshal([]byte(embStr), &m.Embedding); err != nil {
 		return nil, err
 	}
+	m.EmbeddingBinary = embBin
 	return &m, nil
 }
 
@@ -303,10 +313,10 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE consolidation_status != 'archived' AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE consolidation_status != 'archived' AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -343,10 +353,10 @@ func (db *DB) ListMemoriesAsOf(scope string, asOf time.Time, offset, limit int) 
 	const expiredWorkingClause = " AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now'))"
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE scope = ? AND consolidation_status != 'archived'" + expiredWorkingClause + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE scope = ? AND consolidation_status != 'archived'" + expiredWorkingClause + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, asOf, asOf, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE consolidation_status != 'archived'" + expiredWorkingClause + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE consolidation_status != 'archived'" + expiredWorkingClause + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, asOf, asOf, limit, offset)
 	}
 
@@ -483,7 +493,7 @@ func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddin
 
 	var query string
 	if includeEmb {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?"
 	} else {
 		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?"
 	}
@@ -511,7 +521,7 @@ func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddin
 
 // GetRawMemories returns all memories with consolidation_status = 'raw'.
 func (db *DB) GetRawMemories() ([]*Memory, error) {
-	query := "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
+	query := "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -545,6 +555,10 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 
 	embeddingDim := len(m.Embedding)
 	lshHash := ComputeLSH(m.Embedding)
+	var embBin []byte
+	if db.quantizeBinary && len(m.Embedding) > 0 {
+		embBin = BinarizeVector(m.Embedding)
+	}
 
 	contentHash := m.ContentHash
 	if contentHash == "" {
@@ -569,9 +583,9 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 
 	if err == sql.ErrNoRows {
 		_, err = db.conn.Exec(
-			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy), m.Tier, nullTimePtr(m.ExpiresAt),
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_binary, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy), m.Tier, nullTimePtr(m.ExpiresAt),
 		)
 		if err != nil {
 			return false, err
@@ -584,8 +598,8 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	}
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_dim=?, embedding_source=?, embedding_model=?, content_hash=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=?, importance=?, tier=?, expires_at=? WHERE id=?`,
-		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.Importance, m.Tier, nullTimePtr(m.ExpiresAt), m.ID,
+		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_binary=?, embedding_dim=?, embedding_source=?, embedding_model=?, content_hash=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=?, importance=?, tier=?, expires_at=? WHERE id=?`,
+		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.Importance, m.Tier, nullTimePtr(m.ExpiresAt), m.ID,
 	)
 	if err != nil {
 		return false, err
@@ -706,7 +720,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		}
 		inClause := strings.Join(placeholders, ", ")
 
-		query := "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE id IN (" + inClause + ")"
+		query := "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at FROM memories WHERE id IN (" + inClause + ")"
 
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
@@ -726,12 +740,39 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 				if !PassesPolicyFilter(m, policyFilter) {
 					continue
 				}
-				relevance := CosineSimilarity(queryVec, m.Embedding)
-				score := float32(CompositeScore(relevance, m.CreatedAt, float64(m.Importance)/10.0, w))
-				results = append(results, scored{m: m, score: score})
+				results = append(results, scored{m: m})
 			}
 		}
 		rows.Close()
+	}
+
+	// Hamming prefilter: reduce cosine computations by selecting candidates
+	// closest in sign-bit space. When disabled or no candidates, skip.
+	if db.prefilterEnabled && len(results) > 0 {
+		queryBin := BinarizeVector(queryVec)
+		prefilterN := len(results) * 4 // 4× multiplier keeps ≥98% recall
+		if prefilterN < limit*4 {
+			prefilterN = limit * 4
+		}
+
+		var candidateBins [][]byte
+		for _, r := range results {
+			candidateBins = append(candidateBins, r.m.EmbeddingBinary)
+		}
+
+		keepIdx := HammingPrefilter(queryBin, candidateBins, prefilterN)
+		filtered := make([]scored, 0, len(keepIdx))
+		for _, idx := range keepIdx {
+			if results[idx].m.EmbeddingBinary != nil {
+				filtered = append(filtered, results[idx])
+			}
+		}
+		results = filtered
+	}
+
+	for i := range results {
+		relevance := CosineSimilarity(queryVec, results[i].m.Embedding)
+		results[i].score = float32(CompositeScore(relevance, results[i].m.CreatedAt, float64(results[i].m.Importance)/10.0, w))
 	}
 
 	sort.Slice(results, func(i, j int) bool {
@@ -1015,10 +1056,14 @@ func (db *DB) SetMemoryEmbedding(id string, embedding []float32, source, model s
 	}
 	embeddingDim := len(embedding)
 	lshHash := ComputeLSH(embedding)
+	var embBin []byte
+	if db.quantizeBinary && len(embedding) > 0 {
+		embBin = BinarizeVector(embedding)
+	}
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET embedding = ?, embedding_dim = ?, embedding_source = ?, embedding_model = ?, lsh_hash = ? WHERE id = ?`,
-		string(embeddingJSON), embeddingDim, source, model, lshHash, id,
+		`UPDATE memories SET embedding = ?, embedding_binary = ?, embedding_dim = ?, embedding_source = ?, embedding_model = ?, lsh_hash = ? WHERE id = ?`,
+		string(embeddingJSON), embBin, embeddingDim, source, model, lshHash, id,
 	)
 	return err
 }
