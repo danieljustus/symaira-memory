@@ -82,11 +82,13 @@ type RetentionConfig struct {
 
 // HybridSearchConfig controls hybrid vector + BM25 retrieval.
 type HybridSearchConfig struct {
-	Enabled      bool    `json:"enabled"`       // enable hybrid search (default true)
-	BM25Weight   float64 `json:"bm25_weight"`   // BM25 weight in fusion (default 0.3)
-	VectorWeight float64 `json:"vector_weight"` // vector weight in fusion (default 0.7)
-	MMREnabled   bool    `json:"mmr_enabled"`   // enable MMR diversity (default false)
-	MMRLambda    float64 `json:"mmr_lambda"`    // MMR lambda (0=diversity, 1=relevance, default 0.7)
+	Enabled          bool    `json:"enabled"`            // enable hybrid search (default true)
+	BM25Weight       float64 `json:"bm25_weight"`        // BM25 weight in fusion (default 0.3)
+	VectorWeight     float64 `json:"vector_weight"`      // vector weight in fusion (default 0.7)
+	MMREnabled       bool    `json:"mmr_enabled"`        // enable MMR diversity (default false)
+	MMRLambda        float64 `json:"mmr_lambda"`         // MMR lambda (0=diversity, 1=relevance, default 0.7)
+	QuantizeToBinary bool    `json:"quantize_to_binary"` // store sign-bit binary vectors for fast Hamming prefilter
+	PrefilterEnabled bool    `json:"prefilter_enabled"`  // use Hamming prefilter before cosine scoring (opt-in)
 }
 
 // ImportConfig holds per-tool import settings.

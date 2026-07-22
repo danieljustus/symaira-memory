@@ -14,7 +14,9 @@ import (
 
 // DB wraps the SQL connection.
 type DB struct {
-	conn *sql.DB
+	conn             *sql.DB
+	quantizeBinary   bool // store sign-bit binary vectors on save
+	prefilterEnabled bool // use Hamming prefilter before cosine scoring
 }
 
 // Open initializes the SQLite database at the standard XDG path,
@@ -46,7 +48,11 @@ func Open(cfg *config.Config) (*DB, error) {
 	conn.SetMaxIdleConns(1)
 	conn.SetConnMaxLifetime(0)
 
-	db := &DB{conn: conn}
+	db := &DB{
+		conn:             conn,
+		quantizeBinary:   cfg.HybridSearch.QuantizeToBinary,
+		prefilterEnabled: cfg.HybridSearch.PrefilterEnabled,
+	}
 	if err := db.runMigrations(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
