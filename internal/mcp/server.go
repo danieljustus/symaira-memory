@@ -41,7 +41,7 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version strin
 	cors := NewCORSMiddleware([]string{"chrome-extension://*", "moz-extension://*"})
 
 	var workingTTL time.Duration
-	if cfg != nil && cfg.WorkingMemory.TTL != "" {
+	if cfg.WorkingMemory.TTL != "" {
 		if d, err := time.ParseDuration(cfg.WorkingMemory.TTL); err == nil {
 			workingTTL = d
 		}
