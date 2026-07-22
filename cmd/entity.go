@@ -29,7 +29,10 @@ var (
 	entityRelateSourceRef    string
 	entityRelateVerification string
 	entityRelateEvidenceJSON string
+	entityRelateValidFrom    string
+	entityRelateValidUntil   string
 	entityUnrelateRelationID string
+	entityNeighborsAsOf      string
 )
 
 func init() {
@@ -47,6 +50,7 @@ func init() {
 	entityAddCmd.Flags().StringVar(&entityAliases, "aliases", "", "Comma-separated aliases")
 	entityAddCmd.Flags().StringVar(&entityDescription, "description", "", "Entity description")
 	entityNeighborsCmd.Flags().IntVar(&entityNeighborsDepth, "depth", 1, fmt.Sprintf("Traversal depth, 1-%d", db.MaxGraphDepth))
+	entityNeighborsCmd.Flags().StringVar(&entityNeighborsAsOf, "as-of", "", "Only return relations valid at this point in time (RFC3339 or YYYY-MM-DD; default: now)")
 	entityResolveCmd.Flags().StringVar(&entityResolveType, "type", "", "Restrict candidates to this exact entity type")
 	entityResolveCmd.Flags().StringVar(&entityResolveAliases, "aliases", "", "Comma-separated alias hints to also compare (never stored; PII-shaped hints are dropped)")
 	entityResolveCmd.Flags().IntVar(&entityResolveLimit, "limit", 10, "Maximum number of candidates to return")
@@ -58,6 +62,8 @@ func init() {
 	entityRelateCmd.Flags().StringVar(&entityRelateSourceRef, "source-ref", "", "Opaque caller reference for idempotency (e.g. a meeting ID; never an absolute path)")
 	entityRelateCmd.Flags().StringVar(&entityRelateVerification, "verification", "", "Provenance verification status: verified or unverified")
 	entityRelateCmd.Flags().StringVar(&entityRelateEvidenceJSON, "evidence-json", "", `Optional bounded evidence JSON: {"source_doc_id","char_start","char_end","time_start","time_end"}`)
+	entityRelateCmd.Flags().StringVar(&entityRelateValidFrom, "valid-from", "", "Start of validity interval (RFC3339 or YYYY-MM-DD). When provided on an existing triple, updates the temporal window.")
+	entityRelateCmd.Flags().StringVar(&entityRelateValidUntil, "valid-until", "", "End of validity interval (RFC3339 or YYYY-MM-DD). Omit for open-ended.")
 	entityUnrelateCmd.Flags().StringVar(&entityUnrelateRelationID, "relation-id", "", "Relation ID to remove (ID-based mode; alternative to the positional [from] [relation] [to])")
 
 	rootCmd.AddCommand(entityCmd)
@@ -286,7 +292,23 @@ var entityRelateCmd = &cobra.Command{
 			return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation, "--source and --source-ref must be provided together")
 		}
 
-		if hasProvenance {
+		var validFrom, validUntil *time.Time
+		if entityRelateValidFrom != "" {
+			t, err := db.ParseRelationDate(entityRelateValidFrom)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitNoInput, exitcodes.KindValidation, "invalid --valid-from: %v", err)
+			}
+			validFrom = &t
+		}
+		if entityRelateValidUntil != "" {
+			t, err := db.ParseRelationDate(entityRelateValidUntil)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitNoInput, exitcodes.KindValidation, "invalid --valid-until: %v", err)
+			}
+			validUntil = &t
+		}
+
+		if hasProvenance || validFrom != nil {
 			rel := &db.EntityRelation{
 				FromEntityID: fromEntity.ID,
 				ToEntityID:   toEntity.ID,
@@ -296,6 +318,8 @@ var entityRelateCmd = &cobra.Command{
 				Verification: entityRelateVerification,
 				Evidence:     entityRelateEvidenceJSON,
 				CreatedBy:    "cli",
+				ValidFrom:    validFrom,
+				ValidUntil:   validUntil,
 			}
 			saved, err := GetDB().SaveEntityRelationProvenance(rel)
 			if err != nil {
@@ -320,6 +344,8 @@ var entityRelateCmd = &cobra.Command{
 			RelationType: relation,
 			CreatedBy:    "cli",
 			CreatedAt:    time.Now().UTC(),
+			ValidFrom:    validFrom,
+			ValidUntil:   validUntil,
 		}
 		if err := GetDB().SaveEntityRelation(rel); err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to save relation")
@@ -415,7 +441,17 @@ var entityNeighborsCmd = &cobra.Command{
 			return exitcodes.Wrapf(nil, exitcodes.ExitNotFound, exitcodes.KindNotFound, "entity not found: %s", name)
 		}
 
-		nodes, edges, err := GetDB().GraphNeighbors(entity.ID, entityNeighborsDepth)
+		var nodes []*db.Entity
+		var edges []*db.EntityRelation
+		if entityNeighborsAsOf != "" {
+			asOf, parseErr := db.ParseRelationDate(entityNeighborsAsOf)
+			if parseErr != nil {
+				return exitcodes.Wrapf(parseErr, exitcodes.ExitNoInput, exitcodes.KindValidation, "invalid --as-of: %v", parseErr)
+			}
+			nodes, edges, err = GetDB().GraphNeighborsAsOf(entity.ID, entityNeighborsDepth, &asOf)
+		} else {
+			nodes, edges, err = GetDB().GraphNeighbors(entity.ID, entityNeighborsDepth)
+		}
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to compute neighbors")
 		}

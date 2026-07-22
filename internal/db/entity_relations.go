@@ -33,17 +33,19 @@ const MaxSourceDocIDLength = 200
 // relations created before they existed read back with ID backfilled and
 // the rest at their zero value.
 type EntityRelation struct {
-	ID           string    `json:"id"`
-	FromEntityID string    `json:"from_entity_id"`
-	ToEntityID   string    `json:"to_entity_id"`
-	RelationType string    `json:"relation_type"`
-	Source       string    `json:"source,omitempty"`
-	SourceRef    string    `json:"source_ref,omitempty"`
-	Verification string    `json:"verification,omitempty"`
-	Evidence     string    `json:"evidence,omitempty"`
-	CreatedBy    string    `json:"created_by,omitempty"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID           string     `json:"id"`
+	FromEntityID string     `json:"from_entity_id"`
+	ToEntityID   string     `json:"to_entity_id"`
+	RelationType string     `json:"relation_type"`
+	Source       string     `json:"source,omitempty"`
+	SourceRef    string     `json:"source_ref,omitempty"`
+	Verification string     `json:"verification,omitempty"`
+	Evidence     string     `json:"evidence,omitempty"`
+	CreatedBy    string     `json:"created_by,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	ValidFrom    *time.Time `json:"valid_from,omitempty"`
+	ValidUntil   *time.Time `json:"valid_until,omitempty"`
 }
 
 // RelationEvidence is optional, bounded provenance detail attached to a
@@ -133,11 +135,18 @@ func (db *DB) SaveEntityRelation(r *EntityRelation) error {
 	if r.ID == "" {
 		r.ID = uuid.New().String()
 	}
-	_, err := db.conn.Exec(
-		`INSERT OR IGNORE INTO entity_relations
-			(id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.FromEntityID, r.ToEntityID, r.RelationType, r.Source, r.SourceRef, r.Verification, r.Evidence, r.CreatedBy, r.CreatedAt, r.UpdatedAt,
+	existing, err := db.getRelationByTriple(r.FromEntityID, r.ToEntityID, r.RelationType)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		return nil
+	}
+	_, err = db.conn.Exec(
+		`INSERT INTO entity_relations
+			(id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at, valid_from, valid_until)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.FromEntityID, r.ToEntityID, r.RelationType, r.Source, r.SourceRef, r.Verification, r.Evidence, r.CreatedBy, r.CreatedAt, r.UpdatedAt, r.ValidFrom, r.ValidUntil,
 	)
 	return err
 }
@@ -177,9 +186,9 @@ func (db *DB) SaveEntityRelationProvenance(r *EntityRelation) (*EntityRelation, 
 		saved.UpdatedAt = now
 		_, err := db.conn.Exec(
 			`INSERT INTO entity_relations
-				(id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			saved.ID, saved.FromEntityID, saved.ToEntityID, saved.RelationType, saved.Source, saved.SourceRef, saved.Verification, saved.Evidence, saved.CreatedBy, saved.CreatedAt, saved.UpdatedAt,
+				(id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at, valid_from, valid_until)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			saved.ID, saved.FromEntityID, saved.ToEntityID, saved.RelationType, saved.Source, saved.SourceRef, saved.Verification, saved.Evidence, saved.CreatedBy, saved.CreatedAt, saved.UpdatedAt, saved.ValidFrom, saved.ValidUntil,
 		)
 		if err != nil {
 			return nil, err
@@ -191,6 +200,36 @@ func (db *DB) SaveEntityRelationProvenance(r *EntityRelation) (*EntityRelation, 
 	// the existing relation unchanged rather than mutating it again.
 	if existing.Source == r.Source && existing.SourceRef == r.SourceRef {
 		return existing, nil
+	}
+
+	// Version chain: when the caller supplies a valid_from on a new version
+	// of the same triple, update the row in place with the new provenance
+	// and temporal fields. The "close" of the previous interval is implicit
+	// in the new valid_from — callers querying as-of a date will see the
+	// old interval as expired when valid_from moves forward.
+	if r.ValidFrom != nil {
+		updated := *existing
+		updated.Source = r.Source
+		updated.SourceRef = r.SourceRef
+		updated.Verification = r.Verification
+		updated.Evidence = canonEvidence
+		if r.CreatedBy != "" {
+			updated.CreatedBy = r.CreatedBy
+		}
+		updated.ValidFrom = r.ValidFrom
+		updated.ValidUntil = r.ValidUntil
+		updated.UpdatedAt = now
+
+		_, err := db.conn.Exec(
+			`UPDATE entity_relations SET source = ?, source_ref = ?, verification = ?, evidence = ?, created_by = ?, updated_at = ?, valid_from = ?, valid_until = ?
+				WHERE id = ?`,
+			updated.Source, updated.SourceRef, updated.Verification, updated.Evidence, updated.CreatedBy, updated.UpdatedAt, updated.ValidFrom, updated.ValidUntil,
+			existing.ID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return &updated, nil
 	}
 
 	if existing.Verification == VerificationVerified {
@@ -208,9 +247,9 @@ func (db *DB) SaveEntityRelationProvenance(r *EntityRelation) (*EntityRelation, 
 	updated.UpdatedAt = now
 
 	_, err = db.conn.Exec(
-		`UPDATE entity_relations SET source = ?, source_ref = ?, verification = ?, evidence = ?, created_by = ?, updated_at = ?
+		`UPDATE entity_relations SET source = ?, source_ref = ?, verification = ?, evidence = ?, created_by = ?, updated_at = ?, valid_from = ?, valid_until = ?
 			WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?`,
-		updated.Source, updated.SourceRef, updated.Verification, updated.Evidence, updated.CreatedBy, updated.UpdatedAt,
+		updated.Source, updated.SourceRef, updated.Verification, updated.Evidence, updated.CreatedBy, updated.UpdatedAt, updated.ValidFrom, updated.ValidUntil,
 		r.FromEntityID, r.ToEntityID, r.RelationType,
 	)
 	if err != nil {
@@ -232,12 +271,12 @@ func (db *DB) DeleteEntityRelation(fromEntityID, toEntityID, relationType string
 // nil if not found.
 func (db *DB) GetEntityRelationByID(id string) (*EntityRelation, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at, valid_from, valid_until
 			FROM entity_relations WHERE id = ?`,
 		id,
 	)
 	var r EntityRelation
-	err := row.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt, &r.ValidFrom, &r.ValidUntil)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -255,12 +294,12 @@ func (db *DB) DeleteEntityRelationByID(id string) error {
 
 func (db *DB) getRelationByTriple(fromEntityID, toEntityID, relationType string) (*EntityRelation, error) {
 	row := db.conn.QueryRow(
-		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at, valid_from, valid_until
 			FROM entity_relations WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?`,
 		fromEntityID, toEntityID, relationType,
 	)
 	var r EntityRelation
-	err := row.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt, &r.ValidFrom, &r.ValidUntil)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -273,7 +312,7 @@ func (db *DB) getRelationByTriple(fromEntityID, toEntityID, relationType string)
 // OutgoingRelations returns every relation where entityID is the source.
 func (db *DB) OutgoingRelations(entityID string) ([]*EntityRelation, error) {
 	return db.queryRelations(
-		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at, valid_from, valid_until
 			FROM entity_relations WHERE from_entity_id = ? ORDER BY relation_type, to_entity_id`,
 		entityID,
 	)
@@ -282,7 +321,7 @@ func (db *DB) OutgoingRelations(entityID string) ([]*EntityRelation, error) {
 // IncomingRelations returns every relation where entityID is the target.
 func (db *DB) IncomingRelations(entityID string) ([]*EntityRelation, error) {
 	return db.queryRelations(
-		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at, valid_from, valid_until
 			FROM entity_relations WHERE to_entity_id = ? ORDER BY relation_type, from_entity_id`,
 		entityID,
 	)
@@ -370,10 +409,141 @@ func (db *DB) queryRelations(query, entityID string) ([]*EntityRelation, error) 
 	var relations []*EntityRelation
 	for rows.Next() {
 		var r EntityRelation
-		if err := rows.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		if err := rows.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt, &r.ValidFrom, &r.ValidUntil); err != nil {
 			return nil, err
 		}
 		relations = append(relations, &r)
 	}
 	return relations, rows.Err()
+}
+
+// ParseRelationDate parses a date string accepting RFC3339 or YYYY-MM-DD
+// format. The parsed time is returned in UTC.
+func ParseRelationDate(s string) (time.Time, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, fmt.Errorf("empty date string")
+	}
+	// Try RFC3339 first.
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC(), nil
+	}
+	// Try YYYY-MM-DD.
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("invalid date %q: must be RFC3339 or YYYY-MM-DD", s)
+}
+
+// RelationsForEntityAsOf returns every relation touching entityID that was
+// valid at the given point in time. A relation is valid at asOf when:
+//
+//	(valid_from IS NULL OR valid_from <= asOf) AND
+//	(valid_until IS NULL OR valid_until > asOf)
+//
+// Relations without any temporal fields (NULL valid_from AND valid_until)
+// are always considered valid (open-ended).
+func (db *DB) RelationsForEntityAsOf(entityID string, asOf time.Time) ([]*EntityRelation, error) {
+	out, err := db.queryRelationsAsOf(
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at, valid_from, valid_until
+			FROM entity_relations WHERE from_entity_id = ?
+			AND (valid_from IS NULL OR valid_from <= ?)
+			AND (valid_until IS NULL OR valid_until > ?)
+			ORDER BY relation_type, to_entity_id`,
+		entityID, asOf,
+	)
+	if err != nil {
+		return nil, err
+	}
+	in, err := db.queryRelationsAsOf(
+		`SELECT id, from_entity_id, to_entity_id, relation_type, source, source_ref, verification, evidence, created_by, created_at, updated_at, valid_from, valid_until
+			FROM entity_relations WHERE to_entity_id = ?
+			AND (valid_from IS NULL OR valid_from <= ?)
+			AND (valid_until IS NULL OR valid_until > ?)
+			ORDER BY relation_type, from_entity_id`,
+		entityID, asOf,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, in...), nil
+}
+
+func (db *DB) queryRelationsAsOf(query, entityID string, asOf time.Time) ([]*EntityRelation, error) {
+	rows, err := db.conn.Query(query, entityID, asOf, asOf)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var relations []*EntityRelation
+	for rows.Next() {
+		var r EntityRelation
+		if err := rows.Scan(&r.ID, &r.FromEntityID, &r.ToEntityID, &r.RelationType, &r.Source, &r.SourceRef, &r.Verification, &r.Evidence, &r.CreatedBy, &r.CreatedAt, &r.UpdatedAt, &r.ValidFrom, &r.ValidUntil); err != nil {
+			return nil, err
+		}
+		relations = append(relations, &r)
+	}
+	return relations, rows.Err()
+}
+
+// GraphNeighborsAsOf performs a breadth-first traversal like GraphNeighbors,
+// but only traverses relations valid at the given point in time. If asOf is
+// nil, the current time is used (equivalent to GraphNeighbors).
+func (db *DB) GraphNeighborsAsOf(entityID string, depth int, asOf *time.Time) ([]*Entity, []*EntityRelation, error) {
+	if depth < 1 {
+		depth = 1
+	}
+	if depth > MaxGraphDepth {
+		return nil, nil, fmt.Errorf("depth %d exceeds maximum allowed depth %d", depth, MaxGraphDepth)
+	}
+
+	now := time.Now().UTC()
+	if asOf == nil {
+		asOf = &now
+	}
+
+	visited := map[string]bool{entityID: true}
+	edgeSeen := map[string]bool{}
+	var edges []*EntityRelation
+
+	frontier := []string{entityID}
+	for hop := 0; hop < depth && len(frontier) > 0; hop++ {
+		var next []string
+		for _, id := range frontier {
+			rels, err := db.RelationsForEntityAsOf(id, *asOf)
+			if err != nil {
+				return nil, nil, err
+			}
+			for _, r := range rels {
+				key := r.FromEntityID + "\x00" + r.ToEntityID + "\x00" + r.RelationType
+				if !edgeSeen[key] {
+					edgeSeen[key] = true
+					edges = append(edges, r)
+				}
+				other := r.ToEntityID
+				if other == id {
+					other = r.FromEntityID
+				}
+				if !visited[other] {
+					visited[other] = true
+					next = append(next, other)
+				}
+			}
+		}
+		frontier = next
+	}
+
+	nodes := make([]*Entity, 0, len(visited))
+	for id := range visited {
+		e, err := db.GetEntityByID(id)
+		if err != nil {
+			return nil, nil, err
+		}
+		if e != nil {
+			nodes = append(nodes, e)
+		}
+	}
+
+	return nodes, edges, nil
 }
