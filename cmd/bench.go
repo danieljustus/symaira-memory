@@ -10,10 +10,10 @@ import (
 )
 
 var (
-	benchRepetitions     int
-	benchFixture         string
-	benchDataset         string
-	benchCorpus          string
+	benchRepetitions      int
+	benchFixture          string
+	benchDataset          string
+	benchCorpus           string
 	benchAbstainThreshold float64
 )
 

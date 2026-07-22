@@ -221,17 +221,17 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 
 func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
-		Query             string `json:"query"`
-		Scope             string `json:"scope"`
-		Profile           string `json:"profile"`
-		Limit             int    `json:"limit"`
-		Entity            string `json:"entity"`
-		MinConfidence     string `json:"min_confidence"`
-		Verification      string `json:"verification"`
-		ExcludeSuperseded bool   `json:"exclude_superseded"`
-		MaxAge            string `json:"max_age"`
-		MaxSensitivity    string `json:"max_sensitivity"`
-		MinSharingLevel   string `json:"min_sharing_level"`
+		Query             string  `json:"query"`
+		Scope             string  `json:"scope"`
+		Profile           string  `json:"profile"`
+		Limit             int     `json:"limit"`
+		Entity            string  `json:"entity"`
+		MinConfidence     string  `json:"min_confidence"`
+		Verification      string  `json:"verification"`
+		ExcludeSuperseded bool    `json:"exclude_superseded"`
+		MaxAge            string  `json:"max_age"`
+		MaxSensitivity    string  `json:"max_sensitivity"`
+		MinSharingLevel   string  `json:"min_sharing_level"`
 		ClientID          string  `json:"client_id"`
 		WithEvidence      bool    `json:"with_evidence"`
 		MinScore          float64 `json:"min_score"`

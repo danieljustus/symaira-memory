@@ -20,15 +20,15 @@ import (
 //   - question_date / haystack_dates are not mapped to temporal validity; the
 //     scope model is not mapped either (all memories land in "global").
 type longMemEvalEntry struct {
-	QuestionID        string              `json:"question_id"`
-	QuestionType      string              `json:"question_type"`
-	Question          string              `json:"question"`
-	Answer            string              `json:"answer"`
-	QuestionDate      string              `json:"question_date"`
+	QuestionID         string              `json:"question_id"`
+	QuestionType       string              `json:"question_type"`
+	Question           string              `json:"question"`
+	Answer             string              `json:"answer"`
+	QuestionDate       string              `json:"question_date"`
 	HaystackSessionIDs []string            `json:"haystack_session_ids"`
-	HaystackDates     []string            `json:"haystack_dates"`
-	HaystackSessions  [][]longMemEvalTurn `json:"haystack_sessions"`
-	AnswerSessionIDs  []string            `json:"answer_session_ids"`
+	HaystackDates      []string            `json:"haystack_dates"`
+	HaystackSessions   [][]longMemEvalTurn `json:"haystack_sessions"`
+	AnswerSessionIDs   []string            `json:"answer_session_ids"`
 }
 
 type longMemEvalTurn struct {

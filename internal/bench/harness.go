@@ -24,14 +24,14 @@ type Options struct {
 
 // Report holds the complete benchmark results.
 type Report struct {
-	Timestamp       time.Time        `json:"timestamp"`
-	CorpusSize      int              `json:"corpus_size"`
-	QueryCount      int              `json:"query_count"`
-	Repetitions     int              `json:"repetitions"`
-	EmbeddingSource string           `json:"embedding_source"`
-	BM25            RetrievalMetrics `json:"bm25"`
-	Vector          RetrievalMetrics `json:"vector"`
-	Hybrid          RetrievalMetrics `json:"hybrid"`
+	Timestamp       time.Time          `json:"timestamp"`
+	CorpusSize      int                `json:"corpus_size"`
+	QueryCount      int                `json:"query_count"`
+	Repetitions     int                `json:"repetitions"`
+	EmbeddingSource string             `json:"embedding_source"`
+	BM25            RetrievalMetrics   `json:"bm25"`
+	Vector          RetrievalMetrics   `json:"vector"`
+	Hybrid          RetrievalMetrics   `json:"hybrid"`
 	Temporal        []TemporalReport   `json:"temporal,omitempty"`
 	Scope           []ScopeReport      `json:"scope,omitempty"`
 	Abstention      []AbstentionReport `json:"abstention,omitempty"`
