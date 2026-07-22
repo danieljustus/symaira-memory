@@ -16,6 +16,7 @@ type Config struct {
 	Context       ContextConfig       `json:"context"`
 	Retention     RetentionConfig     `json:"retention"`
 	HybridSearch  HybridSearchConfig  `json:"hybrid_search"`
+	Search        SearchConfig        `json:"search"`
 	Import        ImportConfig        `json:"import"`
 	WorkingMemory WorkingMemoryConfig `json:"working_memory"`
 }
@@ -91,6 +92,11 @@ type HybridSearchConfig struct {
 	PrefilterEnabled bool    `json:"prefilter_enabled"`  // use Hamming prefilter before cosine scoring (opt-in)
 }
 
+// SearchConfig controls default retrieval behavior for memory_search / search.
+type SearchConfig struct {
+	MinScore float64 `json:"min_score"` // minimum similarity score; results below are dropped (default 0 = disabled)
+}
+
 // ImportConfig holds per-tool import settings.
 type ImportConfig struct {
 	Tools           map[string]ImportToolConfig `json:"tools"`
@@ -161,6 +167,9 @@ func Defaults() *Config {
 		},
 		Import: ImportConfig{
 			ExtractOnImport: true,
+		},
+		Search: SearchConfig{
+			MinScore: 0,
 		},
 		WorkingMemory: WorkingMemoryConfig{
 			TTL:              "24h",

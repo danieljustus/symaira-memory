@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 
@@ -23,6 +24,7 @@ var (
 	searchMinSharingLevel   string
 	searchClientID          string
 	searchIncludeEmbedding  bool
+	searchMinScore          float64
 )
 
 func init() {
@@ -37,6 +39,7 @@ func init() {
 	searchCmd.Flags().StringVar(&searchMinSharingLevel, "min-sharing-level", "", "Minimum sharing level: private, team, org, public")
 	searchCmd.Flags().StringVar(&searchClientID, "client-id", "", "Client ID for access control filtering")
 	searchCmd.Flags().BoolVar(&searchIncludeEmbedding, "include-embedding", false, "Include raw embedding vectors in JSON output (omitted by default)")
+	searchCmd.Flags().Float64Var(&searchMinScore, "min-score", 0, "Minimum similarity score; results below are reported as no confident match (default: search.min_score config, 0 = disabled)")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -98,6 +101,18 @@ var searchCmd = &cobra.Command{
 		}
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "semantic search failure")
+		}
+
+		minScore := searchMinScore
+		if minScore <= 0 {
+			minScore = GetConfig().Search.MinScore
+		}
+		if minScore > 0 {
+			before := len(results)
+			results = db.FilterByMinScore(results, minScore)
+			if len(results) == 0 && before > 0 {
+				fmt.Fprintf(os.Stderr, "No confident match: %d result(s) below min_score %.3f were dropped.\n", before, minScore)
+			}
 		}
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))

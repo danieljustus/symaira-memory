@@ -93,6 +93,34 @@ func MRR(retrieved []string, relevant map[string]bool) float64 {
 	return 0
 }
 
+// AbstentionReport measures how often the system correctly abstains on
+// unanswerable queries and answers on answerable ones at a score threshold.
+type AbstentionReport struct {
+	Mode      string  `json:"mode"`
+	Threshold float64 `json:"threshold"`
+	Correct   int     `json:"correct"`
+	Total     int     `json:"total"`
+	Accuracy  float64 `json:"accuracy"`
+}
+
+// ComputeAbstention scores abstention decisions. topScores maps query index to
+// the system's best score for that query (0 when nothing was retrieved); a query
+// counts as abstained when its top score is below threshold. A decision is
+// correct when an unanswerable query is abstained or an answerable one is not.
+func ComputeAbstention(mode string, threshold float64, queries []GroundTruth, topScores map[int]float64) AbstentionReport {
+	report := AbstentionReport{Mode: mode, Threshold: threshold, Total: len(queries)}
+	for i, gt := range queries {
+		abstained := topScores[i] < threshold
+		if abstained != gt.Answerable {
+			report.Correct++
+		}
+	}
+	if report.Total > 0 {
+		report.Accuracy = float64(report.Correct) / float64(report.Total)
+	}
+	return report
+}
+
 // LatencyPercentiles computes P50 and P95 from a slice of durations.
 func LatencyPercentiles(durations []time.Duration) (p50, p95 time.Duration) {
 	if len(durations) == 0 {
@@ -127,6 +155,9 @@ func ComputeMetrics(mode string, queryResults map[int][]string, groundTruth []Gr
 	validCount := 0
 
 	for i, gt := range groundTruth {
+		if len(gt.RelevantIDs) == 0 {
+			continue // unanswerable abstention queries carry no retrieval ground truth
+		}
 		retrieved := queryResults[i]
 		relevant := make(map[string]bool)
 		for _, id := range gt.RelevantIDs {

@@ -90,7 +90,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_search",
 		Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"profile":{"type":"string","description":"Optional context profile name for inherited scope resolution. When provided, searches across scopes defined by the profile in precedence order."},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"}},"required":["query"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"profile":{"type":"string","description":"Optional context profile name for inherited scope resolution. When provided, searches across scopes defined by the profile in precedence order."},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"},"min_score":{"type":"number","description":"Optional minimum similarity score (0-1). Results below the threshold are dropped and the tool returns an explicit 'no confident match' marker instead of weak matches. Defaults to the search.min_score config value; 0 disables filtering."}},"required":["query"]}`),
 		Handler:     s.handleMemorySearch,
 	})
 
@@ -221,19 +221,20 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 
 func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
-		Query             string `json:"query"`
-		Scope             string `json:"scope"`
-		Profile           string `json:"profile"`
-		Limit             int    `json:"limit"`
-		Entity            string `json:"entity"`
-		MinConfidence     string `json:"min_confidence"`
-		Verification      string `json:"verification"`
-		ExcludeSuperseded bool   `json:"exclude_superseded"`
-		MaxAge            string `json:"max_age"`
-		MaxSensitivity    string `json:"max_sensitivity"`
-		MinSharingLevel   string `json:"min_sharing_level"`
-		ClientID          string `json:"client_id"`
-		WithEvidence      bool   `json:"with_evidence"`
+		Query             string  `json:"query"`
+		Scope             string  `json:"scope"`
+		Profile           string  `json:"profile"`
+		Limit             int     `json:"limit"`
+		Entity            string  `json:"entity"`
+		MinConfidence     string  `json:"min_confidence"`
+		Verification      string  `json:"verification"`
+		ExcludeSuperseded bool    `json:"exclude_superseded"`
+		MaxAge            string  `json:"max_age"`
+		MaxSensitivity    string  `json:"max_sensitivity"`
+		MinSharingLevel   string  `json:"min_sharing_level"`
+		ClientID          string  `json:"client_id"`
+		WithEvidence      bool    `json:"with_evidence"`
+		MinScore          float64 `json:"min_score"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_search': failed to parse arguments: %w", err)
@@ -278,6 +279,18 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 			return nil, fmt.Errorf("%s", nf.Error())
 		}
 		return mcpError("Failed to search memories", err)
+	}
+
+	minScore := args.MinScore
+	if minScore <= 0 && s.cfg != nil {
+		minScore = s.cfg.Search.MinScore
+	}
+	if minScore > 0 {
+		before := len(results)
+		results = db.FilterByMinScore(results, minScore)
+		if len(results) == 0 && before > 0 {
+			return fmt.Sprintf("No confident match: all %d result(s) scored below the min_score threshold %.3f.", before, minScore), nil
+		}
 	}
 
 	if len(results) == 0 {
