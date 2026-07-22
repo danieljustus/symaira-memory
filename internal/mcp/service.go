@@ -176,6 +176,32 @@ func (s *MemoryService) UpsertMemoryIfNewer(m *db.Memory) (bool, error) {
 	return s.db.UpsertMemoryIfNewer(m)
 }
 
+// SyncUpsertMemoryIfNewer is the tombstone-aware upsert used by sync
+// ingestion; it never resurrects a memory deleted after the incoming row.
+func (s *MemoryService) SyncUpsertMemoryIfNewer(m *db.Memory) (bool, error) {
+	if s.piiEnabled {
+		m.Content = security.Redact(m.Content)
+		m.Metadata = security.RedactMap(m.Metadata)
+	}
+	return s.db.SyncUpsertMemoryIfNewer(m)
+}
+
+func (s *MemoryService) GetDeletedSince(since time.Time) ([]db.DeletedMemory, error) {
+	return s.db.GetDeletedSince(since)
+}
+
+func (s *MemoryService) ApplyRemoteDelete(id string, deletedAt time.Time) (bool, error) {
+	return s.db.ApplyRemoteDelete(id, deletedAt)
+}
+
+func (s *MemoryService) StoreRelayBlob(b db.RelayBlob) (bool, error) {
+	return s.db.StoreRelayBlob(b)
+}
+
+func (s *MemoryService) GetRelayBlobsSince(since time.Time, limit int) ([]db.RelayBlob, error) {
+	return s.db.GetRelayBlobsSince(since, limit)
+}
+
 func (s *MemoryService) LogAudit(action, entityID, memoryID, diff, actor, detail string) error {
 	return s.db.LogAudit(action, entityID, memoryID, diff, actor, detail)
 }

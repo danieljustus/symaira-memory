@@ -71,6 +71,7 @@ func (s *Server) httpMux() http.Handler {
 		{"/api/list", s.handleList, authRequired},
 		{"/api/sync/changes", s.handleSyncChanges, authRequired},
 		{"/api/sync/apply", s.handleSyncApply, authReadWrite},
+		{"/api/sync/relay", s.handleSyncRelay, authReadWrite},
 		{"/api/get", s.handleGet, authRequired},
 		{"/api/delete", s.handleDelete, authReadWrite},
 		{"/api/rules", s.handleRules, authRequired},
