@@ -110,8 +110,8 @@ func (s *Server) MCPServer() *mcpserver.Server {
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "entity_relate",
-		Description: "Create or delete a directed, typed relationship between two entities (e.g. 'Alice works-with Bob'), by name or by stable entity ID. Use action='delete' to remove a relation. Pass source/source_ref/verification/evidence to attach provenance for idempotent creation by external integrations — retrying the same source+source_ref+triple returns the existing relation, and an already-verified relation is never silently overwritten.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"from":{"type":"string","description":"Name or alias of the source entity (mutually exclusive with from_id)"},"to":{"type":"string","description":"Name or alias of the target entity (mutually exclusive with to_id)"},"from_id":{"type":"string","description":"Stable ID of the source entity (mutually exclusive with from)"},"to_id":{"type":"string","description":"Stable ID of the target entity (mutually exclusive with to)"},"relation":{"type":"string","description":"Relation type, free-form (e.g. 'works-with', 'manages', 'attended')"},"action":{"type":"string","description":"'create' (default) or 'delete'"},"source":{"type":"string","description":"Optional caller-supplied source identifier for idempotent provenance (e.g. 'symdesk'); required together with source_ref"},"source_ref":{"type":"string","description":"Optional opaque caller reference for idempotency (e.g. a meeting ID; never an absolute path); required together with source"},"verification":{"type":"string","description":"Optional provenance verification status: 'verified' or 'unverified'"},"evidence":{"type":"string","description":"Optional bounded evidence JSON: {source_doc_id, char_start, char_end, time_start, time_end}"}},"required":["relation"]}`),
+		Description: "Create or delete a directed, typed relationship between two entities (e.g. 'Alice works-with Bob'), by name or by stable entity ID. Use action='delete' to remove a relation. Pass source/source_ref/verification/evidence to attach provenance for idempotent creation by external integrations — retrying the same source+source_ref+triple returns the existing relation, and an already-verified relation is never silently overwritten. Pass valid_from/valid_until to attach temporal validity intervals; creating a newer version of the same triple with valid_from updates the row in place and makes the previous interval invisible to as-of queries.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"from":{"type":"string","description":"Name or alias of the source entity (mutually exclusive with from_id)"},"to":{"type":"string","description":"Name or alias of the target entity (mutually exclusive with to_id)"},"from_id":{"type":"string","description":"Stable ID of the source entity (mutually exclusive with from)"},"to_id":{"type":"string","description":"Stable ID of the target entity (mutually exclusive with to)"},"relation":{"type":"string","description":"Relation type, free-form (e.g. 'works-with', 'manages', 'attended')"},"action":{"type":"string","description":"'create' (default) or 'delete'"},"source":{"type":"string","description":"Optional caller-supplied source identifier for idempotent provenance (e.g. 'symdesk'); required together with source_ref"},"source_ref":{"type":"string","description":"Optional opaque caller reference for idempotency (e.g. a meeting ID; never an absolute path); required together with source"},"verification":{"type":"string","description":"Optional provenance verification status: 'verified' or 'unverified'"},"evidence":{"type":"string","description":"Optional bounded evidence JSON: {source_doc_id, char_start, char_end, time_start, time_end}"},"valid_from":{"type":"string","description":"Optional start of validity interval (RFC3339 or YYYY-MM-DD). When provided on an existing triple, updates the temporal window."},"valid_until":{"type":"string","description":"Optional end of validity interval (RFC3339 or YYYY-MM-DD). NULL means open-ended."}},"required":["relation"]}`),
 		Handler:     s.handleEntityRelate,
 	})
 
@@ -124,8 +124,8 @@ func (s *Server) MCPServer() *mcpserver.Server {
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "graph_neighbors",
-		Description: "Return the entities and relations reachable from a starting entity via a breadth-first traversal, as {nodes, edges}. Use this to answer 'what connects to X'.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"entity":{"type":"string","description":"Name or alias of the starting entity"},"depth":{"type":"integer","description":"Traversal depth, 1-3 (default 1)"}},"required":["entity"]}`),
+		Description: "Return the entities and relations reachable from a starting entity via a breadth-first traversal, as {nodes, edges}. Use this to answer 'what connects to X'. Pass as_of to filter relations by validity at a specific point in time.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"entity":{"type":"string","description":"Name or alias of the starting entity"},"depth":{"type":"integer","description":"Traversal depth, 1-3 (default 1)"},"as_of":{"type":"string","description":"Optional RFC3339 or YYYY-MM-DD timestamp: only return relations valid at this point in time (default: now)"}},"required":["entity"]}`),
 		Handler:     s.handleGraphNeighbors,
 	})
 
@@ -420,6 +420,8 @@ func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) 
 		SourceRef    string `json:"source_ref"`
 		Verification string `json:"verification"`
 		Evidence     string `json:"evidence"`
+		ValidFrom    string `json:"valid_from"`
+		ValidUntil   string `json:"valid_until"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'entity_relate': failed to parse arguments: %w", err)
@@ -485,7 +487,23 @@ func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) 
 
 	switch args.Action {
 	case "create":
-		if hasIDs || hasProvenance {
+		var validFrom, validUntil *time.Time
+		if args.ValidFrom != "" {
+			t, err := db.ParseRelationDate(args.ValidFrom)
+			if err != nil {
+				return nil, fmt.Errorf("invalid arguments for 'entity_relate': invalid valid_from: %w", err)
+			}
+			validFrom = &t
+		}
+		if args.ValidUntil != "" {
+			t, err := db.ParseRelationDate(args.ValidUntil)
+			if err != nil {
+				return nil, fmt.Errorf("invalid arguments for 'entity_relate': invalid valid_until: %w", err)
+			}
+			validUntil = &t
+		}
+
+		if hasIDs || hasProvenance || validFrom != nil {
 			rel := &db.EntityRelation{
 				FromEntityID: fromEntity.ID,
 				ToEntityID:   toEntity.ID,
@@ -495,6 +513,8 @@ func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) 
 				Verification: args.Verification,
 				Evidence:     args.Evidence,
 				CreatedBy:    "mcp",
+				ValidFrom:    validFrom,
+				ValidUntil:   validUntil,
 			}
 			saved, err := s.service.SaveEntityRelationProvenance(rel)
 			if err != nil {
@@ -514,6 +534,8 @@ func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) 
 			RelationType: args.Relation,
 			CreatedBy:    "mcp",
 			CreatedAt:    time.Now().UTC(),
+			ValidFrom:    validFrom,
+			ValidUntil:   validUntil,
 		}
 		if err := s.service.SaveEntityRelation(rel); err != nil {
 			return mcpError("Failed to save relation", err)
@@ -533,6 +555,7 @@ func (s *Server) handleGraphNeighbors(ctx context.Context, input json.RawMessage
 	var args struct {
 		Entity string `json:"entity"`
 		Depth  int    `json:"depth"`
+		AsOf   string `json:"as_of"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'graph_neighbors': failed to parse arguments: %w", err)
@@ -552,7 +575,22 @@ func (s *Server) handleGraphNeighbors(ctx context.Context, input json.RawMessage
 		return nil, fmt.Errorf("entity not found: %s", args.Entity)
 	}
 
-	nodes, edges, err := s.service.GraphNeighbors(entity.ID, args.Depth)
+	var asOf *time.Time
+	if args.AsOf != "" {
+		t, err := db.ParseRelationDate(args.AsOf)
+		if err != nil {
+			return nil, fmt.Errorf("invalid arguments for 'graph_neighbors': invalid as_of: %w", err)
+		}
+		asOf = &t
+	}
+
+	var nodes []*db.Entity
+	var edges []*db.EntityRelation
+	if asOf != nil {
+		nodes, edges, err = s.service.GraphNeighborsAsOf(entity.ID, args.Depth, asOf)
+	} else {
+		nodes, edges, err = s.service.GraphNeighbors(entity.ID, args.Depth)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'graph_neighbors': %w", err)
 	}
