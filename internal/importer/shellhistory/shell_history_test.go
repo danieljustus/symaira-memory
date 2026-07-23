@@ -3,6 +3,7 @@ package shellhistory
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -271,7 +272,7 @@ func TestDetectHistoryPath_Zsh(t *testing.T) {
 
 	// If the real .zsh_history exists, detectHistoryPath should return it.
 	path := detectHistoryPath()
-	if path == "" {
+	if path == "" || strings.HasSuffix(path, ".bash_history") {
 		t.Skip("no .zsh_history found (expected on CI or clean home)")
 	}
 	if path != origPath {
