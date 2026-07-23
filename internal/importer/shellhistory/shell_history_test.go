@@ -199,7 +199,7 @@ func TestParseHistoryLine_EmptyLine(t *testing.T) {
 func TestImportSession(t *testing.T) {
 	imp := NewShellHistoryImporter("/dev/null", true, nil)
 	ref := importer.SessionRef{
-		Tool:    "shell-history",
+		Tool:      "shell-history",
 		SessionID: "1700000000",
 		Metadata: map[string]string{
 			"command": "git status",
@@ -221,7 +221,7 @@ func TestImportSession(t *testing.T) {
 func TestImportSessionEmptyCommand(t *testing.T) {
 	imp := NewShellHistoryImporter("/dev/null", true, nil)
 	ref := importer.SessionRef{
-		Tool:    "shell-history",
+		Tool:      "shell-history",
 		SessionID: "1700000000",
 		Metadata: map[string]string{
 			"command": "",
@@ -240,7 +240,7 @@ func TestImportSessionEmptyCommand(t *testing.T) {
 func TestImportSessionNoTag(t *testing.T) {
 	imp := NewShellHistoryImporter("/dev/null", true, nil)
 	ref := importer.SessionRef{
-		Tool:    "shell-history",
+		Tool:      "shell-history",
 		SessionID: "1700000000",
 		Metadata: map[string]string{
 			"command": "some_unknown_tool --flag",

@@ -47,9 +47,9 @@ func TestEstimateBenchTokens(t *testing.T) {
 		expected int
 	}{
 		{"empty string", "", 0},
-		{"single word", "hello", 1},        // (1*4)/3 = 1
-		{"two words", "hello world", 2},    // (2*4)/3 = 2
-		{"three words", "a b c", 4},        // (3*4)/3 = 4
+		{"single word", "hello", 1},     // (1*4)/3 = 1
+		{"two words", "hello world", 2}, // (2*4)/3 = 2
+		{"three words", "a b c", 4},     // (3*4)/3 = 4
 		{"with newlines", "hello\nworld\n", 2},
 		{"with tabs", "hello\tworld", 2},
 		{"with leading/trailing spaces", "  hello world  ", 2},

@@ -214,9 +214,9 @@ func TestParseSimpleYAML(t *testing.T) {
 	imp := &ObsidianImporter{}
 
 	tests := []struct {
-		name     string
-		lines    []string
-		want     map[string]interface{}
+		name  string
+		lines []string
+		want  map[string]interface{}
 	}{
 		{
 			name:  "simple key values",
@@ -263,10 +263,10 @@ func TestParseSimpleYAML(t *testing.T) {
 
 func TestHasMatchingTag(t *testing.T) {
 	tests := []struct {
-		name      string
-		noteTags  []string
-		filter    []string
-		want      bool
+		name     string
+		noteTags []string
+		filter   []string
+		want     bool
 	}{
 		{"exact match", []string{"project-x", "meeting"}, []string{"project-x"}, true},
 		{"no match", []string{"project-x", "meeting"}, []string{"decision"}, false},
@@ -288,10 +288,10 @@ func TestHasMatchingTag(t *testing.T) {
 
 func TestHasExcludedTag(t *testing.T) {
 	tests := []struct {
-		name      string
-		noteTags  []string
-		exclude   []string
-		want      bool
+		name     string
+		noteTags []string
+		exclude  []string
+		want     bool
 	}{
 		{"is excluded", []string{"private", "project-x"}, []string{"private"}, true},
 		{"not excluded", []string{"project-x", "meeting"}, []string{"private"}, false},
@@ -479,12 +479,12 @@ func TestDiscoverSessions(t *testing.T) {
 
 	// Create notes
 	notes := map[string]string{
-		"Note1.md":              "# Note 1\nContent for first note.",
-		"Note2.md":              "# Note 2\nContent for second note.",
-		".obsidian/config":      "{}",
-		".trash/deleted.md":     "# Deleted",
-		"Templates/daily.md":    "# Daily Template",
-		"Daily/note.md":         "# Daily Note",
+		"Note1.md":           "# Note 1\nContent for first note.",
+		"Note2.md":           "# Note 2\nContent for second note.",
+		".obsidian/config":   "{}",
+		".trash/deleted.md":  "# Deleted",
+		"Templates/daily.md": "# Daily Template",
+		"Daily/note.md":      "# Daily Note",
 	}
 
 	for path, content := range notes {
@@ -522,9 +522,9 @@ func TestDiscoverSessionsWithTagFilter(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	notes := map[string]string{
-		"Meeting.md":    "# Meeting\nDiscussing #project-x.",
-		"Private.md":    "# Private\nA #private note.",
-		"Work.md":       "# Work\n#project-x updates.",
+		"Meeting.md": "# Meeting\nDiscussing #project-x.",
+		"Private.md": "# Private\nA #private note.",
+		"Work.md":    "# Work\n#project-x updates.",
 	}
 
 	for path, content := range notes {
