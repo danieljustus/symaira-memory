@@ -16,15 +16,15 @@ type GitImporter struct {
 }
 
 type gitCommit struct {
-	Hash       string   `json:"hash"`
-	Author     string   `json:"author"`
-	Email      string   `json:"email"`
-	Date       string   `json:"date"`
-	Message    string   `json:"message"`
-	Parents    []string `json:"parents"`
-	Files      []string `json:"files"`
-	Insertions int      `json:"insertions"`
-	Deletions  int      `json:"deletions"`
+	Hash       string `json:"hash"`
+	Author     string `json:"author"`
+	Email      string `json:"email"`
+	Date       string `json:"date"`
+	Message    string `json:"message"`
+	Parents    string `json:"parents"`
+	Files      []string
+	Insertions int
+	Deletions  int
 }
 
 func NewGitImporter(repoPath, author string) *GitImporter {
@@ -134,7 +134,7 @@ func (g *GitImporter) ImportSession(ref importer.SessionRef) ([]importer.Importe
 		filesJSON, _ := json.Marshal(commit.Files)
 		metadata["files_changed"] = string(filesJSON)
 	}
-	if len(commit.Parents) > 1 {
+	if strings.Contains(commit.Parents, " ") {
 		metadata["merge"] = "true"
 	}
 

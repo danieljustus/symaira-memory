@@ -115,6 +115,11 @@ func (s *ShellHistoryImporter) DiscoverSessions(since time.Time) ([]importer.Ses
 			continue
 		}
 
+		// Also check if the first word of the command is an excluded command.
+		if first := strings.Fields(cmd); len(first) > 0 && excludeCommands[first[0]] {
+			continue
+		}
+
 		if !s.matchesFilter(cmd) {
 			continue
 		}
