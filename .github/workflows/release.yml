@@ -71,6 +71,8 @@ jobs:
           echo "::warning::NOTARY_API_KEY secret is not set. Skipping notarization."
           exit 0
         fi
+        KEY_FILE="$RUNNER_TEMP/notary-api-key.p8"
+        echo -n "${NOTARY_API_KEY}" | base64 --decode > "$KEY_FILE"
         for ARCH in amd64 arm64; do
           BINARY="dist/*_darwin_${ARCH}/*"
           for f in $BINARY; do
@@ -79,14 +81,15 @@ jobs:
               ZIP_PATH="$RUNNER_TEMP/notarize_${ARCH}.zip"
               ditto -c -k --keepParent "$f" "$ZIP_PATH"
               xcrun notarytool submit "$ZIP_PATH" \
-                --apple-id "${NOTARY_API_KEY_ID}" \
-                --team-id "${NOTARY_API_ISSUER}" \
-                --password "${NOTARY_API_KEY}" \
+                -k "$KEY_FILE" \
+                -d "${NOTARY_API_KEY_ID}" \
+                -i "${NOTARY_API_ISSUER}" \
                 --wait
               rm -f "$ZIP_PATH"
             fi
           done
         done
+        rm -f "$KEY_FILE"
 
     - name: Clean up signing material
       if: always()
@@ -138,7 +141,7 @@ jobs:
         security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
         security list-keychain -d user -s "$KEYCHAIN_PATH"
         IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
-        TEAM_ID=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed 's/.*(\([A-Z0-9]*\))/\1/')
+        TEAM_ID=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed 's/.*(\([A-Z0-9]*\)).*/\1/')
         echo "CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
         echo "TEAM_ID=$TEAM_ID" >> "$GITHUB_ENV"
         echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
@@ -148,8 +151,8 @@ jobs:
 
     - name: Set version in Info.plist
       run: |
-        plutil -replace CFBundleShortVersionString "${{ steps.version.outputs.version }}" gui/Sources/Info.plist
-        plutil -replace CFBundleVersion "${{ github.run_number }}" gui/Sources/Info.plist
+        plutil -replace CFBundleShortVersionString -string "${{ steps.version.outputs.version }}" gui/Sources/Info.plist
+        plutil -replace CFBundleVersion -string "${{ github.run_number }}" gui/Sources/Info.plist
         echo "Updated version to ${{ steps.version.outputs.version }}"
 
     - name: Generate Xcode project
@@ -167,7 +170,8 @@ jobs:
             CODE_SIGN_IDENTITY="$CODESIGN_IDENTITY" \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGNING_ALLOWED=YES \
-            CODE_SIGNING_REQUIRED=YES
+            CODE_SIGNING_REQUIRED=YES \
+            OTHER_CODE_SIGN_FLAGS="--timestamp --options=runtime"
         else
           echo "::warning::Building GUI without code signing"
           xcodebuild -project SymairaMemory.xcodeproj \
@@ -175,8 +179,8 @@ jobs:
             -configuration Release \
             -derivedDataPath build
         fi
-        # Locate the built app bundle
-        APP_BUNDLE=$(find build -name 'SymairaMemory.app' -type d -maxdepth 4 | head -1)
+        # Locate the built app bundle (Xcode 16 places output at depth 5-6)
+        APP_BUNDLE=$(find build -name 'SymairaMemory.app' -type d -maxdepth 6 | head -1)
         if [ -z "$APP_BUNDLE" ]; then
           echo "::error::App bundle not found after build"
           exit 1
@@ -201,12 +205,15 @@ jobs:
         # Zip the .app for notarization
         ZIP_PATH="$RUNNER_TEMP/SymairaMemory.zip"
         ditto -c -k --keepParent "$APP" "$ZIP_PATH"
-        # Submit for notarization
+        # Submit for notarization (API-key auth)
+        KEY_FILE="$RUNNER_TEMP/notary-api-key-gui.p8"
+        echo -n "${NOTARY_API_KEY}" | base64 --decode > "$KEY_FILE"
         xcrun notarytool submit "$ZIP_PATH" \
-          --apple-id "${NOTARY_API_KEY_ID}" \
-          --team-id "${NOTARY_API_ISSUER}" \
-          --password "${NOTARY_API_KEY}" \
+          -k "$KEY_FILE" \
+          -d "${NOTARY_API_KEY_ID}" \
+          -i "${NOTARY_API_ISSUER}" \
           --wait
+        rm -f "$KEY_FILE"
         # Staple the ticket
         xcrun stapler staple "$APP"
         echo "Notarization complete"
