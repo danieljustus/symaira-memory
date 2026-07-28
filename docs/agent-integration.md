@@ -87,9 +87,9 @@ Once the MCP server is initialized, the following tools are registered with the 
 
 | Tool Name | Arguments | Description |
 | :--- | :--- | :--- |
-| `memory_get` | `id` (string, required) | Retrieve a specific memory element from the SQLite database by its UUID. |
+| `memory_get` | `id` (string, required)<br>`with_evidence` (bool, optional) | Retrieve a specific memory element from the SQLite database by its UUID. When `with_evidence` is set, the response's `Evidence` field is populated with grounded evidence spans. |
 | `memory_set` | `content` (string, required)<br>`scope` (string, optional)<br>`metadata` (JSON string, optional) | Saves a new memory/fact. Runs offline pattern fact extraction, executes PII redactions, and automatically parses project directories. |
-| `memory_search` | `query` (string, required)<br>`scope` (string, optional)<br>`profile` (string, optional)<br>`limit` (string, optional) | Semantic search of memories using cosine similarity over local vector embeddings. When `profile` is provided, searches across the scopes defined by that context profile in precedence order instead of a single `scope` filter. |
+| `memory_search` | `query` (string, required)<br>`scope` (string, optional)<br>`profile` (string, optional)<br>`limit` (string, optional)<br>`with_evidence` (bool, optional) | Semantic search of memories using cosine similarity over local vector embeddings. When `profile` is provided, searches across the scopes defined by that context profile in precedence order instead of a single `scope` filter. When `with_evidence` is set, each result's `Evidence` field is populated with grounded evidence spans. |
 | `memory_list` | `scope` (string, optional) | Lists all stored memories, optionally filtering by scope level. |
 | `entity_list` | *(none)* | Lists all known entities (people, projects, organizations). Use this to discover which entities exist before linking memories or filtering searches. |
 | `entity_resolve` | `query` (string, required)<br>`type` (string, optional)<br>`aliases` (string, optional)<br>`limit` (integer, optional) | Returns deterministic, explainable entity candidates for a name or alias query, scored and ranked with the match reason for each. Use this instead of `entity_relate`/`graph_neighbors`' implicit lookup when a caller needs to disambiguate multiple possible matches before acting. |
