@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/danieljustus/symaira-corekit/evidencekit"
@@ -61,7 +62,22 @@ func TestParseJSONResponse(t *testing.T) {
 		{
 			name:    "JSON with extra text before",
 			input:   "Here is the result: {\"consolidated\": [], \"discarded_ids\": []}",
-			wantErr: true,
+			wantErr: false,
+		},
+		{
+			name:    "fenced JSON with prose before and after",
+			input:   "Sure, here you go:\n```json\n{\"consolidated\": [], \"discarded_ids\": []}\n```\nHope that helps!",
+			wantErr: false,
+		},
+		{
+			name:    "think preamble before JSON",
+			input:   "<think>Let me analyze the memories and merge duplicates...</think>\n{\"consolidated\": [], \"discarded_ids\": []}",
+			wantErr: false,
+		},
+		{
+			name:    "think preamble before fenced JSON with prose",
+			input:   "<think>reasoning about the merge</think>\nResult:\n```json\n{\"consolidated\": [], \"discarded_ids\": []}\n```",
+			wantErr: false,
 		},
 	}
 
@@ -398,5 +414,113 @@ func TestEngineConsolidationPropagatesEvidence(t *testing.T) {
 	}
 	if len(newEvidence) != 2 {
 		t.Fatalf("expected 2 evidence rows on consolidated memory (from both replaced raws), got %d", len(newEvidence))
+	}
+}
+
+// TestRunConsolidationSkipsFailedScope verifies that a per-scope LLM/parse
+// failure is logged and skipped while other scopes still proceed.
+func TestRunConsolidationSkipsFailedScope(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-engine-skip-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Defaults()
+	cfg.Database.Path = filepath.Join(tempDir, "test.db")
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	seed := func(id, content, scope string) {
+		m := &db.Memory{ID: id, Content: content, Scope: scope, ConsolidationStatus: "raw", Metadata: map[string]string{}}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("failed to seed memory %s: %v", id, err)
+		}
+	}
+	seed("good-1", "Daniel likes dark mode", "good-scope")
+	seed("good-2", "Daniel prefers dark backgrounds", "good-scope")
+	seed("bad-1", "Some fact one", "bad-scope")
+	seed("bad-2", "Some fact two", "bad-scope")
+
+	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		var reqBody map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("failed to decode LLM request: %v", err)
+		}
+		prompt, _ := reqBody["prompt"].(string)
+		var resp string
+		if strings.Contains(prompt, `"bad-scope"`) {
+			resp = "this is not json at all"
+		} else {
+			resp = `{"consolidated": [{"content": "Daniel prefers dark mode.", "replaces_ids": ["good-1", "good-2"], "metadata": {}}], "discarded_ids": []}`
+		}
+		json.NewEncoder(w).Encode(map[string]string{"response": resp})
+	}))
+	defer mockLLM.Close()
+
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false)
+
+	summaries, err := engine.RunConsolidation(context.Background(), "", true)
+	if err != nil {
+		t.Fatalf("expected partial success, got error: %v", err)
+	}
+	if len(summaries) != 1 {
+		t.Fatalf("expected 1 successful scope summary, got %d (%+v)", len(summaries), summaries)
+	}
+	if summaries[0].Scope != "good-scope" {
+		t.Errorf("expected good-scope to succeed, got %s", summaries[0].Scope)
+	}
+}
+
+// TestRunConsolidationAllScopesFail verifies that a hard error is returned
+// when every scope in the run fails.
+func TestRunConsolidationAllScopesFail(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "symmemory-engine-allfail-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	cfg := config.Defaults()
+	cfg.Database.Path = filepath.Join(tempDir, "test.db")
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer database.Close()
+
+	for _, m := range []*db.Memory{
+		{ID: "f-1", Content: "fact one", Scope: "scope-a", ConsolidationStatus: "raw", Metadata: map[string]string{}},
+		{ID: "f-2", Content: "fact two", Scope: "scope-a", ConsolidationStatus: "raw", Metadata: map[string]string{}},
+		{ID: "f-3", Content: "fact three", Scope: "scope-b", ConsolidationStatus: "raw", Metadata: map[string]string{}},
+		{ID: "f-4", Content: "fact four", Scope: "scope-b", ConsolidationStatus: "raw", Metadata: map[string]string{}},
+	} {
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("failed to seed memory %s: %v", m.ID, err)
+		}
+	}
+
+	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"response": "garbage, no json here"})
+	}))
+	defer mockLLM.Close()
+
+	embeddings := extractor.NewEmbeddingsGenerator(cfg)
+	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false)
+
+	_, err = engine.RunConsolidation(context.Background(), "", true)
+	if err == nil {
+		t.Fatal("expected hard error when every scope fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "all scopes failed") {
+		t.Errorf("expected 'all scopes failed' error, got: %v", err)
 	}
 }
