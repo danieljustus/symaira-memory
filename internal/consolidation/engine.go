@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -64,6 +65,26 @@ func NewEngine(database *db.DB, embeddings *extractor.EmbeddingsGenerator, llmUR
 	}
 }
 
+// scopeFailure records a non-fatal per-scope LLM/parse failure during a
+// consolidation run.
+type scopeFailure struct {
+	Scope string
+	Err   error
+}
+
+// reportScopeFailures logs skipped scopes with diagnosable detail and returns
+// a hard error only if every scope in the run failed.
+func reportScopeFailures(failures []scopeFailure, succeeded int) error {
+	for _, f := range failures {
+		fmt.Fprintf(os.Stderr, "consolidation: skipping scope %q after LLM failure: %v\n", f.Scope, f.Err)
+	}
+	fmt.Fprintf(os.Stderr, "consolidation: run summary: %d scope(s) succeeded, %d scope(s) skipped due to LLM failures\n", succeeded, len(failures))
+	if succeeded == 0 && len(failures) > 0 {
+		return fmt.Errorf("consolidation failed: all scopes failed (%d): first error for scope %q: %w", len(failures), failures[0].Scope, failures[0].Err)
+	}
+	return nil
+}
+
 // RunConsolidation finds raw memories, groups them by scope, prompts the LLM,
 // and applies the changes inside a database transaction (unless dryRun is true).
 func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dryRun bool) ([]ScopeChangeSummary, error) {
@@ -86,6 +107,7 @@ func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dry
 	}
 
 	var summaries []ScopeChangeSummary
+	var failures []scopeFailure
 
 	for scope, memories := range grouped {
 		summary := ScopeChangeSummary{
@@ -125,9 +147,11 @@ func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dry
 		// Prompt the LLM for consolidation
 		res, err := eng.consolidateWithLLM(ctx, scope, memories)
 		if err != nil {
-			// If LLM fails, we log it and skip this scope, allowing subsequent scopes to proceed
-			// or fail gracefully. For now, return error to caller.
-			return nil, fmt.Errorf("llm consolidation failed for scope %s: %w", scope, err)
+			// If LLM fails, log it and skip this scope, allowing subsequent
+			// scopes to proceed. A hard error is surfaced only when every
+			// scope in the run failed.
+			failures = append(failures, scopeFailure{Scope: scope, Err: err})
+			continue
 		}
 
 		// Process results
@@ -243,6 +267,10 @@ func (eng *Engine) RunConsolidation(ctx context.Context, scopeFilter string, dry
 		summaries = append(summaries, summary)
 	}
 
+	if err := reportScopeFailures(failures, len(summaries)); err != nil {
+		return nil, err
+	}
+
 	return summaries, nil
 }
 
@@ -260,6 +288,7 @@ func (eng *Engine) RunConsolidationForMemories(ctx context.Context, memories []*
 	}
 
 	var summaries []ScopeChangeSummary
+	var failures []scopeFailure
 
 	for scope, scopeMemories := range grouped {
 		summary := ScopeChangeSummary{
@@ -296,7 +325,10 @@ func (eng *Engine) RunConsolidationForMemories(ctx context.Context, memories []*
 
 		res, err := eng.consolidateWithLLM(ctx, scope, scopeMemories)
 		if err != nil {
-			return nil, fmt.Errorf("llm consolidation failed for scope %s: %w", scope, err)
+			// Skip this scope on LLM failure and continue with the rest; a
+			// hard error is surfaced only when every scope failed.
+			failures = append(failures, scopeFailure{Scope: scope, Err: err})
+			continue
 		}
 
 		txMemMap := make(map[string]*db.Memory)
@@ -403,6 +435,10 @@ func (eng *Engine) RunConsolidationForMemories(ctx context.Context, memories []*
 		summaries = append(summaries, summary)
 	}
 
+	if err := reportScopeFailures(failures, len(summaries)); err != nil {
+		return nil, err
+	}
+
 	return summaries, nil
 }
 
@@ -451,32 +487,73 @@ JSON Schema:
 	return parseJSONResponse(rawResponse)
 }
 
+var (
+	// fencedBlockRe matches a Markdown code fence (``` or ~~~, optional
+	// language tag) anywhere in the response text and captures its content.
+	fencedBlockRe = regexp.MustCompile("(?s)```[^\\n`]*\\n(.*?)```")
+	// thinkBlockRe matches a reasoning-model <think>...</think> preamble.
+	thinkBlockRe = regexp.MustCompile("(?s)<think>.*?</think>")
+)
+
 func parseJSONResponse(rawResponse string) (*ConsolidationResult, error) {
-	cleaned := strings.TrimSpace(rawResponse)
-	if strings.HasPrefix(cleaned, "```") {
-		lines := strings.Split(cleaned, "\n")
-		if len(lines) > 2 {
-			if strings.HasPrefix(lines[0], "```") {
-				lines = lines[1:]
-			}
-			if strings.HasSuffix(lines[len(lines)-1], "```") {
-				lines = lines[:len(lines)-1]
-			}
-			cleaned = strings.Join(lines, "\n")
+	// Build an ordered list of candidate payloads, most specific first.
+	seen := make(map[string]bool)
+	var candidates []string
+	addCandidate := func(s string) {
+		s = strings.TrimSpace(s)
+		if s != "" && !seen[s] {
+			seen[s] = true
+			candidates = append(candidates, s)
 		}
 	}
-	cleaned = strings.TrimSpace(cleaned)
 
-	var res ConsolidationResult
-	if err := json.Unmarshal([]byte(cleaned), &res); err != nil {
-		return nil, fmt.Errorf("failed to parse consolidation result JSON: %w (raw response: %s)", err, rawResponse)
+	cleaned := strings.TrimSpace(rawResponse)
+
+	// First attempt: the raw response as-is. Fence extraction and
+	// <think>...</think> stripping are only applied as retries after this
+	// direct parse fails.
+	addCandidate(cleaned)
+
+	// Regex-based fence extraction: find a fenced JSON block anywhere in the
+	// response, even when surrounded by prose before or after the fence.
+	if m := fencedBlockRe.FindStringSubmatch(cleaned); m != nil {
+		addCandidate(m[1])
 	}
 
-	if err := validateConsolidationResult(&res); err != nil {
-		return nil, fmt.Errorf("consolidation result validation failed: %w", err)
+	// Fallback: the outermost {...} span, tolerating surrounding prose.
+	addBraceSpan := func(s string) {
+		if start := strings.Index(s, "{"); start >= 0 {
+			if end := strings.LastIndex(s, "}"); end > start {
+				addCandidate(s[start : end+1])
+			}
+		}
+	}
+	addBraceSpan(cleaned)
+
+	// Strip-and-retry for reasoning-model <think>...</think> preambles.
+	if thinkBlockRe.MatchString(cleaned) {
+		stripped := strings.TrimSpace(thinkBlockRe.ReplaceAllString(cleaned, ""))
+		if m := fencedBlockRe.FindStringSubmatch(stripped); m != nil {
+			addCandidate(m[1])
+		}
+		addCandidate(stripped)
+		addBraceSpan(stripped)
 	}
 
-	return &res, nil
+	var lastErr error
+	for _, candidate := range candidates {
+		var res ConsolidationResult
+		if err := json.Unmarshal([]byte(candidate), &res); err != nil {
+			lastErr = err
+			continue
+		}
+		if err := validateConsolidationResult(&res); err != nil {
+			return nil, fmt.Errorf("consolidation result validation failed: %w", err)
+		}
+		return &res, nil
+	}
+
+	return nil, fmt.Errorf("failed to parse consolidation result JSON: %w (raw response: %s)", lastErr, rawResponse)
 }
 
 func validateConsolidationResult(res *ConsolidationResult) error {
