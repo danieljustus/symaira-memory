@@ -144,10 +144,10 @@ func handleObserveEvent(eventType, data string) {
 			Author:    "hook:claude-code",
 			SessionID: "",
 		},
-		nil,         // No entity linking
+		nil, // No entity linking
 		"hook:claude-code",
-		true,                // Working memory (TTL-based eviction)
-		24*time.Hour,        // Default TTL for hook events
+		true,         // Working memory (TTL-based eviction)
+		24*time.Hour, // Default TTL for hook events
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "observe %s: store failed: %v\n", eventType, err)
