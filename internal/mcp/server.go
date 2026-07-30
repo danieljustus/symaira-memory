@@ -24,7 +24,7 @@ const (
 
 // SystemStats holds a combined snapshot of all live system statistics.
 type SystemStats struct {
-	Retrieval db.RetrievalStatsSnapshot   `json:"retrieval"`
+	Retrieval db.RetrievalStatsSnapshot  `json:"retrieval"`
 	Embedding extractor.EmbeddingMetrics `json:"embedding"`
 	Database  db.DBMetrics               `json:"database"`
 }
