@@ -33,9 +33,9 @@ func TestSkillFileDrift(t *testing.T) {
 
 	if expected != got {
 		t.Fatalf(
-			"skills/symmemory/SKILL.md body differs from internal/instructions/instructions.md\n\n"+
-				"Regenerate with:\n"+
-				"  cat internal/instructions/instructions.md > skills/symmemory/SKILL.md\n"+
+			"skills/symmemory/SKILL.md body differs from internal/instructions/instructions.md\n\n" +
+				"Regenerate with:\n" +
+				"  cat internal/instructions/instructions.md > skills/symmemory/SKILL.md\n" +
 				"and re-add the YAML frontmatter to skills/symmemory/SKILL.md",
 		)
 	}
