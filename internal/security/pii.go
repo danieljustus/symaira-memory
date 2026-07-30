@@ -226,30 +226,7 @@ func isURLCredential(s string) bool {
 	return strings.Contains(s, "://") && strings.Contains(s, "@")
 }
 
-// redactEntropy redacts high-entropy values that appear in secret assignment
-// contexts but were not matched by the explicit pattern list. It runs after the
-// regex pass so it never tries to re-redact a marker.
-func redactEntropy(text string) string {
-	return assignmentRe.ReplaceAllStringFunc(text, func(match string) string {
-		valueStart := 0
-		for i, r := range match {
-			if r == ':' || r == '=' {
-				valueStart = i + 1
-				break
-			}
-		}
-		for valueStart < len(match) && (match[valueStart] == ' ' || match[valueStart] == '\t') {
-			valueStart++
-		}
-		value := match[valueStart:]
-		if isLikelySecret(value) {
-			return match[:valueStart] + "[REDACTED_API_KEY]"
-		}
-		return match
-	})
-}
-
-// redactEntropyWithResult is like redactEntropy but also collects match results.
+// redactEntropyWithResult redacts high-entropy values and collects match results.
 func redactEntropyWithResult(text string, matches *[]RedactionMatch) string {
 	return assignmentRe.ReplaceAllStringFunc(text, func(match string) string {
 		valueStart := 0
