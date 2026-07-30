@@ -180,7 +180,7 @@ jobs:
             -derivedDataPath build
         fi
         # Locate the built app bundle (Xcode 16 places output at depth 5-6)
-        APP_BUNDLE=$(find build -name 'SymairaMemory.app' -type d -maxdepth 6 | head -1)
+        APP_BUNDLE=$(find "$PWD/build" -name 'SymairaMemory.app' -type d -maxdepth 6 | head -1)
         if [ -z "$APP_BUNDLE" ]; then
           echo "::error::App bundle not found after build"
           exit 1
