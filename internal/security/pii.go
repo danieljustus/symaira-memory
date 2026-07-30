@@ -12,29 +12,29 @@ import (
 // that was detected and redacted. These are safe for logging and audit events
 // because they never contain the raw matched value.
 const (
-	LabelURLCredential    = "url_credential"
-	LabelOpenAIProjectKey = "openai_project_key"
-	LabelGitHubToken      = "github_token"
-	LabelGoogleAPIKey     = "google_api_key"
-	LabelBearerToken      = "bearer_token"
-	LabelAWSCredential    = "aws_credential"
-	LabelAWSAccessKeyID   = "aws_access_key_id"
-	LabelSlackToken       = "slack_token"
-	LabelStripeLiveKey    = "stripe_live_key"
-	LabelGitLabPAT        = "gitlab_pat"
-	LabelNPMToken         = "npm_token"
-	LabelFCMServerKey     = "fcm_server_key"
-	LabelHTTPBasicAuth    = "http_basic_auth"
-	LabelDockerConfigAuth = "docker_config_auth"
-	LabelPEMPrivateKey    = "private_key"
-	LabelGenericAPIKey    = "api_key"
-	LabelJWT              = "jwt_token"
-	LabelSSHPublicKey     = "ssh_public_key"
-	LabelAzureAccountKey  = "azure_account_key"
-	LabelGCPPrivateKey    = "gcp_private_key"
-	LabelEmail            = "email"
-	LabelPhone            = "phone_number"
-	LabelCreditCard       = "credit_card"
+	LabelURLCredential     = "url_credential"
+	LabelOpenAIProjectKey  = "openai_project_key"
+	LabelGitHubToken       = "github_token"
+	LabelGoogleAPIKey      = "google_api_key"
+	LabelBearerToken       = "bearer_token"
+	LabelAWSCredential     = "aws_credential"
+	LabelAWSAccessKeyID    = "aws_access_key_id"
+	LabelSlackToken        = "slack_token"
+	LabelStripeLiveKey     = "stripe_live_key"
+	LabelGitLabPAT         = "gitlab_pat"
+	LabelNPMToken          = "npm_token"
+	LabelFCMServerKey      = "fcm_server_key"
+	LabelHTTPBasicAuth     = "http_basic_auth"
+	LabelDockerConfigAuth  = "docker_config_auth"
+	LabelPEMPrivateKey     = "private_key"
+	LabelGenericAPIKey     = "api_key"
+	LabelJWT               = "jwt_token"
+	LabelSSHPublicKey      = "ssh_public_key"
+	LabelAzureAccountKey   = "azure_account_key"
+	LabelGCPPrivateKey     = "gcp_private_key"
+	LabelEmail             = "email"
+	LabelPhone             = "phone_number"
+	LabelCreditCard        = "credit_card"
 	LabelHighEntropySecret = "high_entropy_secret"
 )
 
@@ -74,23 +74,23 @@ func NewPIIGuard() *PIIGuard {
 		{regexp.MustCompile(`(?i)(?:https?|ftp|sftp|amqps?|mongodb(?:\\+srv)?|postgres(?:ql)?|mysql|redis)://[^\s:@]+:[^\s@]+@[^\s]+`), LabelURLCredential},
 
 		// API Keys & Tokens
-		{regexp.MustCompile(`(?i)(?:sk-proj-[a-zA-Z0-9]{32,})`), LabelOpenAIProjectKey},                                                        // OpenAI Project Key
-		{regexp.MustCompile(`(?i)(?:ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|ghs_[a-zA-Z0-9]{36}|ghr_[a-zA-Z0-9]{36})`), LabelGitHubToken}, // GitHub Tokens
-		{regexp.MustCompile(`(?i)(?:AIzaSy[a-zA-Z0-9-_]{33})`), LabelGoogleAPIKey},                                                         // Google API Key
-		{regexp.MustCompile(`(?i)(?:bearer\s+[a-zA-Z0-9-_\.]{20,})`), LabelBearerToken},                                                   // General Bearer Token
-		{regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16}:[A-Za-z0-9/+=]{40})`), LabelAWSCredential},                                           // AWS Access Key + Secret combo
-		{regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16})`), LabelAWSAccessKeyID},                                                             // AWS Access Key ID
-		{regexp.MustCompile(`(?i)(?:xox[abposr]-[a-zA-Z0-9-]{10,60})`), LabelSlackToken},                                                  // Slack Token
-		{regexp.MustCompile(`(?i)(?:sk_live_[a-zA-Z0-9]{24,})`), LabelStripeLiveKey},                                                       // Stripe Live Key
-		{regexp.MustCompile(`(?i)(?:glpat-[A-Za-z0-9_-]{20,})`), LabelGitLabPAT},                                                          // GitLab Personal Access Token
-		{regexp.MustCompile(`(?i)(?:npm_[A-Za-z0-9]{36})`), LabelNPMToken},                                                                // npm Access Token
-		{regexp.MustCompile(`(?i)(?:AAAA[A-Za-z0-9_-]{120,})`), LabelFCMServerKey},                                                        // Firebase Cloud Messaging Server Key
-		{regexp.MustCompile(`(?i)(?:basic\s+[A-Za-z0-9+/=]{20,})`), LabelHTTPBasicAuth},                                                   // HTTP Basic Auth header
-		{regexp.MustCompile(`(?i)(?:"auth"\s*:\s*"[A-Za-z0-9+/=]{20,}")`), LabelDockerConfigAuth},                                          // Docker config auth
+		{regexp.MustCompile(`(?i)(?:sk-proj-[a-zA-Z0-9]{32,})`), LabelOpenAIProjectKey},                                                                                                               // OpenAI Project Key
+		{regexp.MustCompile(`(?i)(?:ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|ghs_[a-zA-Z0-9]{36}|ghr_[a-zA-Z0-9]{36})`), LabelGitHubToken},                                                             // GitHub Tokens
+		{regexp.MustCompile(`(?i)(?:AIzaSy[a-zA-Z0-9-_]{33})`), LabelGoogleAPIKey},                                                                                                                    // Google API Key
+		{regexp.MustCompile(`(?i)(?:bearer\s+[a-zA-Z0-9-_\.]{20,})`), LabelBearerToken},                                                                                                               // General Bearer Token
+		{regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16}:[A-Za-z0-9/+=]{40})`), LabelAWSCredential},                                                                                                       // AWS Access Key + Secret combo
+		{regexp.MustCompile(`(?i)(?:AKIA[A-Z0-9]{16})`), LabelAWSAccessKeyID},                                                                                                                         // AWS Access Key ID
+		{regexp.MustCompile(`(?i)(?:xox[abposr]-[a-zA-Z0-9-]{10,60})`), LabelSlackToken},                                                                                                              // Slack Token
+		{regexp.MustCompile(`(?i)(?:sk_live_[a-zA-Z0-9]{24,})`), LabelStripeLiveKey},                                                                                                                  // Stripe Live Key
+		{regexp.MustCompile(`(?i)(?:glpat-[A-Za-z0-9_-]{20,})`), LabelGitLabPAT},                                                                                                                      // GitLab Personal Access Token
+		{regexp.MustCompile(`(?i)(?:npm_[A-Za-z0-9]{36})`), LabelNPMToken},                                                                                                                            // npm Access Token
+		{regexp.MustCompile(`(?i)(?:AAAA[A-Za-z0-9_-]{120,})`), LabelFCMServerKey},                                                                                                                    // Firebase Cloud Messaging Server Key
+		{regexp.MustCompile(`(?i)(?:basic\s+[A-Za-z0-9+/=]{20,})`), LabelHTTPBasicAuth},                                                                                                               // HTTP Basic Auth header
+		{regexp.MustCompile(`(?i)(?:"auth"\s*:\s*"[A-Za-z0-9+/=]{20,}")`), LabelDockerConfigAuth},                                                                                                     // Docker config auth
 		{regexp.MustCompile(`(?i)(?:-----BEGIN\s(?:RSA\s|EC\s|DSA\s|OPENSSH\s)?PRIVATE\sKEY-----[A-Za-z0-9+/=\n\s]+-----END\s(?:RSA\s|EC\s|DSA\s|OPENSSH\s)?PRIVATE\sKEY-----)`), LabelPEMPrivateKey}, // Full PEM private key block
-		{regexp.MustCompile(`(?i)(?:sk-[a-zA-Z0-9]{20,})`), LabelGenericAPIKey},                           // Generic sk- key (OpenAI, etc.)
-		{regexp.MustCompile(`(?i)(?:eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,})`), LabelJWT},            // Raw JWT token
-		{regexp.MustCompile(`(?i)(?:ssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{40,})`), LabelSSHPublicKey}, // SSH public key
+		{regexp.MustCompile(`(?i)(?:sk-[a-zA-Z0-9]{20,})`), LabelGenericAPIKey},                                                                                                                       // Generic sk- key (OpenAI, etc.)
+		{regexp.MustCompile(`(?i)(?:eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,})`), LabelJWT},                                                                                                        // Raw JWT token
+		{regexp.MustCompile(`(?i)(?:ssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{40,})`), LabelSSHPublicKey},                                                                                              // SSH public key
 
 		// Azure Storage account keys (connection string pattern)
 		{regexp.MustCompile(`(?i)(?:AccountKey=[A-Za-z0-9+/]{86}[AEIMQUYcgkosw048]=)`), LabelAzureAccountKey},
@@ -188,7 +188,7 @@ func (pg *PIIGuard) RedactWithResult(text string) (string, RedactionResult) {
 		cleaned = pe.re.ReplaceAllStringFunc(cleaned, func(match string) string {
 			if isURLCredential(match) {
 				matches = append(matches, RedactionMatch{
-					PatternLabel:          pe.label,
+					PatternLabel:         pe.label,
 					FingerprintedPreview: fingerprint(match),
 				})
 				return "[REDACTED_URL_CREDENTIALS]"
@@ -196,7 +196,7 @@ func (pg *PIIGuard) RedactWithResult(text string) (string, RedactionResult) {
 			if isNumeric(match) {
 				if luhn(match) {
 					matches = append(matches, RedactionMatch{
-						PatternLabel:          pe.label,
+						PatternLabel:         pe.label,
 						FingerprintedPreview: fingerprint(match),
 					})
 					return "[REDACTED_CARD_NUMBER]"
@@ -205,14 +205,14 @@ func (pg *PIIGuard) RedactWithResult(text string) (string, RedactionResult) {
 			}
 			if strings.Contains(match, "@") {
 				matches = append(matches, RedactionMatch{
-					PatternLabel:          pe.label,
+					PatternLabel:         pe.label,
 					FingerprintedPreview: fingerprint(match),
 				})
 				return "[REDACTED_EMAIL]"
 			}
 			// Must be an API key or token.
 			matches = append(matches, RedactionMatch{
-				PatternLabel:          pe.label,
+				PatternLabel:         pe.label,
 				FingerprintedPreview: fingerprint(match),
 			})
 			return "[REDACTED_API_KEY]"
@@ -265,7 +265,7 @@ func redactEntropyWithResult(text string, matches *[]RedactionMatch) string {
 		value := match[valueStart:]
 		if isLikelySecret(value) {
 			*matches = append(*matches, RedactionMatch{
-				PatternLabel:          LabelHighEntropySecret,
+				PatternLabel:         LabelHighEntropySecret,
 				FingerprintedPreview: fingerprint(value),
 			})
 			return match[:valueStart] + "[REDACTED_API_KEY]"

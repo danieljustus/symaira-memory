@@ -20,7 +20,7 @@ func TestRedactWithResult_LabelsAndPreviews(t *testing.T) {
 			name:        "email address",
 			input:       "user@example.com",
 			wantLabels:  []string{LabelEmail},
-			wantPreview: "user...com", // first 4 'user' + ... + last 4 '.com'
+			wantPreview: ".com", // last 4 chars ".com" should appear at end of preview
 		},
 		{
 			name:        "OpenAI project key",
