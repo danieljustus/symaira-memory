@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -15,6 +17,8 @@ var (
 	benchDataset          string
 	benchCorpus           string
 	benchAbstainThreshold float64
+	benchSnapshot         bool
+	benchCompare          bool
 )
 
 func init() {
@@ -24,6 +28,8 @@ func init() {
 	benchCmd.Flags().StringVar(&benchDataset, "dataset", "", "External dataset name for opt-in evaluation (optional; alias for --corpus)")
 	benchCmd.Flags().StringVar(&benchCorpus, "corpus", "", "Corpus to evaluate: builtin (default) or longmemeval")
 	benchCmd.Flags().Float64Var(&benchAbstainThreshold, "abstain-threshold", 0, "Score threshold for abstention evaluation on corpora with unanswerable queries")
+	benchCmd.Flags().BoolVar(&benchSnapshot, "snapshot", false, "Save benchmark results as a baseline snapshot under .bench-snapshots/")
+	benchCmd.Flags().BoolVar(&benchCompare, "compare", false, "Compare benchmark results against the stored baseline snapshot")
 	rootCmd.AddCommand(benchCmd)
 }
 
@@ -41,6 +47,13 @@ Metrics reported: Recall@k, NDCG@k, MRR, latency percentiles (P50/P95).
 
 The default run uses a built-in fixture corpus so CI is deterministic
 without network access. Use --dataset for external evaluation sets.
+
+Flags:
+  --snapshot           Save results as a baseline snapshot in .bench-snapshots/
+                       (versioned JSON with mode, metrics, timestamp, corpus hash)
+  --compare            Compare results against the stored baseline snapshot
+                       and report any regressions
+
 All output goes to stderr for easy piping.`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -52,19 +65,117 @@ All output goes to stderr for easy piping.`,
 		if benchOutput != "json" {
 			benchOutput = "text"
 		}
+
+		// Resolve corpus name for snapshot/compare operations
+		corpusName := benchCorpus
+		if corpusName == "" {
+			corpusName = benchDataset
+		}
+		if corpusName == "" {
+			corpusName = "builtin"
+		}
+
 		opts := bench.Options{
 			Repetitions:      benchRepetitions,
-			Output:           benchOutput,
+			Output:           "json", // always capture JSON internally for snapshot/compare
 			FixturePath:      benchFixture,
 			Dataset:          benchDataset,
 			Corpus:           benchCorpus,
 			AbstainThreshold: benchAbstainThreshold,
 		}
-		if err := bench.Run(os.Stderr, opts); err != nil {
+
+		var buf bytes.Buffer
+		if err := bench.Run(&buf, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "Benchmark failed: %v\n", err)
 			os.Exit(1)
 		}
+
+		var report bench.Report
+		if err := json.Unmarshal(buf.Bytes(), &report); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to parse benchmark report: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Display the report in the requested format
+		switch benchOutput {
+		case "json":
+			var pretty bytes.Buffer
+			if err := json.Indent(&pretty, buf.Bytes(), "", "  "); err == nil {
+				fmt.Fprintf(os.Stderr, "%s\n", pretty.String())
+			} else {
+				fmt.Fprintf(os.Stderr, "%s\n", buf.String())
+			}
+		default:
+			if err := writeBenchTextReport(os.Stderr, report); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to write text report: %v\n", err)
+			}
+		}
+
+		// Handle --snapshot and --compare
+		if benchSnapshot {
+			handleSnapshot(report, corpusName)
+		}
+		if benchCompare {
+			handleCompare(report, corpusName)
+		}
 	},
+}
+
+// handleSnapshot saves the benchmark report as a baseline snapshot.
+func handleSnapshot(report bench.Report, corpusName string) {
+	// Compute corpus hash from the report's corpus — we need to reconstruct
+	// it from the default corpus since the report doesn't carry the raw corpus.
+	// For consistency, we compute it from the standard corpus matching the name.
+	corpus := resolveCorpus(corpusName)
+	corpusHash := bench.ComputeCorpusHash(corpus)
+
+	snap := report.ToSnapshotFile(corpusName, corpusHash)
+	path, err := bench.SaveSnapshot(bench.SnapshotsDir, snap)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to save snapshot: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "\nBaseline snapshot saved: %s\n", path)
+	fmt.Fprintf(os.Stderr, "Corpus hash: %s\n", corpusHash[:12])
+}
+
+// handleCompare runs the comparison and writes the report.
+func handleCompare(report bench.Report, corpusName string) {
+	corpus := resolveCorpus(corpusName)
+	corpusHash := bench.ComputeCorpusHash(corpus)
+
+	baseline, _, err := bench.FindBaselineSnapshot(bench.SnapshotsDir, corpusName, corpusHash)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading baseline snapshot: %v\n", err)
+		os.Exit(1)
+	}
+	if baseline.SchemaVersion == 0 {
+		fmt.Fprintf(os.Stderr, "\nNo baseline snapshot found for corpus %q (hash: %s).\n", corpusName, corpusHash[:12])
+		fmt.Fprintf(os.Stderr, "Run with --snapshot first to create a baseline.\n")
+		os.Exit(1)
+	}
+
+	current := report.ToSnapshotFile(corpusName, corpusHash)
+	comparison := bench.CompareSnapshots(baseline, current)
+
+	fmt.Fprintf(os.Stderr, "\n")
+	bench.WriteComparisonReport(os.Stderr, comparison)
+
+	if !comparison.Passed {
+		os.Exit(1)
+	}
+}
+
+// resolveCorpus returns a corpus matching the given name for hash computation.
+func resolveCorpus(name string) *bench.Corpus {
+	switch name {
+	case "builtin":
+		return bench.DefaultCorpus()
+	default:
+		// For unknown corpora, return the default for hash computation.
+		// This is conservative — external corpora can't be hashed without loading.
+		return bench.DefaultCorpus()
+	}
 }
 
 func benchTokenReduction() {
@@ -131,4 +242,50 @@ func truncateStr(s string, max int) string {
 		return s
 	}
 	return s[:max-3] + "..."
+}
+
+// writeBenchTextReport writes a human-readable benchmark report to w.
+func writeBenchTextReport(w *os.File, report bench.Report) error {
+	buf := &bytes.Buffer{}
+	writeLine := func(format string, args ...interface{}) {
+		fmt.Fprintf(buf, format, args...)
+	}
+
+	writeLine("=== Symaira Memory Retrieval Benchmark ===\n\n")
+	writeLine("Corpus:     %d memories\n", report.CorpusSize)
+	writeLine("Queries:    %d evaluation queries\n", report.QueryCount)
+	writeLine("Reps:       %d per query for latency\n", report.Repetitions)
+	writeLine("Embeddings: %s\n\n", report.EmbeddingSource)
+
+	writeLine("                    Recall@5  Recall@10  NDCG@5   NDCG@10  MRR      P50(ms)  P95(ms)\n")
+	writeLine("─────────────────  ────────  ────────   ───────  ───────  ───────  ───────  ───────\n")
+
+	for _, m := range []bench.RetrievalMetrics{report.BM25, report.Vector, report.Hybrid} {
+		writeLine("  %-16s %7.3f   %7.3f    %6.3f   %6.3f   %6.3f   %7.2f  %7.2f\n",
+			m.Mode, m.RecallAt5, m.RecallAt10, m.NDCGAt5, m.NDCGAt10, m.MRR,
+			m.P50LatencyMs, m.P95LatencyMs)
+	}
+
+	writeLine("\n--- Temporal Validity ---\n")
+	for _, t := range report.Temporal {
+		writeLine("  %s\n", t.Description)
+	}
+
+	writeLine("\n--- Scope Isolation ---\n")
+	for _, s := range report.Scope {
+		writeLine("  %s\n", s.Description)
+	}
+
+	if len(report.Abstention) > 0 {
+		writeLine("\n--- Abstention ---\n")
+		for _, a := range report.Abstention {
+			writeLine("  [mode=%s] threshold=%.3f: %d/%d correct (accuracy %.3f)\n",
+				a.Mode, a.Threshold, a.Correct, a.Total, a.Accuracy)
+		}
+	}
+
+	writeLine("\n=== Benchmark Complete ===\n")
+
+	_, err := fmt.Fprint(w, buf.String())
+	return err
 }

@@ -56,6 +56,9 @@ docs/research/
 *.html
 !internal/web/static/index.html
 
+# Benchmark snapshot baselines (auto-generated, version-specific)
+.bench-snapshots/
+
 # Agent/developer workspace files (local-only, not for release)
 AGENTS.md
 CLAUDE.md
