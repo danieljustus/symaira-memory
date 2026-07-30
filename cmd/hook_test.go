@@ -143,31 +143,41 @@ func TestHookClaudeCodeOutputStructure(t *testing.T) {
 		t.Fatal("expected 'hooks' key in output")
 	}
 
-	// Check SessionStart key exists
-	sessionStart, ok := hooks["SessionStart"].([]interface{})
-	if !ok {
-		t.Fatal("expected 'SessionStart' array in hooks")
+	// Check all four lifecycle hooks are present
+	hookTypes := []struct {
+		key     string
+		command string
+	}{
+		{"SessionStart", "symmemory context --output md"},
+		{"PostToolUseFailure", "symmemory observe tool-failure"},
+		{"SessionEnd", "symmemory observe session-end"},
+		{"PreCompact", "symmemory observe pre-compact"},
 	}
 
-	if len(sessionStart) != 1 {
-		t.Fatalf("expected 1 SessionStart entry, got %d", len(sessionStart))
-	}
-
-	entry, ok := sessionStart[0].(map[string]interface{})
-	if !ok {
-		t.Fatal("expected SessionStart[0] to be an object")
-	}
-
-	if entry["type"] != "command" {
-		t.Errorf("expected type 'command', got %v", entry["type"])
-	}
-
-	cmd, ok := entry["command"].(string)
-	if !ok {
-		t.Fatal("expected 'command' to be a string")
-	}
-	if cmd != "symmemory context --output md" {
-		t.Errorf("expected command 'symmemory context --output md', got %q", cmd)
+	for _, ht := range hookTypes {
+		t.Run(ht.key, func(t *testing.T) {
+			arr, ok := hooks[ht.key].([]interface{})
+			if !ok {
+				t.Fatalf("expected '%s' array in hooks", ht.key)
+			}
+			if len(arr) != 1 {
+				t.Fatalf("expected 1 %s entry, got %d", ht.key, len(arr))
+			}
+			entry, ok := arr[0].(map[string]interface{})
+			if !ok {
+				t.Fatalf("expected %s[0] to be an object", ht.key)
+			}
+			if entry["type"] != "command" {
+				t.Errorf("expected type 'command', got %v", entry["type"])
+			}
+			cmdStr, ok := entry["command"].(string)
+			if !ok {
+				t.Fatalf("expected 'command' to be a string")
+			}
+			if cmdStr != ht.command {
+				t.Errorf("expected command %q, got %q", ht.command, cmdStr)
+			}
+		})
 	}
 }
 
@@ -333,6 +343,8 @@ func TestBuildClaudeHookBlock(t *testing.T) {
 	if !ok {
 		t.Fatal("missing 'hooks' key")
 	}
+
+	// SessionStart
 	ss, ok := hooks["SessionStart"].([]interface{})
 	if !ok {
 		t.Fatal("missing 'SessionStart' array")
@@ -346,6 +358,22 @@ func TestBuildClaudeHookBlock(t *testing.T) {
 	}
 	if entry["command"] != "symmemory context --output md" {
 		t.Errorf("unexpected command: %v", entry["command"])
+	}
+
+	// PostToolUseFailure
+	ptuf, ok := hooks["PostToolUseFailure"].([]interface{})
+	if !ok {
+		t.Fatal("missing 'PostToolUseFailure' array")
+	}
+	if len(ptuf) != 1 {
+		t.Fatalf("expected 1 entry in PostToolUseFailure, got %d", len(ptuf))
+	}
+	ptufEntry := ptuf[0].(map[string]interface{})
+	if ptufEntry["type"] != "command" {
+		t.Errorf("expected type 'command', got %v", ptufEntry["type"])
+	}
+	if ptufEntry["command"] != "symmemory observe tool-failure" {
+		t.Errorf("unexpected command: %v", ptufEntry["command"])
 	}
 }
 
