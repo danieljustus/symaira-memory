@@ -78,7 +78,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "Retrieve a specific memory by its unique ID.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"Unique memory UUID"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans backing this memory, if any (default false)"}},"required":["id"]}`),
 		Handler:     s.handleMemoryGet,
-		},
+	},
 	)
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -86,7 +86,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "Save a new persistent memory or fact. Use this tool autonomously when the user expresses a clear preference, constraint, architectural decision, or guideline that should persist across sessions.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","description":"The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},"scope":{"type":"string","description":"Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},"metadata":{"type":"string","description":"Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},"session_id":{"type":"string","description":"Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},"entities":{"type":"string","description":"Optional comma-separated entity names to link (e.g., 'Irene,Premium BnB'). Entities are auto-created if they don't exist."},"working":{"type":"boolean","description":"Store as working memory with TTL-based eviction (default false)"}},"required":["content"]}`),
 		Handler:     s.handleMemorySet,
-		},
+	},
 	)
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -94,7 +94,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"profile":{"type":"string","description":"Optional context profile name for inherited scope resolution. When provided, searches across scopes defined by the profile in precedence order."},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"},"min_score":{"type":"number","description":"Optional minimum similarity score (0-1). Results below the threshold are dropped and the tool returns an explicit 'no confident match' marker instead of weak matches. Defaults to the search.min_score config value; 0 disables filtering."},"max_payload_bytes":{"type":"integer","description":"Optional maximum total response payload size in bytes (e.g. 100000 for ~100KB). Results are truncated to stay within the limit. Default 0 (no limit)."},"cursor":{"type":"string","description":"Optional cursor for pagination — pass the cursor returned by a previous call to get the next page of results."}},"required":["query"]}`),
 		Handler:     s.handleMemorySearch,
-		},
+	},
 	)
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -102,7 +102,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "List all memories currently stored in the database. Useful for debugging or displaying stored context lists.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"limit":{"type":"integer","description":"Optional maximum number of memories to return (default 100, max 1000)"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"as_of":{"type":"string","description":"Optional RFC3339 timestamp: return memory state as of this point in time instead of current state. Not combinable with the policy filters."},"max_payload_bytes":{"type":"integer","description":"Optional maximum total response payload size in bytes (e.g. 100000 for ~100KB). Results are truncated to stay within the limit. Default 0 (no limit)."},"cursor":{"type":"string","description":"Optional cursor for pagination — pass the cursor returned by a previous call to get the next page of results."}}}`),
 		Handler:     s.handleMemoryList,
-		},
+	},
 	)
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -110,7 +110,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "List all known entities (people, projects, organizations). Use this to discover which entities exist before linking memories or filtering searches.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
 		Handler:     s.handleEntityList,
-		},
+	},
 	)
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -118,7 +118,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "Create or delete a directed, typed relationship between two entities (e.g. 'Alice works-with Bob'), by name or by stable entity ID. Use action='delete' to remove a relation. Pass source/source_ref/verification/evidence to attach provenance for idempotent creation by external integrations — retrying the same source+source_ref+triple returns the existing relation, and an already-verified relation is never silently overwritten. Pass valid_from/valid_until to attach temporal validity intervals; creating a newer version of the same triple with valid_from updates the row in place and makes the previous interval invisible to as-of queries.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"from":{"type":"string","description":"Name or alias of the source entity (mutually exclusive with from_id)"},"to":{"type":"string","description":"Name or alias of the target entity (mutually exclusive with to_id)"},"from_id":{"type":"string","description":"Stable ID of the source entity (mutually exclusive with from)"},"to_id":{"type":"string","description":"Stable ID of the target entity (mutually exclusive with to)"},"relation":{"type":"string","description":"Relation type, free-form (e.g. 'works-with', 'manages', 'attended')"},"action":{"type":"string","description":"'create' (default) or 'delete'"},"source":{"type":"string","description":"Optional caller-supplied source identifier for idempotent provenance (e.g. 'symdesk'); required together with source_ref"},"source_ref":{"type":"string","description":"Optional opaque caller reference for idempotency (e.g. a meeting ID; never an absolute path); required together with source"},"verification":{"type":"string","description":"Optional provenance verification status: 'verified' or 'unverified'"},"evidence":{"type":"string","description":"Optional bounded evidence JSON: {source_doc_id, char_start, char_end, time_start, time_end}"},"valid_from":{"type":"string","description":"Optional start of validity interval (RFC3339 or YYYY-MM-DD). When provided on an existing triple, updates the temporal window."},"valid_until":{"type":"string","description":"Optional end of validity interval (RFC3339 or YYYY-MM-DD). NULL means open-ended."}},"required":["relation"]}`),
 		Handler:     s.handleEntityRelate,
-		},
+	},
 	)
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -126,7 +126,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "Return deterministic, explainable entity candidates for a name or alias query — scored and ranked, with the match reason for each. Use this instead of entity_relate/graph_neighbors' implicit lookup when a caller needs to see or disambiguate multiple possible matches before acting (e.g. mapping an external record to an existing entity) rather than silently picking one.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"Name or alias to resolve"},"type":{"type":"string","description":"Optional: restrict candidates to this exact entity type (person, project, org, other)"},"aliases":{"type":"string","description":"Optional comma-separated alias hints to also compare against (never stored; hints shaped like an email or phone number are dropped)"},"limit":{"type":"integer","description":"Optional maximum number of candidates to return (default 10)"}},"required":["query"]}`),
 		Handler:     s.handleEntityResolve,
-		},
+	},
 	)
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -134,7 +134,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "Return the entities and relations reachable from a starting entity via a breadth-first traversal, as {nodes, edges}. Use this to answer 'what connects to X'. Pass as_of to filter relations by validity at a specific point in time.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"entity":{"type":"string","description":"Name or alias of the starting entity"},"depth":{"type":"integer","description":"Traversal depth, 1-3 (default 1)"},"as_of":{"type":"string","description":"Optional RFC3339 or YYYY-MM-DD timestamp: only return relations valid at this point in time (default: now)"}},"required":["entity"]}`),
 		Handler:     s.handleGraphNeighbors,
-		},
+	},
 	)
 
 	srv.RegisterTool(&mcpserver.Tool{
@@ -142,7 +142,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 		Description: "Return a summary of recent MCP tool calls (query log). Shows tool breakdown and recent entries. Read-only, no side effects.",
 		InputSchema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","description":"Optional maximum number of recent entries to return (default 20)"}}}`),
 		Handler:     s.handleQueryLog,
-		},
+	},
 	)
 
 	return srv
@@ -802,6 +802,7 @@ func truncatePayloadByBytes[T any](results []T, maxBytes int) []T {
 
 // extractCursorFromResults generates a cursor string from a result slice
 // for cursor-based pagination. Uses the last result's creation timestamp.
+//nolint:unused // utility for cursor-based pagination, wired when all list handlers adopt cursors
 func extractCursorFromResults[T interface{ GetCreatedAt() time.Time }](results []T) string {
 	if len(results) == 0 {
 		return ""

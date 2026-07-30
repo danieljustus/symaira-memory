@@ -19,10 +19,10 @@ type QueryLogEntry struct {
 
 // QueryLogSummary holds aggregated stats for the query-log summary CLI.
 type QueryLogSummary struct {
-	TotalQueries   int               `json:"total_queries"`
-	ToolBreakdown  map[string]int    `json:"tool_breakdown"`
-	RecentEntries  []*QueryLogEntry  `json:"recent_entries"`
-	PrunedCount    int               `json:"pruned_count,omitempty"`
+	TotalQueries  int              `json:"total_queries"`
+	ToolBreakdown map[string]int   `json:"tool_breakdown"`
+	RecentEntries []*QueryLogEntry `json:"recent_entries"`
+	PrunedCount   int              `json:"pruned_count,omitempty"`
 }
 
 const maxQueryLogEntries = 1000
