@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-corekit/exitcodes"
@@ -17,10 +18,11 @@ import (
 )
 
 type checkResult struct {
-	name    string
-	passed  bool
-	warning bool // non-blocking issue; does not cause exit 1
-	detail  string
+	name        string
+	passed      bool
+	warning     bool // non-blocking issue; does not cause exit 1
+	detail      string
+	remediation string // symmemory command to run; empty means no action needed
 }
 
 var doctorCmd = &cobra.Command{
@@ -402,6 +404,196 @@ func checkProfiles() checkResult {
 	}
 
 	return checkResult{name: "Profiles", passed: true, detail: detail}
+}
+
+func checkDuplicateCandidates() checkResult {
+	cfg := GetConfig()
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		return checkResult{name: "Duplicate Candidates", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
+	}
+	defer database.Close()
+
+	// Gracefully handle missing content_hash column (pre-migration 018 schemas)
+	var dupGroupCount int
+	err = database.Conn().QueryRow(`
+		SELECT COUNT(*) FROM (
+			SELECT content_hash FROM memories
+			WHERE content_hash != '' AND content_hash IS NOT NULL
+			GROUP BY content_hash
+			HAVING COUNT(*) > 1
+		)
+	`).Scan(&dupGroupCount)
+	if err != nil {
+		if strings.Contains(err.Error(), "no such column") {
+			return checkResult{
+				name:    "Duplicate Candidates",
+				passed:  true,
+				warning: true,
+				detail:  "content_hash column missing — run migrations to enable dedup checks",
+			}
+		}
+		return checkResult{name: "Duplicate Candidates", passed: false, detail: fmt.Sprintf("query failed: %v", err)}
+	}
+
+	if dupGroupCount == 0 {
+		return checkResult{name: "Duplicate Candidates", passed: true, detail: "no duplicate candidates found"}
+	}
+
+	var dupRowCount int
+	err = database.Conn().QueryRow(`
+		SELECT COUNT(*) FROM memories
+		WHERE content_hash IN (
+			SELECT content_hash FROM memories
+			WHERE content_hash != '' AND content_hash IS NOT NULL
+			GROUP BY content_hash
+			HAVING COUNT(*) > 1
+		)
+	`).Scan(&dupRowCount)
+	if err != nil {
+		return checkResult{name: "Duplicate Candidates", passed: false, detail: fmt.Sprintf("query failed: %v", err)}
+	}
+
+	return checkResult{
+		name:        "Duplicate Candidates",
+		passed:      true,
+		warning:     true,
+		detail:      fmt.Sprintf("%d groups, %d memories", dupGroupCount, dupRowCount),
+		remediation: "symmemory dream --dry-run",
+	}
+}
+
+func checkNeverRecalled() checkResult {
+	cfg := GetConfig()
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		return checkResult{name: "Never-Recalled (old)", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
+	}
+	defer database.Close()
+
+	// Detect if #409 access-tracking columns exist; gracefully degrade if not.
+	var hasRecallCol bool
+	err = database.Conn().QueryRow(
+		`SELECT COUNT(*) > 0 FROM pragma_table_info('memories') WHERE name='recalled_count'`,
+	).Scan(&hasRecallCol)
+	if err != nil {
+		hasRecallCol = false
+	}
+
+	var oldUnrecalled int
+
+	if hasRecallCol {
+		err = database.Conn().QueryRow(
+			`SELECT COUNT(*) FROM memories WHERE recalled_count = 0 AND created_at < datetime('now', '-30 days')`,
+		).Scan(&oldUnrecalled)
+	} else {
+		// Graceful degradation: use updated_at == created_at as proxy for "never recalled"
+		err = database.Conn().QueryRow(
+			`SELECT COUNT(*) FROM memories WHERE updated_at = created_at AND created_at < datetime('now', '-30 days')`,
+		).Scan(&oldUnrecalled)
+	}
+	if err != nil {
+		return checkResult{name: "Never-Recalled (old)", passed: false, detail: fmt.Sprintf("query failed: %v", err)}
+	}
+
+	if oldUnrecalled == 0 {
+		return checkResult{name: "Never-Recalled (old)", passed: true, detail: "no old unrecalled memories"}
+	}
+
+	suffix := ""
+	if !hasRecallCol {
+		suffix = " (estimated via updated_at — install #409 for precise tracking)"
+	}
+
+	return checkResult{
+		name:        "Never-Recalled (old)",
+		passed:      true,
+		warning:     true,
+		detail:      fmt.Sprintf("%d memories older than 30 days never recalled%s", oldUnrecalled, suffix),
+		remediation: "symmemory purge --session-ttl 30d --dry-run",
+	}
+}
+
+func checkDurableRatio() checkResult {
+	cfg := GetConfig()
+	if cfg == nil {
+		cfg = config.Defaults()
+	}
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		return checkResult{name: "Durable Ratio", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
+	}
+	defer database.Close()
+
+	var total int
+	err = database.Conn().QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&total)
+	if err != nil {
+		return checkResult{name: "Durable Ratio", passed: false, detail: fmt.Sprintf("cannot count memories: %v", err)}
+	}
+
+	if total == 0 {
+		return checkResult{name: "Durable Ratio", passed: true, detail: "no memories stored"}
+	}
+
+	var durable int
+	err = database.Conn().QueryRow(`SELECT COUNT(*) FROM memories WHERE importance >= 0.7`).Scan(&durable)
+	if err != nil {
+		// Gracefully handle missing importance column (pre-migration 011 schemas)
+		if strings.Contains(err.Error(), "no such column") {
+			return checkResult{
+				name:    "Durable Ratio",
+				passed:  true,
+				warning: true,
+				detail:  "importance column missing — run migrations to enable ratio checks",
+			}
+		}
+		return checkResult{name: "Durable Ratio", passed: false, detail: fmt.Sprintf("query failed: %v", err)}
+	}
+
+	ratio := float64(durable) / float64(total) * 100
+
+	if ratio < 30 && total >= 10 {
+		return checkResult{
+			name:        "Durable Ratio",
+			passed:      true,
+			warning:     true,
+			detail:      fmt.Sprintf("%.0f%% durable (%d/%d)", ratio, durable, total),
+			remediation: "symmemory dream --dry-run",
+		}
+	}
+
+	return checkResult{
+		name:   "Durable Ratio",
+		passed: true,
+		detail: fmt.Sprintf("%.0f%% durable (%d/%d)", ratio, durable, total),
+	}
+}
+
+func printNextSteps(results []checkResult) {
+	var hasActionable bool
+	for _, r := range results {
+		if r.remediation != "" {
+			if !hasActionable {
+				fmt.Println()
+				fmt.Println("Next steps:")
+				hasActionable = true
+			}
+			icon := "⚠️"
+			if !r.passed {
+				icon = "❌"
+			}
+			fmt.Printf("  %s %s: run `%s`\n", icon, r.name, r.remediation)
+		}
+	}
 }
 
 func init() {
