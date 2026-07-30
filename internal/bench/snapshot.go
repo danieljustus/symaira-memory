@@ -34,12 +34,12 @@ type BenchSnapshot struct {
 
 // SnapshotFile is the complete set of mode snapshots from one benchmark run.
 type SnapshotFile struct {
-	SchemaVersion int            `json:"schema_version"`
-	CreatedAt     time.Time      `json:"created_at"`
-	CorpusHash    string         `json:"corpus_hash"`
-	CorpusName    string         `json:"corpus_name"`
-	CorpusSize    int            `json:"corpus_size"`
-	QueryCount    int            `json:"query_count"`
+	SchemaVersion int             `json:"schema_version"`
+	CreatedAt     time.Time       `json:"created_at"`
+	CorpusHash    string          `json:"corpus_hash"`
+	CorpusName    string          `json:"corpus_name"`
+	CorpusSize    int             `json:"corpus_size"`
+	QueryCount    int             `json:"query_count"`
 	Snapshots     []BenchSnapshot `json:"snapshots"`
 }
 
@@ -166,7 +166,9 @@ func FindBaselineSnapshot(snapDir, corpusName, corpusHash string) (SnapshotFile,
 	path := SnapshotFilePath(snapDir, corpusName, corpusHash)
 	snap, err := LoadSnapshot(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		// Check the underlying error directly via os.Stat to handle
+		// wrapped errors from different Go versions consistently.
+		if _, statErr := os.Stat(path); os.IsNotExist(statErr) {
 			return SnapshotFile{}, "", nil
 		}
 		return SnapshotFile{}, "", err
