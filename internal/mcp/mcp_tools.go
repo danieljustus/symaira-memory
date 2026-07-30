@@ -802,7 +802,8 @@ func truncatePayloadByBytes[T any](results []T, maxBytes int) []T {
 
 // extractCursorFromResults generates a cursor string from a result slice
 // for cursor-based pagination. Uses the last result's creation timestamp.
-//nolint:unused // utility for cursor-based pagination, wired when all list handlers adopt cursors
+//
+//nolint:unused // utility, available when list handlers adopt cursors
 func extractCursorFromResults[T interface{ GetCreatedAt() time.Time }](results []T) string {
 	if len(results) == 0 {
 		return ""
