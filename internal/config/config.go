@@ -58,10 +58,12 @@ type ConsolidationConfig struct {
 
 // RankingConfig controls retrieval ranking weights.
 type RankingConfig struct {
-	RelevanceWeight  float64 `json:"relevance_weight"`  // cosine similarity weight (default 0.6)
-	RecencyWeight    float64 `json:"recency_weight"`    // recency decay weight (default 0.2)
-	ImportanceWeight float64 `json:"importance_weight"` // importance weight (default 0.2)
-	RecencyHalfLife  float64 `json:"recency_half_life"` // half-life in days (default 30)
+	RelevanceWeight           float64 `json:"relevance_weight"`            // cosine similarity weight (default 0.6)
+	RecencyWeight             float64 `json:"recency_weight"`              // recency decay weight (default 0.2)
+	ImportanceWeight          float64 `json:"importance_weight"`           // importance weight (default 0.2)
+	AccessReinforcementWeight float64 `json:"access_reinforcement_weight"` // access frequency boost (default 0 = disabled)
+	RecencyHalfLife           float64 `json:"recency_half_life"`           // half-life in days (default 30)
+	AccessHalfLife            float64 `json:"access_half_life"`            // half-life for last-access recency decay (default 14)
 }
 
 // ContextConfig controls the context assembler.
@@ -140,10 +142,12 @@ func Defaults() *Config {
 			Model:       "",
 		},
 		Ranking: RankingConfig{
-			RelevanceWeight:  0.6,
-			RecencyWeight:    0.2,
-			ImportanceWeight: 0.2,
-			RecencyHalfLife:  30,
+			RelevanceWeight:          0.6,
+			RecencyWeight:            0.2,
+			ImportanceWeight:         0.2,
+			AccessReinforcementWeight: 0.0,
+			RecencyHalfLife:          30,
+			AccessHalfLife:           14,
 		},
 		Context: ContextConfig{
 			TokenBudget:          2000,
