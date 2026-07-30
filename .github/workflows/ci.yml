@@ -140,3 +140,33 @@ jobs:
 
     - name: Run govulncheck
       run: govulncheck ./...
+
+  retrieval-bench:
+    name: Retrieval Benchmark (Weekly)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+        cache: true
+
+    - name: Build
+      run: go build -v -o symmemory .
+
+    - name: Run benchmark with built-in corpus
+      continue-on-error: true
+      run: |
+        ./symmemory bench 2>&1 | tee bench-output.txt
+        echo "Benchmark exit: $?"
+
+    - name: Upload benchmark results as CI artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: retrieval-bench-results
+        path: bench-output.txt
