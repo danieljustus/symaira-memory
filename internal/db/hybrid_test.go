@@ -159,7 +159,7 @@ func TestHybridSearch_CandidateCap(t *testing.T) {
 	queryVec[0] = 1.0
 
 	highLimit := maxCandidates / 2
-	results, err := database.HybridSearch(queryVec, "", "test document", "global", highLimit, 0.5, 0.5)
+	results, err := database.HybridSearch(queryVec, "", "test document", "global", highLimit, "", TrustFilter{}, PolicyFilter{}, 0.5, 0.5)
 	if err != nil {
 		t.Fatalf("HybridSearch failed: %v", err)
 	}
@@ -195,11 +195,116 @@ func TestHybridSearch_SmallLimitUnchanged(t *testing.T) {
 	queryVec := make([]float32, EmbeddingDim)
 	queryVec[0] = 1.0
 
-	results, err := database.HybridSearch(queryVec, "", "testing", "global", 10, 0.5, 0.5)
+	results, err := database.HybridSearch(queryVec, "", "testing", "global", 10, "", TrustFilter{}, PolicyFilter{}, 0.5, 0.5)
 	if err != nil {
 		t.Fatalf("HybridSearch failed: %v", err)
 	}
 	if len(results) > 10 {
 		t.Errorf("expected at most 10 results, got %d", len(results))
+	}
+}
+
+func TestSparsemax_ProbabilitiesSumToOne(t *testing.T) {
+	scores := []float64{2.0, 1.5, 0.5, 0.1}
+	sparse := Sparsemax(scores)
+
+	// Verify output length matches input
+	if len(sparse) != len(scores) {
+		t.Fatalf("expected %d results, got %d", len(scores), len(sparse))
+	}
+
+	// Verify sum ≈ 1.0
+	var sum float64
+	for _, v := range sparse {
+		sum += v
+	}
+	if sum < 0.99 || sum > 1.01 {
+		t.Errorf("sparsemax probabilities should sum to ~1.0, got %f", sum)
+	}
+
+	// Some elements should be zero (sparse property)
+	nonZero := 0
+	for _, v := range sparse {
+		if v > 0 {
+			nonZero++
+		}
+	}
+	if nonZero >= len(scores) {
+		t.Errorf("expected some zero entries for sparsemax, all %d were non-zero", nonZero)
+	}
+	if nonZero == 0 {
+		t.Errorf("expected at least one non-zero entry")
+	}
+}
+
+func TestSparsemax_AllEqualValues(t *testing.T) {
+	scores := []float64{1.0, 1.0, 1.0}
+	sparse := Sparsemax(scores)
+
+	var sum float64
+	for _, v := range sparse {
+		sum += v
+	}
+	if sum < 0.99 || sum > 1.01 {
+		t.Errorf("sparsemax(all equal) should sum to 1, got %f", sum)
+	}
+	for _, v := range sparse {
+		if v <= 0 {
+			t.Errorf("with all equal values, every element should be positive, got %f", v)
+		}
+	}
+}
+
+func TestSparsemax_NegativeScores(t *testing.T) {
+	scores := []float64{-1.0, -0.5, 0.0, 0.5, 1.0}
+	sparse := Sparsemax(scores)
+
+	var sum float64
+	for _, v := range sparse {
+		sum += v
+	}
+	if sum < 0.99 || sum > 1.01 {
+		t.Errorf("sparsemax(negatives) should sum to 1, got %f", sum)
+	}
+	// At least the negative scores should be zero
+	if sparse[0] != 0 || sparse[1] != 0 {
+		t.Errorf("negative scores should be zeroed by sparsemax, got %v", sparse)
+	}
+}
+
+func TestSparsemax_EmptyInput(t *testing.T) {
+	if got := Sparsemax(nil); got != nil {
+		t.Errorf("expected nil for empty input, got %v", got)
+	}
+	if got := Sparsemax([]float64{}); got != nil {
+		t.Errorf("expected nil for empty input, got %v", got)
+	}
+}
+
+func TestSparsemax_SingleElement(t *testing.T) {
+	sparse := Sparsemax([]float64{3.0})
+	if len(sparse) != 1 {
+		t.Fatalf("expected 1 element, got %d", len(sparse))
+	}
+	if sparse[0] < 0.99 || sparse[0] > 1.01 {
+		t.Errorf("single element should map to 1.0, got %f", sparse[0])
+	}
+}
+
+func TestSparsemax_ZeroVector(t *testing.T) {
+	scores := []float64{0, 0, 0, 0}
+	sparse := Sparsemax(scores)
+	var sum float64
+	for _, v := range sparse {
+		sum += v
+	}
+	if sum < 0.99 || sum > 1.01 {
+		t.Errorf("sparsemax(zero vector) should sum to 1, got %f", sum)
+	}
+	// All zeros: τ = (0-1)/4 = -0.25, so all get max(0, 0-(-0.25)) = 0.25
+	for i, v := range sparse {
+		if v < 0.24 || v > 0.26 {
+			t.Errorf("element %d: expected ~0.25, got %f", i, v)
+		}
 	}
 }

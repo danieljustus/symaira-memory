@@ -14,3 +14,18 @@ func FilterByMinScore(results []SearchResult, minScore float64) []SearchResult {
 	}
 	return kept
 }
+
+// FilterHybridByMinScore drops hybrid results whose fused score is below minScore.
+// A minScore <= 0 disables filtering and returns the input unchanged.
+func FilterHybridByMinScore(results []HybridResult, minScore float64) []HybridResult {
+	if minScore <= 0 {
+		return results
+	}
+	kept := make([]HybridResult, 0, len(results))
+	for _, r := range results {
+		if r.FusedScore >= minScore {
+			kept = append(kept, r)
+		}
+	}
+	return kept
+}
