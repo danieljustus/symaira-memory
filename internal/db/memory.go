@@ -74,6 +74,53 @@ type PolicyFilter struct {
 	ClientID        string // when non-empty, check against allowed_clients metadata
 }
 
+// TimeWindow defines an optional valid_from/valid_to filter for memory retrieval.
+// Both fields are optional; when nil the constraint on that side is relaxed.
+// Semantics: memory.valid_from <= To AND (memory.valid_to IS NULL OR memory.valid_to >= From).
+// A NULL valid_from is treated as unbounded in the past, a NULL valid_to as unbounded in the future.
+type TimeWindow struct {
+	From *time.Time // memories must be valid at or after this time (valid_to >= From or valid_to IS NULL)
+	To   *time.Time // memories must be valid at or before this time (valid_from <= To or valid_from IS NULL)
+}
+
+// TimeWindowClause returns SQL WHERE clause fragments and args for the time window.
+// Returns (whereClause, args) where whereClause includes the leading " AND ".
+func TimeWindowClause(tw TimeWindow, tableAlias string) (string, []interface{}) {
+	if tw.From == nil && tw.To == nil {
+		return "", nil
+	}
+	prefix := tableAlias
+	if prefix != "" {
+		prefix += "."
+	}
+	var clauses []string
+	var args []interface{}
+	if tw.From != nil {
+		clauses = append(clauses, "("+prefix+"valid_to IS NULL OR "+prefix+"valid_to >= ?)")
+		args = append(args, *tw.From)
+	}
+	if tw.To != nil {
+		clauses = append(clauses, "("+prefix+"valid_from IS NULL OR "+prefix+"valid_from <= ?)")
+		args = append(args, *tw.To)
+	}
+	return " AND " + strings.Join(clauses, " AND "), args
+}
+
+// passesTimeWindow checks whether a single memory falls within the given time window.
+func passesTimeWindow(m *Memory, tw TimeWindow) bool {
+	if tw.From != nil {
+		if m.ValidTo != nil && m.ValidTo.Before(*tw.From) {
+			return false
+		}
+	}
+	if tw.To != nil {
+		if m.ValidFrom != nil && m.ValidFrom.After(*tw.To) {
+			return false
+		}
+	}
+	return true
+}
+
 // ComputeContentHash returns the SHA-256 hex digest of the given content string.
 func ComputeContentHash(content string) string {
 	h := sha256.Sum256([]byte(content))
@@ -629,13 +676,13 @@ func (db *DB) SearchMemories(queryVec []float32, querySource string, scope strin
 // are filtered at the candidate-query level; rows from a different embedding
 // space are never hydrated or scored.
 func (db *DB) SearchMemoriesFiltered(queryVec []float32, querySource string, scope string, limit int, entityID string, weights ...RankingWeights) ([]SearchResult, error) {
-	return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, limit, entityID, TrustFilter{}, PolicyFilter{}, weights...)
+	return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, limit, entityID, TrustFilter{}, PolicyFilter{}, TimeWindow{}, weights...)
 }
 
 // SearchMemoriesFilteredWithTrust extends SearchMemoriesFiltered with trust-aware
 // and policy-aware filtering. Memories that don't match the trust or policy filter
 // are excluded from results.
-func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, weights ...RankingWeights) ([]SearchResult, error) {
+func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, timeWindow TimeWindow, weights ...RankingWeights) ([]SearchResult, error) {
 	w := DefaultRankingWeights()
 	if len(weights) > 0 {
 		w = weights[0]
@@ -650,6 +697,8 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 
 	queryLSH := ComputeLSH(queryVec)
 	buckets := LSHNeighbors(queryLSH, 2)
+
+	twClause, twArgs := TimeWindowClause(timeWindow, "")
 
 	var candidateIDs []string
 
@@ -680,6 +729,8 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
 			args = append(args, entityID)
 		}
+		query += twClause
+		args = append(args, twArgs...)
 		query += " ORDER BY created_at DESC"
 
 		rows, err := db.conn.Query(query, args...)
@@ -738,6 +789,9 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 					continue
 				}
 				if !PassesPolicyFilter(m, policyFilter) {
+					continue
+				}
+				if !passesTimeWindow(m, timeWindow) {
 					continue
 				}
 				results = append(results, scored{m: m})
@@ -1161,9 +1215,9 @@ func (db *DB) SetMemoryTier(id, tier string, expiresAt *time.Time) error {
 // list of scopes, searches each scope in precedence order, and returns results
 // tagged with provenance. When profileName is empty, it falls back to the
 // single-scope behaviour of SearchMemoriesFilteredWithTrust.
-func (db *DB) SearchMemoriesWithProfile(queryVec []float32, querySource string, profileName string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, weights ...RankingWeights) ([]SearchResult, error) {
+func (db *DB) SearchMemoriesWithProfile(queryVec []float32, querySource string, profileName string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, timeWindow TimeWindow, weights ...RankingWeights) ([]SearchResult, error) {
 	if profileName == "" {
-		return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, "", limit, entityID, trustFilter, policyFilter, weights...)
+		return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, "", limit, entityID, trustFilter, policyFilter, timeWindow, weights...)
 	}
 
 	scopes, err := db.ResolveContextProfile(profileName, DefaultMaxDepth)
@@ -1188,7 +1242,7 @@ func (db *DB) SearchMemoriesWithProfile(queryVec []float32, querySource string, 
 
 	var all []SearchResult
 	for _, rs := range searchScopes {
-		results, serr := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, rs.Scope, limit*2, entityID, trustFilter, policyFilter, w)
+		results, serr := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, rs.Scope, limit*2, entityID, trustFilter, policyFilter, timeWindow, w)
 		if serr != nil {
 			return nil, serr
 		}

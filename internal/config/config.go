@@ -94,7 +94,8 @@ type HybridSearchConfig struct {
 
 // SearchConfig controls default retrieval behavior for memory_search / search.
 type SearchConfig struct {
-	MinScore float64 `json:"min_score"` // minimum similarity score; results below are dropped (default 0 = disabled)
+	MinScore                  float64 `json:"min_score"`                   // minimum similarity score; results below are dropped (default 0 = disabled)
+	TemporalExtractionEnabled bool    `json:"temporal_extraction_enabled"` // enable inference of time window constraints from query text (default false)
 }
 
 // ImportConfig holds per-tool import settings.
