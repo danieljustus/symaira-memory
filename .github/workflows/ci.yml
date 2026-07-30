@@ -16,7 +16,7 @@ on:
       - 'LICENSE'
       - '.github/ISSUE_TEMPLATE/**'
   schedule:
-    - cron: '55 5 * * 1'  # weekly Monday 05:55 UTC — full suite incl. macOS
+    - cron: '55 5 * * 1'  # weekly Monday 05:55 UTC — full suite incl. macOS + Windows
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,8 +30,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        # PR gate is ubuntu-only; macOS runs on main pushes and weekly schedule.
-        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest"]') }}
+        # PR gate is ubuntu-only; macOS and Windows run on main pushes and weekly schedule.
+        os: ${{ github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') || fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') }}
         go-version: [1.26.x]
 
     steps:
@@ -45,14 +45,64 @@ jobs:
         cache: true
 
     - name: Check formatting
+      shell: bash
       run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
 
     - name: Vet
       run: go vet ./...
 
-    - name: Run tests
+    - name: Build
+      run: go build ./...
+
+    - name: Run tests (full suite — POSIX)
+      if: runner.os != 'Windows'
       run: go test -v -race -p 1 -timeout 10m ./...
       timeout-minutes: 15
+
+    - name: Run tests (targeted subset — Windows)
+      if: runner.os == 'Windows'
+      # Verify compilation (go build already done above) and exercise
+      # key packages. Full ./... test suite on Windows is deferred;
+      # see https://github.com/danieljustus/symaira-memory/issues/395
+      run: go test -v -timeout 5m ./internal/paths ./internal/security ./cmd
+      timeout-minutes: 10
+
+  deadcode:
+    name: Dead Code Detection (Advisory)
+    runs-on: ubuntu-latest
+    steps:
+    - name: Check out code
+      uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: go.mod
+
+    - name: Install deadcode
+      run: go install golang.org/x/tools/cmd/deadcode@v0.30.0
+
+    - name: Check for dead code
+      # ADVISORY — this step cannot fail the build.
+      #
+      # deadcode uses a reachability-based algorithm and may report false
+      # positives for code reachable only via interface dispatch, generated
+      # code, or conditional build tags. Examples of known low-signal noise:
+      #   - internal/security/permissions.go: CanAdmin — reachable via
+      #     reflection/routing in MCP handler, not via direct call within
+      #     this binary
+      #   - internal/config/config.go: Reload/resetCache — called from
+      #     test helpers or init-only paths that deadcode cannot trace
+      #   - cmd/norace.go: raceEnabled — purpose-built stub for non-race
+      #     builds
+      #   - internal/consolidation/linker.go — whole file is pre-allocated
+      #     API surface not yet consumed by cmd/
+      #
+      # The `unused` linter in golangci-lint (run in the Lint job) provides
+      # stricter, more reliable coverage. This step catches cases the linter
+      # misses. Review output before treating as actionable.
+      continue-on-error: true
+      run: deadcode ./...
 
   lint:
     name: Lint

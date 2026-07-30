@@ -1,3 +1,7 @@
+// Cross-platform path resolution tests — these work on both POSIX and Windows
+// because they use filepath.Join for expected values or t.TempDir for temp dirs.
+// XDG-specific tests with hardcoded Unix path conventions live in paths_unix_test.go
+// and are guarded with //go:build !windows.
 package paths
 
 import (
@@ -25,19 +29,6 @@ func TestConfigDir_Default(t *testing.T) {
 	}
 }
 
-func TestConfigDir_XDG(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/test-xdg-config")
-
-	dir, err := ConfigDir()
-	if err != nil {
-		t.Fatalf("ConfigDir() error: %v", err)
-	}
-	expected := "/tmp/test-xdg-config/symmemory"
-	if dir != expected {
-		t.Errorf("ConfigDir() = %q, want %q", dir, expected)
-	}
-}
-
 func TestDataDir_Default(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 
@@ -56,45 +47,6 @@ func TestDataDir_Default(t *testing.T) {
 	}
 }
 
-func TestDataDir_XDG(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", "/tmp/test-xdg-data")
-
-	dir, err := DataDir()
-	if err != nil {
-		t.Fatalf("DataDir() error: %v", err)
-	}
-	expected := "/tmp/test-xdg-data/symmemory"
-	if dir != expected {
-		t.Errorf("DataDir() = %q, want %q", dir, expected)
-	}
-}
-
-func TestSecretPath(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/test-xdg-config")
-
-	path, err := SecretPath("jwt.secret")
-	if err != nil {
-		t.Fatalf("SecretPath() error: %v", err)
-	}
-	expected := "/tmp/test-xdg-config/symmemory/jwt.secret"
-	if path != expected {
-		t.Errorf("SecretPath() = %q, want %q", path, expected)
-	}
-}
-
-func TestSecretPath_CustomName(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/test-xdg-config")
-
-	path, err := SecretPath("api.key")
-	if err != nil {
-		t.Fatalf("SecretPath() error: %v", err)
-	}
-	expected := "/tmp/test-xdg-config/symmemory/api.key"
-	if path != expected {
-		t.Errorf("SecretPath() = %q, want %q", path, expected)
-	}
-}
-
 func TestDatabasePath_Default(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "")
 
@@ -108,19 +60,6 @@ func TestDatabasePath_Default(t *testing.T) {
 		t.Fatalf("DatabasePath() error: %v", err)
 	}
 	expected := filepath.Join(home, ".local", "share", "symmemory", "default.db")
-	if path != expected {
-		t.Errorf("DatabasePath() = %q, want %q", path, expected)
-	}
-}
-
-func TestDatabasePath_XDG(t *testing.T) {
-	t.Setenv("XDG_DATA_HOME", "/tmp/test-xdg-data")
-
-	path, err := DatabasePath()
-	if err != nil {
-		t.Fatalf("DatabasePath() error: %v", err)
-	}
-	expected := "/tmp/test-xdg-data/symmemory/default.db"
 	if path != expected {
 		t.Errorf("DatabasePath() = %q, want %q", path, expected)
 	}
