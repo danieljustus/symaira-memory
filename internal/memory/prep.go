@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -221,17 +222,28 @@ func MergeProvenance(base, provenance map[string]string) map[string]string {
 // and returns a Memory ready for embedding generation and persistence.
 // sourceTool identifies the client (e.g. "cli", "mcp", "http") and is used
 // to stamp provenance metadata on the memory.
-func Prepare(content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, sourceTool string) (*db.Memory, error) {
+// The third return value is a RedactionResult summarizing any PII redactions
+// that were applied, or nil if piiEnabled is false.
+func Prepare(content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, sourceTool string) (*db.Memory, *security.RedactionResult, error) {
 	if scope == "" {
 		scope = "global"
 	}
 	if err := security.ValidateScope(scope); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+
+	var allMatches []security.RedactionMatch
 
 	cleanContent := content
 	if piiEnabled {
-		cleanContent = security.Redact(content)
+		result, rr := security.RedactWithResult(content)
+		cleanContent = result
+		if len(rr.Matches) > 0 {
+			for _, m := range rr.Matches {
+				slog.Warn("PII redacted from memory content", "pattern", m.PatternLabel)
+			}
+			allMatches = append(allMatches, rr.Matches...)
+		}
 	}
 
 	if meta == nil {
@@ -256,7 +268,14 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 
 	cleanMeta := meta
 	if piiEnabled {
-		cleanMeta = security.RedactMap(meta)
+		result, rr := security.RedactMapWithResult(meta)
+		cleanMeta = result
+		if len(rr.Matches) > 0 {
+			for _, m := range rr.Matches {
+				slog.Warn("PII redacted from memory metadata", "pattern", m.PatternLabel)
+			}
+			allMatches = append(allMatches, rr.Matches...)
+		}
 	}
 
 	return &db.Memory{
@@ -268,7 +287,7 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 		CreatedSession: attr.SessionID,
 		UpdatedSession: attr.SessionID,
 		ValidFrom:      ptrTime(time.Now().UTC()),
-	}, nil
+	}, &security.RedactionResult{Matches: allMatches}, nil
 }
 
 // Store wraps the full prepare → redact → embed → save → extract-facts pipeline.
@@ -276,7 +295,7 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 // The entities parameter contains entity names to link to the saved memory.
 // sourceTool identifies the client (e.g. "cli", "mcp", "http").
 func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string, sourceTool string, working bool, ttl time.Duration) (*db.Memory, []string, error) {
-	m, err := Prepare(content, scope, meta, piiEnabled, attr, sourceTool)
+	m, prepareResult, err := Prepare(content, scope, meta, piiEnabled, attr, sourceTool)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -327,10 +346,26 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 
 	extractedFacts := patternExtractor.ExtractFacts(m.Content)
 	var extractedStr []string
+
+	// Collect unique redaction pattern labels for audit logging.
+	allRedactionPatterns := make(map[string]struct{})
+	if prepareResult != nil {
+		for _, rm := range prepareResult.Matches {
+			allRedactionPatterns[rm.PatternLabel] = struct{}{}
+		}
+	}
+
 	for _, f := range extractedFacts {
 		cleanFactContent := f.Content
 		if piiEnabled {
-			cleanFactContent = security.Redact(f.Content)
+			result, rr := security.RedactWithResult(f.Content)
+			cleanFactContent = result
+			if len(rr.Matches) > 0 {
+				for _, m := range rr.Matches {
+					slog.Warn("PII redacted from extracted fact content", "pattern", m.PatternLabel)
+					allRedactionPatterns[m.PatternLabel] = struct{}{}
+				}
+			}
 		}
 
 		if isDuplicateOfPrimary(cleanFactContent, f.Metadata["raw_trigger"], m.Content) {
@@ -364,7 +399,14 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 		}
 
 		if piiEnabled {
-			subMeta = security.RedactMap(subMeta)
+			result, rr := security.RedactMapWithResult(subMeta)
+			subMeta = result
+			if len(rr.Matches) > 0 {
+				for _, m := range rr.Matches {
+					slog.Warn("PII redacted from extracted fact metadata", "pattern", m.PatternLabel)
+					allRedactionPatterns[m.PatternLabel] = struct{}{}
+				}
+			}
 		}
 
 		subMem := &db.Memory{
@@ -388,13 +430,38 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 				for i, ext := range f.Evidence {
 					ext.Source = evidencekit.SourceRef{ID: m.ID, Kind: sourceTool}
 					if piiEnabled {
-						ext.EvidenceText = security.Redact(ext.EvidenceText)
-						ext.Text = security.Redact(ext.Text)
+						result, rr := security.RedactWithResult(ext.EvidenceText)
+						ext.EvidenceText = result
+						if len(rr.Matches) > 0 {
+							for _, m := range rr.Matches {
+								slog.Warn("PII redacted from evidence text", "pattern", m.PatternLabel)
+								allRedactionPatterns[m.PatternLabel] = struct{}{}
+							}
+						}
+						result, rr = security.RedactWithResult(ext.Text)
+						ext.Text = result
+						if len(rr.Matches) > 0 {
+							for _, m := range rr.Matches {
+								slog.Warn("PII redacted from evidence text", "pattern", m.PatternLabel)
+								allRedactionPatterns[m.PatternLabel] = struct{}{}
+							}
+						}
 					}
 					evidence[i] = ext
 				}
 				_ = database.SaveMemoryEvidence(subID, evidence)
 			}
+		}
+	}
+
+	// Write a single audit event aggregating all redaction pattern types.
+	if len(allRedactionPatterns) > 0 {
+		patterns := make([]string, 0, len(allRedactionPatterns))
+		for p := range allRedactionPatterns {
+			patterns = append(patterns, p)
+		}
+		if err := database.LogRedactionAudit(m.ID, m.Scope, attr.SessionID, attr.Author, patterns); err != nil {
+			slog.Warn("failed to write redaction audit event", "error", err)
 		}
 	}
 

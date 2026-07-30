@@ -13,7 +13,7 @@ import (
 )
 
 func TestPrepareEmptyScopeDefaultsToGlobal(t *testing.T) {
-	mem, err := Prepare("test content", "", nil, false, Attribution{}, "test")
+	mem, _, err := Prepare("test content", "", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -23,7 +23,7 @@ func TestPrepareEmptyScopeDefaultsToGlobal(t *testing.T) {
 }
 
 func TestPrepareInvalidScopeReturnsError(t *testing.T) {
-	mem, err := Prepare("test content", "banana", nil, false, Attribution{}, "test")
+	mem, _, err := Prepare("test content", "banana", nil, false, Attribution{}, "test")
 	if err == nil {
 		t.Fatal("expected error for invalid scope, got nil")
 	}
@@ -33,7 +33,7 @@ func TestPrepareInvalidScopeReturnsError(t *testing.T) {
 }
 
 func TestPrepareStampsTrustDefaults(t *testing.T) {
-	mem, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
+	mem, _, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestPrepareStampsTrustDefaults(t *testing.T) {
 }
 
 func TestPrepareStampsPolicyDefaults(t *testing.T) {
-	mem, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
+	mem, _, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestPreparePreservesExplicitMetadata(t *testing.T) {
 		MetaConfidence:   ConfidenceLow,
 		"custom_key":     "custom_value",
 	}
-	mem, err := Prepare("test content", "global", meta, false, Attribution{}, "test")
+	mem, _, err := Prepare("test content", "global", meta, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestPreparePreservesExplicitMetadata(t *testing.T) {
 
 func TestPreparePIIRedaction(t *testing.T) {
 	content := "contact me at john@example.com for details"
-	mem, err := Prepare(content, "global", nil, true, Attribution{}, "test")
+	mem, _, err := Prepare(content, "global", nil, true, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestPreparePIIMetadataRedaction(t *testing.T) {
 		"contact": "alice@example.com",
 		"token":   "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
 	}
-	mem, err := Prepare("clean content", "global", meta, true, Attribution{}, "test")
+	mem, _, err := Prepare("clean content", "global", meta, true, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestPreparePIIMetadataRedaction(t *testing.T) {
 
 func TestPreparePIIMetadataDisabled(t *testing.T) {
 	meta := map[string]string{"contact": "alice@example.com"}
-	mem, err := Prepare("clean content", "global", meta, false, Attribution{}, "test")
+	mem, _, err := Prepare("clean content", "global", meta, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestPreparePIIMetadataDisabled(t *testing.T) {
 
 func TestPreparePIIDisabled(t *testing.T) {
 	content := "contact me at john@example.com for details"
-	mem, err := Prepare(content, "global", nil, false, Attribution{}, "test")
+	mem, _, err := Prepare(content, "global", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestPreparePIIDisabled(t *testing.T) {
 }
 
 func TestPrepareNilMetaBecomesEmptyMap(t *testing.T) {
-	mem, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
+	mem, _, err := Prepare("test content", "global", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestPrepareProjectScopeSetsProjectName(t *testing.T) {
 	}
 	defer os.Chdir(oldCwd)
 
-	mem, err := Prepare("test content", "project", nil, false, Attribution{}, "test")
+	mem, _, err := Prepare("test content", "project", nil, false, Attribution{}, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestPrepareProjectScopeSetsProjectName(t *testing.T) {
 
 func TestPrepareAttribution(t *testing.T) {
 	attr := Attribution{Author: "cli:daniel", SessionID: "sess-123"}
-	mem, err := Prepare("test content", "global", nil, false, attr, "test")
+	mem, _, err := Prepare("test content", "global", nil, false, attr, "test")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
