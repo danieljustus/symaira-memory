@@ -37,6 +37,16 @@ func (s *MemoryService) ActiveBackend() string {
 	return s.embeddings.ActiveBackend()
 }
 
+// EmbeddingMetrics returns live embedding generator metrics.
+func (s *MemoryService) EmbeddingMetrics() extractor.EmbeddingMetrics {
+	return s.embeddings.Metrics()
+}
+
+// RetrievalStats returns the live retrieval stats accumulator.
+func (s *MemoryService) RetrievalStats() *db.RetrievalStats {
+	return s.db.RetrievalStats()
+}
+
 func (s *MemoryService) Search(query, scope string, limit int, entityName string, trustFilter db.TrustFilter, policyFilter db.PolicyFilter) ([]db.SearchResult, error) {
 	var entityID string
 	if entityName != "" {

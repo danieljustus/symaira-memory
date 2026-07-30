@@ -68,6 +68,7 @@ func (s *Server) httpMux() http.Handler {
 		auth    routeAuth
 	}{
 		{"/api/status", s.handleStatus, authNone},
+		{"/api/stats", s.handleStats, authRequired},
 		{"/api/search", s.handleSearch, authRequired},
 		{"/api/set", s.handleSet, authReadWrite},
 		{"/api/list", s.handleList, authRequired},
