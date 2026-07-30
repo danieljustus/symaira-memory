@@ -2,9 +2,15 @@ package db
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+)
+
+// Audit event action type constants.
+const (
+	EventRedaction = "redaction"
 )
 
 type AuditEvent struct {
@@ -28,6 +34,14 @@ func (db *DB) LogAudit(action, memoryID, scope, session, actor, detail string) e
 		return err
 	}
 	return nil
+}
+
+// LogRedactionAudit writes an audit event for a PII redaction. The patterns
+// parameter contains the redaction pattern labels (e.g. "email", "api_key")
+// that matched — never the raw matched values.
+func (db *DB) LogRedactionAudit(memoryID, scope, session, actor string, patterns []string) error {
+	detail := strings.Join(patterns, ",")
+	return db.LogAudit(EventRedaction, memoryID, scope, session, actor, detail)
 }
 
 func (db *DB) GetAuditLogs(action string, limit int) ([]*AuditEvent, error) {
