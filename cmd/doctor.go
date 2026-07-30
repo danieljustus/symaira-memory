@@ -43,6 +43,11 @@ Reports pass/fail for database, Ollama, JWT secrets, configuration, and file per
 		results = append(results, checkFilePermissions())
 		results = append(results, checkProfiles())
 
+		// Derived checks with remediation suggestions
+		results = append(results, checkDuplicateCandidates())
+		results = append(results, checkNeverRecalled())
+		results = append(results, checkDurableRatio())
+
 		allPassed := true
 		for _, r := range results {
 			icon := "✅"
@@ -60,6 +65,8 @@ Reports pass/fail for database, Ollama, JWT secrets, configuration, and file per
 		}
 
 		fmt.Println()
+		printNextSteps(results)
+
 		if allPassed {
 			fmt.Println("All checks passed.")
 		} else {
