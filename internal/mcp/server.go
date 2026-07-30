@@ -32,6 +32,7 @@ type Server struct {
 	profile          *db.Profile
 	rateLimiter      *RateLimiter
 	workingMemoryTTL time.Duration
+	bindAddr         string
 }
 
 func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version string, cfg *config.Config) *Server {
@@ -59,6 +60,7 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version strin
 		cfg:              cfg,
 		rateLimiter:      NewRateLimiter(DefaultRateLimitConfig(), cfg.Security.TrustedProxies...),
 		workingMemoryTTL: workingTTL,
+		bindAddr:         "127.0.0.1:8787",
 	}
 }
 

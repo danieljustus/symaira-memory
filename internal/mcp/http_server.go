@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 func (s *Server) StartHTTPServer(port int) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	s.bindAddr = addr
 	srv := &http.Server{
 		Addr:    addr,
 		Handler: s.httpMux(),
@@ -90,9 +92,59 @@ func (s *Server) httpMux() http.Handler {
 	mux.HandleFunc("/", s.handleStatic)
 
 	var handler http.Handler = mux
+	handler = s.hostValidationHandler(handler)
 	handler = csrfProtectionHandler(handler)
 	handler = securityHeadersHandler(handler)
 	return requestLoggingMiddleware(handler)
+}
+
+// hostValidationHandler returns a middleware that validates the Host header
+// when the server is bound to a loopback address. The guard is active only
+// when the bind address is loopback (127.0.0.0/8 or ::1). When active, any
+// request with a non-loopback Host header receives a 403 Forbidden response,
+// regardless of HTTP method.
+//
+// Loopback detection uses netip.Addr.IsLoopback(), which covers the entire
+// 127.0.0.0/8 range (not only 127.0.0.1) and ::1 for IPv6.
+func (s *Server) hostValidationHandler(next http.Handler) http.Handler {
+	bindHost, _, err := net.SplitHostPort(s.bindAddr)
+	if err != nil {
+		bindHost = s.bindAddr
+	}
+
+	bindIP, err := netip.ParseAddr(bindHost)
+	if err != nil || !bindIP.IsLoopback() {
+		// Not bound to a loopback address — guard is inactive.
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqHost, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			reqHost = r.Host // no port present, use as-is
+		}
+
+		// Strip IPv6 brackets (e.g. [::1] -> ::1)
+		addr := reqHost
+		if len(addr) > 2 && addr[0] == '[' && addr[len(addr)-1] == ']' {
+			addr = addr[1 : len(addr)-1]
+		}
+
+		// Check if the Host is a loopback IP (covers 127.0.0.0/8 and ::1).
+		if ip, err := netip.ParseAddr(addr); err == nil && ip.IsLoopback() {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Also allow "localhost" as a valid loopback hostname.
+		if strings.EqualFold(reqHost, "localhost") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		slog.Warn("Host header validation rejected", "host", r.Host, "method", r.Method, "path", r.URL.Path)
+		writeJSONError(w, http.StatusForbidden, CodeForbidden, "non-loopback Host header rejected", nil)
+	})
 }
 
 func csrfProtectionHandler(next http.Handler) http.Handler {
@@ -137,11 +189,20 @@ func isLocalOrigin(origin string) bool {
 	} else {
 		return false
 	}
+	// Properly split host and port, handling IPv6 addresses in brackets.
 	host := rest
-	if idx := strings.LastIndex(host, ":"); idx >= 0 {
-		host = host[:idx]
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	} else if len(host) > 2 && host[0] == '[' && host[len(host)-1] == ']' {
+		// No port present — strip brackets for IPv6 address.
+		host = host[1 : len(host)-1]
 	}
-	return host == "127.0.0.1" || host == "localhost" || host == "[::1]" || host == "0.0.0.0"
+	// Use netip for loopback detection, covering the entire 127.0.0.0/8 range
+	// and ::1. Previously 0.0.0.0 was treated as local — it is not.
+	if ip, err := netip.ParseAddr(host); err == nil && ip.IsLoopback() {
+		return true
+	}
+	return host == "localhost"
 }
 
 func matchOrigin(origin, pattern string) bool {

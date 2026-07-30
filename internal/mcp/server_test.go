@@ -2327,3 +2327,198 @@ func TestCORSPreflightWildcardOrigin(t *testing.T) {
 		t.Errorf("expected Access-Control-Allow-Origin header, got %q", resp.Header.Get("Access-Control-Allow-Origin"))
 	}
 }
+
+// --------------------------------------------------------------------------
+// Host header validation
+// --------------------------------------------------------------------------
+
+func TestHostValidationAllowsLoopbackAddresses(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	s := helperServer(t)
+	h := s.hostValidationHandler(handler)
+
+	tests := []struct {
+		name string
+		host string
+	}{
+		{"127.0.0.1 with port", "127.0.0.1:8787"},
+		{"127.0.0.1 without port", "127.0.0.1"},
+		{"localhost with port", "localhost:8787"},
+		{"localhost without port", "localhost"},
+		{"[::1] with port", "[::1]:8787"},
+		{"[::1] without port", "[::1]"},
+		{"127.0.0.2 (127.0.0.0/8 range)", "127.0.0.2:8787"},
+		{"127.255.255.254 (127.0.0.0/8 boundary)", "127.255.255.254:8787"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/status", nil)
+			req.Host = tt.host
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("expected 200 for host %q, got %d", tt.host, rec.Code)
+			}
+		})
+	}
+}
+
+func TestHostValidationRejectsNonLoopback(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	s := helperServer(t)
+	h := s.hostValidationHandler(handler)
+
+	tests := []struct {
+		name string
+		host string
+	}{
+		{"external IP with port", "192.168.1.1:8787"},
+		{"external IP without port", "10.0.0.1"},
+		{"DNS hostname with port", "evil.com:8787"},
+		{"DNS hostname without port", "example.com"},
+		{"0.0.0.0 is not loopback", "0.0.0.0:8787"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/status", nil)
+			req.Host = tt.host
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("expected 403 for host %q, got %d", tt.host, rec.Code)
+			}
+		})
+	}
+}
+
+func TestHostValidationGuardInactiveOnNonLoopbackBind(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	s := helperServer(t)
+	// Override bind address to non-loopback → guard inactive.
+	s.bindAddr = "0.0.0.0:8787"
+	h := s.hostValidationHandler(handler)
+
+	req := httptest.NewRequest("GET", "/api/status", nil)
+	req.Host = "evil.com:8787"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 (guard inactive on non-loopback bind), got %d", rec.Code)
+	}
+}
+
+func TestHostValidationCatchesAllMethods(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	s := helperServer(t)
+	h := s.hostValidationHandler(handler)
+
+	methods := []string{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"}
+	for _, method := range methods {
+		t.Run("valid host/"+method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/api/status", nil)
+			req.Host = "127.0.0.1:8787"
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d", rec.Code)
+			}
+		})
+		t.Run("invalid host/"+method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/api/status", nil)
+			req.Host = "evil.com:8787"
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("expected 403, got %d", rec.Code)
+			}
+		})
+	}
+}
+
+func TestHostValidationDoesNotBlockLoopbackOnRealServer(t *testing.T) {
+	// Verify that real httptest.Server requests still work (Host header
+	// is set automatically to 127.0.0.1:<random-port> by the Go client).
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/api/status")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	// /api/status has authNone, so it should succeed.
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 for /api/status via httptest, got %d", res.StatusCode)
+	}
+}
+
+// --------------------------------------------------------------------------
+// isLocalOrigin — 0.0.0.0 no longer local, covers whole 127.0.0.0/8
+// --------------------------------------------------------------------------
+
+func TestIsLocalOriginRejectsZeroDotZero(t *testing.T) {
+	if isLocalOrigin("http://0.0.0.0:8787") {
+		t.Error("isLocalOrigin should NOT treat 0.0.0.0 as a local origin")
+	}
+}
+
+func TestIsLocalOriginCoversLoopbackRange(t *testing.T) {
+	tests := []struct {
+		origin string
+		want   bool
+	}{
+		{"http://127.0.0.1:8787", true},
+		{"http://127.0.0.1", true},
+		{"http://127.0.0.2:8080", true},
+		{"http://127.255.255.254", true},
+		{"http://[::1]:8787", true},
+		{"http://[::1]", true},
+		{"http://localhost:8787", true},
+		{"http://localhost", true},
+		{"https://localhost", true},
+		{"http://0.0.0.0:8787", false},
+		{"http://192.168.1.1", false},
+		{"http://example.com", false},
+		{"https://evil.com", false},
+		{"", false},
+		{"random-string", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.origin, func(t *testing.T) {
+			got := isLocalOrigin(tt.origin)
+			if got != tt.want {
+				t.Errorf("isLocalOrigin(%q) = %v, want %v", tt.origin, got, tt.want)
+			}
+		})
+	}
+}
+
+// --------------------------------------------------------------------------
+// End-to-end: CSRF still works with host validation in front
+// --------------------------------------------------------------------------
+
+func TestCSRFBlockedAfterHostValidation(t *testing.T) {
+	// POST without auth and without local origin should still be blocked
+	// by CSRF after host validation passes.
+	s := helperServer(t)
+	ts := httptest.NewServer(s.httpMux())
+	defer ts.Close()
+
+	res, err := http.Post(ts.URL+"/api/sync/apply", "application/json", strings.NewReader(`{"memories":[]}`))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 (CSRF), got %d", res.StatusCode)
+	}
+}
