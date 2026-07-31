@@ -243,8 +243,8 @@ func TestTrackMemoryAccessBatchWritesTimestamp(t *testing.T) {
 		).Scan(&ac, &la); err != nil {
 			t.Fatalf("read back %s failed: %v", id, err)
 		}
-		if ac != 1 {
-			t.Errorf("%s: expected access_count 1 after batch (0 + 1), got %d", id, ac)
+		if ac != 2 {
+			t.Errorf("%s: expected access_count 2 after batch (1 from save default + 1), got %d", id, ac)
 		}
 		if !la.Valid {
 			t.Errorf("%s: expected last_access timestamp after batch, got NULL", id)

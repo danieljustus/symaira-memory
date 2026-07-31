@@ -141,6 +141,10 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	if tier == "" {
 		tier = "long_term"
 	}
+	accessCount := m.AccessCount
+	if accessCount == 0 {
+		accessCount = 1
+	}
 	var expiresAt sql.NullTime
 	if m.ExpiresAt != nil {
 		expiresAt.Time = *m.ExpiresAt
@@ -170,7 +174,8 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 			valid_to=excluded.valid_to,
 			superseded_by=excluded.superseded_by,
 			tier=excluded.tier,
-			expires_at=excluded.expires_at`
+			expires_at=excluded.expires_at,
+			access_count=excluded.access_count`
 
 	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
@@ -184,7 +189,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 		lastAccess.Valid = true
 	}
 
-	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt, m.AccessCount, lastAccess)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt, accessCount, lastAccess)
 	return err
 }
 
