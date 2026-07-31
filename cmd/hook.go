@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -55,6 +54,10 @@ idempotently.`,
 }
 
 // buildClaudeHookBlock returns the structured hook JSON block for Claude Code.
+// It includes all four lifecycle hooks: SessionStart, PostToolUseFailure,
+// SessionEnd, and PreCompact. Each invokes symmemory via the relevant
+// subcommand — context (read) or observe (write-path).
+// Hook scripts never exit non-zero and never write to stdout.
 func buildClaudeHookBlock() map[string]interface{} {
 	return map[string]interface{}{
 		"hooks": map[string]interface{}{
@@ -64,14 +67,32 @@ func buildClaudeHookBlock() map[string]interface{} {
 					"command": "symmemory context --output md",
 				},
 			},
+			"PostToolUseFailure": []interface{}{
+				map[string]interface{}{
+					"type":    "command",
+					"command": "symmemory observe tool-failure",
+				},
+			},
+			"SessionEnd": []interface{}{
+				map[string]interface{}{
+					"type":    "command",
+					"command": "symmemory observe session-end",
+				},
+			},
+			"PreCompact": []interface{}{
+				map[string]interface{}{
+					"type":    "command",
+					"command": "symmemory observe pre-compact",
+				},
+			},
 		},
 	}
 }
 
-// mergeClaudeHook idempotently merges the symmemory SessionStart hook into
+// mergeClaudeHook idempotently merges the symmemory lifecycle hooks into
 // the settings file at settingsPath. It creates the file if missing, parses
-// existing JSON, checks for the hook by command marker, appends if absent,
-// and writes back.
+// existing JSON, iterates over each hook type in the block, checks for the
+// command by exact match, appends if absent, and writes back.
 func mergeClaudeHook(settingsPath string, hookBlock map[string]interface{}) error {
 	// Ensure parent directory exists
 	dir := filepath.Dir(settingsPath)
@@ -98,32 +119,56 @@ func mergeClaudeHook(settingsPath string, hookBlock map[string]interface{}) erro
 		existing["hooks"] = hooksRaw
 	}
 
-	// Ensure "SessionStart" key exists as array
-	sessionStart, _ := hooksRaw["SessionStart"].([]interface{})
-	if sessionStart == nil {
-		sessionStart = make([]interface{}, 0)
-	}
+	// Extract desired hooks from the block
+	desiredHooks, _ := hookBlock["hooks"].(map[string]interface{})
 
-	// Check if our hook already exists (idempotency marker: "symmemory context" in command)
-	for _, entry := range sessionStart {
-		if m, ok := entry.(map[string]interface{}); ok {
-			if cmd, ok := m["command"].(string); ok {
-				if strings.Contains(cmd, "symmemory context") {
-					fmt.Fprintf(os.Stderr, "Hook already present in %s — skipping.\n", settingsPath)
-					return nil
+	// Iterate over each hook type in the desired block
+	changed := false
+	for hookType, entries := range desiredHooks {
+		desiredArray, _ := entries.([]interface{})
+		if len(desiredArray) == 0 {
+			continue
+		}
+
+		// Get existing array for this hook type
+		existingArray, _ := hooksRaw[hookType].([]interface{})
+		if existingArray == nil {
+			existingArray = make([]interface{}, 0)
+		}
+
+		// For each desired entry, check if it already exists (by exact command match)
+		for _, desired := range desiredArray {
+			desiredEntry, _ := desired.(map[string]interface{})
+			desiredCmd, _ := desiredEntry["command"].(string)
+			if desiredCmd == "" {
+				continue
+			}
+
+			alreadyPresent := false
+			for _, existingEntry := range existingArray {
+				if ex, ok := existingEntry.(map[string]interface{}); ok {
+					if exCmd, ok := ex["command"].(string); ok {
+						if exCmd == desiredCmd {
+							alreadyPresent = true
+							break
+						}
+					}
 				}
 			}
+
+			if !alreadyPresent {
+				existingArray = append(existingArray, desired)
+				changed = true
+			}
 		}
+
+		hooksRaw[hookType] = existingArray
 	}
 
-	// Append our hook
-	newHook := map[string]interface{}{
-		"type":    "command",
-		"command": "symmemory context --output md",
+	if !changed {
+		fmt.Fprintf(os.Stderr, "All hooks already present in %s — skipping.\n", settingsPath)
+		return nil
 	}
-	sessionStart = append(sessionStart, newHook)
-	hooksRaw["SessionStart"] = sessionStart
-	existing["hooks"] = hooksRaw
 
 	// Write back
 	out, err := json.MarshalIndent(existing, "", "  ")
@@ -134,7 +179,7 @@ func mergeClaudeHook(settingsPath string, hookBlock map[string]interface{}) erro
 		return fmt.Errorf("writing settings: %w", err)
 	}
 
-	fmt.Fprintf(os.Stderr, "Hook merged into %s\n", settingsPath)
+	fmt.Fprintf(os.Stderr, "Hooks merged into %s\n", settingsPath)
 	return nil
 }
 

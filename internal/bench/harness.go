@@ -35,6 +35,10 @@ type Report struct {
 	Temporal        []TemporalReport   `json:"temporal,omitempty"`
 	Scope           []ScopeReport      `json:"scope,omitempty"`
 	Abstention      []AbstentionReport `json:"abstention,omitempty"`
+
+	// #402: Context-pressure and recovery canary benchmarks
+	ContextPressure []ContextPressureReport `json:"context_pressure,omitempty"`
+	RecoveryCanary  []RecoveryCanaryReport  `json:"recovery_canary,omitempty"`
 }
 
 // TemporalReport holds temporal-validity evaluation results for a single mode.

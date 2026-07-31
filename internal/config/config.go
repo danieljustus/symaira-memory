@@ -4,21 +4,58 @@ import (
 	"github.com/danieljustus/symaira-corekit/configkit"
 )
 
+// DegradationConfig controls content degradation levels for greedy budget fill.
+type DegradationConfig struct {
+	Enabled       bool    `json:"enabled"`        // enable degradation ladder (default true)
+	FullTokens    int     `json:"full_tokens"`    // budget per full item (default 200)
+	SummaryTokens int     `json:"summary_tokens"` // budget per summary (default 80)
+	RefTokens     int     `json:"ref_tokens"`     // budget per reference (default 30)
+	SummaryRatio  float64 `json:"summary_ratio"`  // fraction of token budget that drops to summary (default 0.3)
+}
+
+// DeltaPackConfig controls content-hash based delta context packs.
+type DeltaPackConfig struct {
+	Enabled                 bool `json:"enabled"`                    // enable delta pack creation (default true)
+	MaxSnapshots            int  `json:"max_snapshots"`              // max snapshots to retain per session (default 10)
+	SnapshotOnTokenPct      int  `json:"snapshot_on_token_pct"`      // snapshot when used-token delta > this % (default 20)
+	MinSnapshotIntervalSecs int  `json:"min_snapshot_interval_secs"` // minimum seconds between snapshots (default 60)
+}
+
+// ProfileLayerConfig controls the synthesized static/dynamic profile layer.
+type ProfileLayerConfig struct {
+	Enabled       bool `json:"enabled"`         // attach profile layer without search query (default true)
+	MaxStaticLen  int  `json:"max_static_len"`  // max chars for static profile fields (default 200)
+	MaxDynamicLen int  `json:"max_dynamic_len"` // max chars for dynamic/session fields (default 500)
+	TokenBudget   int  `json:"token_budget"`    // token budget for profile layer (default 150)
+}
+
+// SessionContextConfig controls source-linked expandable session context.
+type SessionContextConfig struct {
+	Enabled         bool `json:"enabled"`            // enable expandable session context layer (default true)
+	MaxSources      int  `json:"max_sources"`        // max expandable sources to attach (default 5)
+	TokenBudget     int  `json:"token_budget"`       // token budget for session context layer (default 300)
+	MaxExpandPerSrc int  `json:"max_expand_per_src"` // max expand steps per source (default 3)
+}
+
 // Config holds all runtime configuration loaded from TOML files.
 type Config struct {
-	Database      DatabaseConfig      `json:"database"`
-	Ollama        OllamaConfig        `json:"ollama"`
-	JWT           JWTConfig           `json:"jwt"`
-	Security      SecurityConfig      `json:"security"`
-	Server        ServerConfig        `json:"server"`
-	Consolidation ConsolidationConfig `json:"consolidation"`
-	Ranking       RankingConfig       `json:"ranking"`
-	Context       ContextConfig       `json:"context"`
-	Retention     RetentionConfig     `json:"retention"`
-	HybridSearch  HybridSearchConfig  `json:"hybrid_search"`
-	Search        SearchConfig        `json:"search"`
-	Import        ImportConfig        `json:"import"`
-	WorkingMemory WorkingMemoryConfig `json:"working_memory"`
+	Database      DatabaseConfig       `json:"database"`
+	Ollama        OllamaConfig         `json:"ollama"`
+	JWT           JWTConfig            `json:"jwt"`
+	Security      SecurityConfig       `json:"security"`
+	Server        ServerConfig         `json:"server"`
+	Consolidation ConsolidationConfig  `json:"consolidation"`
+	Ranking       RankingConfig        `json:"ranking"`
+	Context       ContextConfig        `json:"context"`
+	Degradation   DegradationConfig    `json:"degradation"`
+	DeltaPack     DeltaPackConfig      `json:"delta_pack"`
+	ProfileLayer  ProfileLayerConfig   `json:"profile_layer"`
+	SessionCtx    SessionContextConfig `json:"session_context"`
+	Retention     RetentionConfig      `json:"retention"`
+	HybridSearch  HybridSearchConfig   `json:"hybrid_search"`
+	Search        SearchConfig         `json:"search"`
+	Import        ImportConfig         `json:"import"`
+	WorkingMemory WorkingMemoryConfig  `json:"working_memory"`
 }
 
 type DatabaseConfig struct {
@@ -153,6 +190,31 @@ func Defaults() *Config {
 			SummaryTokens:        500,
 			RetrievalTokens:      1000,
 			MaxWorkingTurns:      5,
+		},
+		Degradation: DegradationConfig{
+			Enabled:       true,
+			FullTokens:    200,
+			SummaryTokens: 80,
+			RefTokens:     30,
+			SummaryRatio:  0.3,
+		},
+		DeltaPack: DeltaPackConfig{
+			Enabled:                 true,
+			MaxSnapshots:            10,
+			SnapshotOnTokenPct:      20,
+			MinSnapshotIntervalSecs: 60,
+		},
+		ProfileLayer: ProfileLayerConfig{
+			Enabled:       true,
+			MaxStaticLen:  200,
+			MaxDynamicLen: 500,
+			TokenBudget:   150,
+		},
+		SessionCtx: SessionContextConfig{
+			Enabled:         true,
+			MaxSources:      5,
+			TokenBudget:     300,
+			MaxExpandPerSrc: 3,
 		},
 		Retention: RetentionConfig{
 			SessionTTL:       "720h",
