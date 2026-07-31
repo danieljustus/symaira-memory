@@ -27,8 +27,8 @@ struct ContentView: View {
             List(NavigationItem.allCases, selection: $selectedItem) { item in
                 NavigationLink(value: item) {
                     Label(item.rawValue, systemImage: item.iconName)
-                        .font(.system(.body, design: .rounded))
-                        .padding(.vertical, 4)
+                        .symairaText(.body, respectsForeground: false)
+                        .padding(.vertical, SymairaSpacing.xSmall)
                 }
                 .listRowSeparator(.hidden)
             }
@@ -42,15 +42,16 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     Divider()
                         .background(Color.borderGlass)
-                    HStack(spacing: 8) {
+                    HStack(spacing: SymairaSpacing.small) {
                         connectionStatusDot
                         Text(connectionStatusText)
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .symairaText(.caption)
+                            .fontWeight(.medium)
                             .foregroundColor(.textSecondary)
                             .lineLimit(1)
                         Spacer()
                     }
-                    .padding(12)
+                    .padding(SymairaSpacing.medium)
                     .background(Color.bgDarker)
                 }
             }

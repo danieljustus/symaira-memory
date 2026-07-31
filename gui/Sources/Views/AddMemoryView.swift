@@ -18,13 +18,13 @@ struct AddMemoryView: View {
             // Header
             HStack {
                 Text("Add New Memory")
-                    .font(.system(.headline, design: .rounded))
+                    .symairaText(.bodyEmphasized)
                     .foregroundColor(.textPrimary)
                 Spacer()
                 Button(action: { dismiss() }) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.textSecondary)
-                        .font(.title2)
+                        .symairaText(.heading)
                 }
                 .buttonStyle(.plain)
             }
@@ -42,7 +42,7 @@ struct AddMemoryView: View {
                         Text(error)
                     }
                     .foregroundColor(SymairaTheme.critical)
-                    .font(.subheadline)
+                    .symairaText(.callout)
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(SymairaTheme.critical.opacity(0.1))
@@ -51,7 +51,7 @@ struct AddMemoryView: View {
                 }
                 
                 Text("Scope")
-                    .font(.subheadline)
+                    .symairaText(.callout)
                     .fontWeight(.medium)
                     .foregroundColor(.textSecondary)
                 
@@ -63,12 +63,12 @@ struct AddMemoryView: View {
                 .pickerStyle(.segmented)
                 
                 Text("Memory Content")
-                    .font(.subheadline)
+                    .symairaText(.callout)
                     .fontWeight(.medium)
                     .foregroundColor(.textSecondary)
                 
                 TextEditor(text: $content)
-                    .font(.body)
+                    .symairaText(.body)
                     .foregroundColor(.textPrimary)
                     .padding(6)
                     .scrollContentBackground(.hidden)
@@ -81,7 +81,7 @@ struct AddMemoryView: View {
                     .frame(minHeight: 120)
                 
                 Text("Example: 'User prefers using Go and Python for API services'.")
-                    .font(.caption)
+                    .symairaText(.caption)
                     .foregroundColor(.textMuted)
             }
             .padding()

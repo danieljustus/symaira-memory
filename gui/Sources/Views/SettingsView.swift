@@ -24,27 +24,20 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Server Configuration")
-                            .font(.system(.title, design: .rounded))
+                            .symairaText(.title)
                             .fontWeight(.bold)
                             .foregroundColor(.textPrimary)
                         Text("Configure the local Symaira Memory daemon details below.")
-                            .font(.subheadline)
+                            .symairaText(.callout)
                             .foregroundColor(.textSecondary)
                     }
                     .padding(.bottom, 8)
                     
                     // Form Section - Connection Settings
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("CONNECTION SETTINGS")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundColor(.goldPrimary)
-                        
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Server URL")
-                                .font(.caption)
-                                .foregroundColor(.textSecondary)
+                    SymairaFormSection("Connection Settings") {
+                        SymairaFormRow("Server URL", description: "Local daemon address") {
                             TextField("http://127.0.0.1:8787", text: $serverURLInput)
-                                .textFieldStyle(.plain)
+                                .textFieldStyle(SymairaTextFieldStyle())
                                 .padding(8)
                                 .background(Color.bgDarker)
                                 .foregroundColor(.textPrimary)
@@ -56,18 +49,15 @@ struct SettingsView: View {
                                 .autocorrectionDisabled()
                         }
                         
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("API Token (JWT)")
-                                .font(.caption)
-                                .foregroundColor(.textSecondary)
+                        SymairaFormRow("API Token (JWT)", description: "JWT for the daemon") {
                             HStack {
                                 if showToken {
                                     TextField("Token string", text: $tokenInput)
-                                        .textFieldStyle(.plain)
+                                        .textFieldStyle(SymairaTextFieldStyle())
                                         .foregroundColor(.textPrimary)
                                 } else {
                                     SecureField("Token string", text: $tokenInput)
-                                        .textFieldStyle(.plain)
+                                        .textFieldStyle(SymairaTextFieldStyle())
                                         .foregroundColor(.textPrimary)
                                 }
                                 
@@ -87,7 +77,8 @@ struct SettingsView: View {
                                     .stroke(Color.borderGlass, lineWidth: 1)
                             )
                         }
-                        
+                    }
+                    
                         Button {
                             client.serverURL = serverURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
                             client.token = tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -109,19 +100,12 @@ struct SettingsView: View {
                             }
                         }
                         .padding(.top, 8)
-                    }
-                    .padding()
-                    .background(Color.cardBackground)
-                    .cornerRadius(12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.borderGlass, lineWidth: 1)
-                    )
                     
                     // Connection Status panel
                     VStack(alignment: .leading, spacing: 12) {
                         Text("DAEMON CONNECTION STATUS")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .symairaText(.caption)
+.fontWeight(.bold)
                             .foregroundColor(.goldPrimary)
                         
                         HStack(spacing: 8) {
@@ -133,7 +117,7 @@ struct SettingsView: View {
                         
                         if case let .failed(errorMsg) = client.connectionStatus {
                             Text(errorMsg)
-                                .font(.caption)
+                                .symairaText(.caption)
                                 .foregroundColor(.red)
                                 .padding(.top, 4)
                         }
@@ -150,16 +134,17 @@ struct SettingsView: View {
                     // Developer Guide
                     VStack(alignment: .leading, spacing: 12) {
                         Text("DEVELOPER INSTRUCTIONS")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .symairaText(.caption)
+.fontWeight(.bold)
                             .foregroundColor(.goldPrimary)
                         
                         Text("Symaira Memory requires a Bearer JWT Token to authenticate. If you do not have one, you can generate a token locally via the CLI by running this command in your repository:")
-                            .font(.subheadline)
+                            .symairaText(.callout)
                             .foregroundColor(.textSecondary)
                             .lineSpacing(4)
                         
                         Text("./symmemory token generate --subject \"desktop-gui\"")
-                            .font(.system(.body, design: .monospaced))
+                            .symairaText(.mono)
                             .foregroundColor(.goldSecondary)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -192,25 +177,16 @@ struct SettingsView: View {
     private var statusBadge: some View {
         switch client.connectionStatus {
         case .disconnected:
-            HStack(spacing: 4) {
-                Circle().fill(Color.gray).frame(width: 8, height: 8)
-                Text("Disconnected").foregroundColor(.textSecondary)
-            }
+            SymairaStatusLabel("Disconnected", tone: .neutral)
         case .connecting:
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
                 Text("Connecting...").foregroundColor(.textSecondary)
             }
         case .connected(let version):
-            HStack(spacing: 4) {
-                Circle().fill(Color.goldPrimary).frame(width: 8, height: 8).shadow(color: .goldPrimary, radius: 4)
-                Text("Connected (v\(version))").foregroundColor(.goldPrimary).fontWeight(.semibold)
-            }
+            SymairaStatusLabel("Connected (v\(version))", tone: .positive)
         case .failed:
-            HStack(spacing: 4) {
-                Circle().fill(Color.red).frame(width: 8, height: 8).shadow(color: .red, radius: 4)
-                Text("Failed").foregroundColor(.red).fontWeight(.semibold)
-            }
+            SymairaStatusLabel("Failed", tone: .critical)
         }
     }
 }
