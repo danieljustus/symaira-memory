@@ -297,7 +297,6 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 
 	used := 0
 	var pieces []AssembledPiece
-	var pieceContents []string
 
 	for _, r := range sorted {
 		if used >= budget {
@@ -314,7 +313,6 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 				Content: fullContent,
 				Tokens:  fullTokens,
 			})
-			pieceContents = append(pieceContents, r.Memory.Content)
 			used += fullTokens
 			continue
 		}
@@ -328,7 +326,6 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 				Content: summaryContent,
 				Tokens:  summaryTokens,
 			})
-			pieceContents = append(pieceContents, "[summary: "+truncateText(r.Memory.Content, 80)+"]")
 			used += summaryTokens
 			continue
 		}
@@ -342,7 +339,6 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 				Content: refContent,
 				Tokens:  refTokens,
 			})
-			pieceContents = append(pieceContents, "[ref: "+r.Memory.ID+"]")
 			used += refTokens
 			continue
 		}
