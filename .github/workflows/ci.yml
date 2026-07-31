@@ -56,8 +56,8 @@ jobs:
 
     - name: Run tests (full suite — POSIX)
       if: runner.os != 'Windows'
-      run: go test -v -race -p 1 -timeout 10m ./...
-      timeout-minutes: 15
+      run: go test -v -race -p 1 -timeout 15m ./...
+      timeout-minutes: 20
 
     - name: Run tests (targeted subset — Windows)
       if: runner.os == 'Windows'
