@@ -78,9 +78,10 @@ func NewEmbeddingsGenerator(cfg *config.Config) *EmbeddingsGenerator {
 // metadata that identifies which embedding space the vector belongs to.
 // Search and consolidation must never cross-score rows from different sources.
 type EmbeddingResult struct {
-	Vector []float32 // the embedding vector
-	Source string    // "ollama" or "hash-fallback"
-	Model  string    // model name (e.g. "nomic-embed-text") or "" for hash
+	Vector       []float32 // the embedding vector
+	Source       string    // "ollama" or "hash-fallback"
+	Model        string    // model name (e.g. "nomic-embed-text") or "" for hash
+	Quantization string    // quantization level of the embedding space ("" = unquantized)
 }
 
 // GenerateVector produces a 768-dimensional vector using Ollama if available,

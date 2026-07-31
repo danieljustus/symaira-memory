@@ -28,7 +28,7 @@ func oplogMemory(id, content string) *Memory {
 		Content:   content,
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -198,4 +198,12 @@ func TestRelayBlobLWWAndListing(t *testing.T) {
 	if len(blobs) != 0 {
 		t.Fatalf("cursor past the blob must return nothing, got %+v", blobs)
 	}
+}
+
+// testEmbedding builds a valid db.EmbeddingDim-sized vector with the given
+// leading values (dimension mismatches are now a handled error).
+func testEmbedding(leading ...float32) []float32 {
+	v := make([]float32, EmbeddingDim)
+	copy(v, leading)
+	return v
 }

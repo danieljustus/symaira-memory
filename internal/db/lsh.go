@@ -3,7 +3,6 @@ package db
 import (
 	"fmt"
 	"math/rand"
-	"os"
 	"sync"
 )
 
@@ -37,26 +36,27 @@ func getLSHProjections() [][]float32 {
 // ComputeLSH computes the LSH hash bits for a vector.
 // Returns an integer where each bit represents the sign of the dot product
 // with one of the fixed random projection vectors.
-func ComputeLSH(vec []float32) int {
+// A vector whose dimension differs from EmbeddingDim is a space mismatch and
+// returns an error instead of being silently truncated.
+func ComputeLSH(vec []float32) (int, error) {
 	if len(vec) == 0 {
-		return 0
+		return 0, nil
 	}
 	if len(vec) != EmbeddingDim {
-		fmt.Fprintf(os.Stderr, "lsh: dimension mismatch: got %d, expected %d — truncating\n", len(vec), EmbeddingDim)
+		return 0, fmt.Errorf("lsh: dimension mismatch: got %d, expected %d", len(vec), EmbeddingDim)
 	}
 	projections := getLSHProjections()
 	var hash int
 	for i, proj := range projections {
 		var dot float64
-		lim := min(len(vec), len(proj))
-		for j := range lim {
+		for j := range EmbeddingDim {
 			dot += float64(vec[j] * proj[j])
 		}
 		if dot >= 0 {
 			hash |= 1 << i
 		}
 	}
-	return hash
+	return hash, nil
 }
 
 // LSHNeighbors returns all LSH hashes within the given Hamming distance of base.

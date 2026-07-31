@@ -203,7 +203,7 @@ func runSync(database *db.DB, remote, token string) error {
 				continue
 			}
 			vec := embeddings.GenerateVector(m.Content)
-			if err := database.SetMemoryEmbedding(m.ID, vec.Vector, vec.Source, vec.Model); err != nil {
+			if err := database.SetMemoryEmbedding(m.ID, vec.Vector, vec.Source, vec.Model, vec.Quantization); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: failed to backfill embedding for %s: %v\n", m.ID, err)
 			}
 		}

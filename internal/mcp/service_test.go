@@ -15,7 +15,7 @@ func serviceTestMemory(id, content string) *db.Memory {
 		Content:   content,
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -216,4 +216,12 @@ func TestNotFoundError(t *testing.T) {
 	if err.Error() != want {
 		t.Errorf("expected %q, got %q", want, err.Error())
 	}
+}
+
+// testEmbedding builds a valid db.EmbeddingDim-sized vector with the given
+// leading values (dimension mismatches are now a handled error).
+func testEmbedding(leading ...float32) []float32 {
+	v := make([]float32, db.EmbeddingDim)
+	copy(v, leading)
+	return v
 }

@@ -75,8 +75,8 @@ func TestSimilarityScoreWithEmbeddings(t *testing.T) {
 	linker := NewLinker(database, 0, 0)
 
 	// Identical embeddings should yield cosine similarity of 1.0
-	m1 := &db.Memory{Content: "fact A", Embedding: []float32{1, 0, 0}}
-	m2 := &db.Memory{Content: "fact B", Embedding: []float32{1, 0, 0}}
+	m1 := &db.Memory{Content: "fact A", Embedding: testEmbedding(1, 0, 0)}
+	m2 := &db.Memory{Content: "fact B", Embedding: testEmbedding(1, 0, 0)}
 
 	score := linker.similarityScore(m1, m2)
 	if score < 0.99 {
@@ -89,8 +89,8 @@ func TestSimilarityScoreEmbeddingMismatchSource(t *testing.T) {
 	linker := NewLinker(database, 0, 0)
 
 	// Different embedding sources → fall back to Jaccard content
-	m1 := &db.Memory{Content: "the cat sat on the mat", Embedding: []float32{1, 0}, EmbeddingSource: "ollama"}
-	m2 := &db.Memory{Content: "the cat sat on the mat", Embedding: []float32{0, 1}, EmbeddingSource: "openai"}
+	m1 := &db.Memory{Content: "the cat sat on the mat", Embedding: testEmbedding(1, 0), EmbeddingSource: "ollama"}
+	m2 := &db.Memory{Content: "the cat sat on the mat", Embedding: testEmbedding(0, 1), EmbeddingSource: "openai"}
 
 	score := linker.similarityScore(m1, m2)
 	// Same content → Jaccard should be high (1.0 since identical tokens)
@@ -290,7 +290,7 @@ func TestLinkCrossToolWithMemories(t *testing.T) {
 
 	// Create memories with embeddings in two different tool scopes
 	// Identical embeddings will yield cosine similarity = 1.0
-	embedding := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
+	embedding := testEmbedding(0.1, 0.2, 0.3, 0.4, 0.5)
 	m1 := &db.Memory{
 		ID:              "mem-claude-1",
 		Content:         "user prefers dark mode",
@@ -335,7 +335,7 @@ func TestLinkCrossToolDryRun(t *testing.T) {
 	linker := NewLinker(database, 0.5, 0)
 
 	now := time.Now()
-	embedding := []float32{0.1, 0.2, 0.3, 0.4, 0.5}
+	embedding := testEmbedding(0.1, 0.2, 0.3, 0.4, 0.5)
 	m1 := &db.Memory{
 		ID:              "mem-claude-1",
 		Content:         "user prefers dark mode",
@@ -373,4 +373,12 @@ func TestLinkCrossToolDryRun(t *testing.T) {
 	if result.LinksCreated == 0 {
 		t.Errorf("dry run should count potential links, got 0")
 	}
+}
+
+// testEmbedding builds a valid db.EmbeddingDim-sized vector with the given
+// leading values (dimension mismatches are now a handled error).
+func testEmbedding(leading ...float32) []float32 {
+	v := make([]float32, db.EmbeddingDim)
+	copy(v, leading)
+	return v
 }

@@ -43,7 +43,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 		Content:   "User works on symaira.com",
 		Scope:     "global",
 		Metadata:  map[string]string{"source": "test"},
-		Embedding: []float32{1.0, 0.0, 0.0},
+		Embedding: embeddingVector(1.0, 0.0, 0.0),
 	}
 
 	// Test Save
@@ -69,7 +69,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 	}
 
 	// Test Search (Vector Cosine Similarity check)
-	query := []float32{1.0, 0.0, 0.0} // Perfect match
+	query := embeddingVector(1.0, 0.0, 0.0) // Perfect match
 	results, err := database.SearchMemoriesFiltered(query, "", "", 5, "", RankingWeights{RelevanceWeight: 1.0, RecencyWeight: 0, ImportanceWeight: 0, AccessReinforcementWeight: 0, RecencyHalfLife: 30, AccessHalfLife: 14})
 	if err != nil {
 		t.Fatalf("failed to search memories: %v", err)
@@ -242,8 +242,8 @@ func TestLSHConsistency(t *testing.T) {
 		vec[i] = float32(i) * 0.01
 	}
 
-	h1 := ComputeLSH(vec)
-	h2 := ComputeLSH(vec)
+	h1 := mustComputeLSH(vec)
+	h2 := mustComputeLSH(vec)
 	if h1 != h2 {
 		t.Errorf("LSH not deterministic: %d vs %d", h1, h2)
 	}
@@ -257,19 +257,19 @@ func TestLSHDifferentVectors(t *testing.T) {
 		b[i] = -float32(i) * 0.01
 	}
 
-	ha := ComputeLSH(a)
-	hb := ComputeLSH(b)
+	ha := mustComputeLSH(a)
+	hb := mustComputeLSH(b)
 	if ha == hb {
 		t.Error("expected different LSH hashes for opposing vectors")
 	}
 }
 
 func TestLSHEmptyVector(t *testing.T) {
-	h := ComputeLSH(nil)
+	h := mustComputeLSH(nil)
 	if h != 0 {
 		t.Errorf("expected LSH 0 for nil vector, got %d", h)
 	}
-	h = ComputeLSH([]float32{})
+	h = mustComputeLSH([]float32{})
 	if h != 0 {
 		t.Errorf("expected LSH 0 for empty vector, got %d", h)
 	}
@@ -404,7 +404,7 @@ func TestDatabaseFilePermissions(t *testing.T) {
 		Content:   "test content",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{1.0},
+		Embedding: embeddingVector(1.0),
 	}
 	if err := database.SaveMemory(m); err != nil {
 		t.Fatalf("failed to save memory: %v", err)
@@ -622,7 +622,7 @@ func TestDeleteMemoryEdgeCases(t *testing.T) {
 		Content:   "to be deleted",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{1.0, 0.0},
+		Embedding: embeddingVector(1.0, 0.0),
 	}
 	if err := database.SaveMemory(m); err != nil {
 		t.Fatalf("failed to save: %v", err)
@@ -683,7 +683,7 @@ func TestUpsertMemoryIfNewer(t *testing.T) {
 		Content:   "original content",
 		Scope:     "global",
 		Metadata:  map[string]string{"version": "1"},
-		Embedding: []float32{1.0, 0.0},
+		Embedding: embeddingVector(1.0, 0.0),
 		UpdatedAt: baseTime,
 	}
 	inserted, err := database.UpsertMemoryIfNewer(m1)
@@ -709,7 +709,7 @@ func TestUpsertMemoryIfNewer(t *testing.T) {
 		Content:   "updated content",
 		Scope:     "global",
 		Metadata:  map[string]string{"version": "2"},
-		Embedding: []float32{1.0, 0.0},
+		Embedding: embeddingVector(1.0, 0.0),
 		UpdatedAt: baseTime.Add(time.Hour), // 1 hour newer
 	}
 	updated, err := database.UpsertMemoryIfNewer(m2)
@@ -734,7 +734,7 @@ func TestUpsertMemoryIfNewer(t *testing.T) {
 		Content:   "same time content",
 		Scope:     "global",
 		Metadata:  map[string]string{"version": "3"},
-		Embedding: []float32{1.0, 0.0},
+		Embedding: embeddingVector(1.0, 0.0),
 		UpdatedAt: baseTime.Add(time.Hour), // same as m2
 	}
 	skipped, err := database.UpsertMemoryIfNewer(m3)
@@ -759,7 +759,7 @@ func TestUpsertMemoryIfNewer(t *testing.T) {
 		Content:   "older content",
 		Scope:     "global",
 		Metadata:  map[string]string{"version": "4"},
-		Embedding: []float32{1.0, 0.0},
+		Embedding: embeddingVector(1.0, 0.0),
 		UpdatedAt: baseTime, // older than current
 	}
 	skipped, err = database.UpsertMemoryIfNewer(m4)
@@ -804,7 +804,7 @@ func TestListMemoriesLiteScopeAndPagination(t *testing.T) {
 			Content:   fmt.Sprintf("content %d", i),
 			Scope:     scope,
 			Metadata:  map[string]string{},
-			Embedding: []float32{1.0, 0.0},
+			Embedding: embeddingVector(1.0, 0.0),
 		}
 		if err := database.SaveMemory(m); err != nil {
 			t.Fatalf("failed to save memory %d: %v", i, err)
@@ -910,7 +910,7 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 		Scope:               "global",
 		ConsolidationStatus: "raw",
 		Metadata:            map[string]string{},
-		Embedding:           []float32{1.0, 0.0, 0.0},
+		Embedding:           embeddingVector(1.0, 0.0, 0.0),
 	}
 	m2 := &Memory{
 		ID:                  "mem-consolidated",
@@ -918,7 +918,7 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 		Scope:               "global",
 		ConsolidationStatus: "consolidated",
 		Metadata:            map[string]string{},
-		Embedding:           []float32{0.0, 1.0, 0.0},
+		Embedding:           embeddingVector(0.0, 1.0, 0.0),
 	}
 	m3 := &Memory{
 		ID:                  "mem-archived",
@@ -927,7 +927,7 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 		ConsolidationStatus: "archived",
 		ConsolidatedIntoID:  "mem-consolidated",
 		Metadata:            map[string]string{},
-		Embedding:           []float32{0.0, 0.0, 1.0},
+		Embedding:           embeddingVector(0.0, 0.0, 1.0),
 	}
 
 	if err := database.SaveMemory(m1); err != nil {
@@ -955,7 +955,7 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 	}
 
 	// 2. SearchMemories should exclude 'archived'
-	searchVal := []float32{0.0, 0.0, 1.0} // perfect alignment with mem-archived
+	searchVal := embeddingVector(0.0, 0.0, 1.0) // perfect alignment with mem-archived
 	searchResults, err := database.SearchMemories(searchVal, "", "global", 3)
 	if err != nil {
 		t.Fatalf("SearchMemories failed: %v", err)
@@ -1035,8 +1035,13 @@ func TestSetMemoryEmbedding(t *testing.T) {
 		t.Fatalf("expected no embedding initially, got %d dims", len(got.Embedding))
 	}
 
-	newEmb := []float32{0.5, 0.3, 0.8, 0.1, 0.9}
-	if err := database.SetMemoryEmbedding("setemb-1", newEmb, "hash-fallback", ""); err != nil {
+	// A dimension mismatch is a handled error, never a silent truncation.
+	if err := database.SetMemoryEmbedding("setemb-1", []float32{0.5, 0.3, 0.8, 0.1, 0.9}, "hash-fallback", "", ""); err == nil {
+		t.Fatal("expected dimension mismatch error for 5-dim embedding, got nil")
+	}
+
+	newEmb := embeddingVector(0.5, 0.3, 0.8, 0.1, 0.9)
+	if err := database.SetMemoryEmbedding("setemb-1", newEmb, "hash-fallback", "", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
@@ -1044,8 +1049,8 @@ func TestSetMemoryEmbedding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetMemory failed: %v", err)
 	}
-	if len(got.Embedding) != 5 {
-		t.Fatalf("expected 5-dim embedding, got %d", len(got.Embedding))
+	if len(got.Embedding) != EmbeddingDim {
+		t.Fatalf("expected %d-dim embedding, got %d", EmbeddingDim, len(got.Embedding))
 	}
 	for i, v := range got.Embedding {
 		if v != newEmb[i] {
@@ -1122,12 +1127,12 @@ func TestSyncedMemorySearchableAfterEmbeddingBackfill(t *testing.T) {
 	}
 
 	emb := extractor.GenerateLocalHashVector("Alice prefers dark mode in all applications", 768)
-	if err := database.SetMemoryEmbedding("sync-1", emb, "hash-fallback", ""); err != nil {
+	if err := database.SetMemoryEmbedding("sync-1", emb, "hash-fallback", "", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
 	emb2 := extractor.GenerateLocalHashVector("Bob uses light theme exclusively", 768)
-	if err := database.SetMemoryEmbedding("sync-2", emb2, "hash-fallback", ""); err != nil {
+	if err := database.SetMemoryEmbedding("sync-2", emb2, "hash-fallback", "", ""); err != nil {
 		t.Fatalf("SetMemoryEmbedding failed: %v", err)
 	}
 
@@ -1243,4 +1248,12 @@ func TestSearchMemoriesFiltersEmbeddingSourceAtCandidateQuery(t *testing.T) {
 	if results[0].Memory.EmbeddingSource != "hash-fallback" {
 		t.Errorf("expected embedding_source hash-fallback, got %s", results[0].Memory.EmbeddingSource)
 	}
+}
+
+// embeddingVector builds a valid EmbeddingDim-sized vector with the given
+// leading values (dimension mismatches are now a handled error).
+func embeddingVector(leading ...float32) []float32 {
+	v := make([]float32, EmbeddingDim)
+	copy(v, leading)
+	return v
 }

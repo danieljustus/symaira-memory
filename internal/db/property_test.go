@@ -222,9 +222,9 @@ func TestProperty_LSHDeterministic(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		vec := rapid.SliceOfN(rapid.Float32(), EmbeddingDim, EmbeddingDim).Draw(t, "vec")
 
-		first := ComputeLSH(vec)
-		second := ComputeLSH(vec)
-		third := ComputeLSH(vec)
+		first := mustComputeLSH(vec)
+		second := mustComputeLSH(vec)
+		third := mustComputeLSH(vec)
 
 		if first != second || second != third {
 			t.Fatalf("LSH hash must be deterministic: got %d, %d, %d", first, second, third)
@@ -236,7 +236,7 @@ func TestProperty_LSHBitCount(t *testing.T) {
 	rapid.Check(t, func(t *rapid.T) {
 		vec := rapid.SliceOfN(rapid.Float32(), EmbeddingDim, EmbeddingDim).Draw(t, "vec")
 
-		hash := ComputeLSH(vec)
+		hash := mustComputeLSH(vec)
 
 		maxHash := 1 << LSHBits
 		if hash < 0 || hash >= maxHash {
@@ -251,8 +251,8 @@ func TestProperty_LSHConsistentWithBinarization(t *testing.T) {
 			return !isNaN32(f)
 		}), EmbeddingDim, EmbeddingDim).Draw(t, "vec")
 
-		h1 := ComputeLSH(vec)
-		h2 := ComputeLSH(vec)
+		h1 := mustComputeLSH(vec)
+		h2 := mustComputeLSH(vec)
 		if h1 != h2 {
 			t.Fatalf("LSH must be deterministic: %d vs %d", h1, h2)
 		}

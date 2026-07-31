@@ -313,6 +313,7 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 	m.Embedding = emb.Vector
 	m.EmbeddingSource = emb.Source
 	m.EmbeddingModel = emb.Model
+	m.EmbeddingQuantization = emb.Quantization
 
 	if err := database.SaveMemory(m); err != nil {
 		return nil, nil, fmt.Errorf("failed to save memory: %w", err)
