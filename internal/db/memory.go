@@ -138,6 +138,10 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	if tier == "" {
 		tier = "long_term"
 	}
+	accessCount := m.AccessCount
+	if accessCount == 0 {
+		accessCount = 1
+	}
 	var expiresAt sql.NullTime
 	if m.ExpiresAt != nil {
 		expiresAt.Time = *m.ExpiresAt
@@ -176,7 +180,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt, accessCount)
 	return err
 }
 
