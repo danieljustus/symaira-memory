@@ -1240,11 +1240,11 @@ func (db *DB) TrackMemoryAccessBatch(ids []string) error {
 	now := time.Now().UTC()
 	placeholders := make([]string, len(ids))
 	args := make([]interface{}, 0, len(ids)+1)
+	args = append(args, now)
 	for i, id := range ids {
 		placeholders[i] = "?"
 		args = append(args, id)
 	}
-	args = append(args, now)
 	inClause := strings.Join(placeholders, ", ")
 	_, err := db.conn.Exec(
 		"UPDATE memories SET access_count = access_count + 1, last_access = ? WHERE id IN ("+inClause+")",
