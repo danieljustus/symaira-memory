@@ -92,6 +92,50 @@ func ReciprocalRankFusion(rankedLists [][]string, k int) map[string]float64 {
 	return scores
 }
 
+// Sparsemax computes the α=2 entmax (sparsemax) over the given score vector.
+// Returns a sparse vector where low-scoring elements are exactly zero and the
+// remaining positive entries sum to 1 (a probability distribution on the support).
+// Reference: Martins & Astudillo (2016), "From Softmax to Sparsemax".
+func Sparsemax(scores []float64) []float64 {
+	if len(scores) == 0 {
+		return nil
+	}
+
+	n := len(scores)
+	type pair struct {
+		score float64
+		idx   int
+	}
+	sorted := make([]pair, n)
+	for i, s := range scores {
+		sorted[i] = pair{score: s, idx: i}
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].score > sorted[j].score
+	})
+
+	result := make([]float64, n)
+	var cumSum float64
+
+	for k := 1; k <= n; k++ {
+		cumSum += sorted[k-1].score
+		tau := (cumSum - 1) / float64(k)
+
+		if k == n || sorted[k].score <= tau {
+			// threshold found; apply sparsemax(z)_i = max(0, z_i - tau)
+			for j := 0; j < k; j++ {
+				val := sorted[j].score - tau
+				if val > 0 {
+					result[sorted[j].idx] = val
+				}
+			}
+			return result
+		}
+	}
+
+	return result
+}
+
 // SearchMemoriesBM25 performs keyword-based search using SQLite FTS5 BM25 scoring.
 func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWindow ...TimeWindow) ([]SearchResult, error) {
 	start := time.Now()
@@ -186,9 +230,16 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 }
 
 // HybridSearch combines vector similarity and BM25 keyword search using
-// Reciprocal Rank Fusion. Returns results ranked by fused score.
-func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText string, scope string, limit int, vectorWeight, bm25Weight float64, timeWindow ...TimeWindow) ([]HybridResult, error) {
-	candidateLimit := limit * 3
+// Reciprocal Rank Fusion, with optional sparsemax sparsification. Supports
+// entity, trust, and policy filtering on the vector arm, and an optional
+// time window on the BM25 arm. Returns results ranked by fused score,
+// trimmed to the hard bound of limit.
+func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, vectorWeight, bm25Weight float64, timeWindow ...TimeWindow) ([]HybridResult, error) {
+	pam := db.perArmMultiplier
+	if pam <= 0 {
+		pam = 3
+	}
+	candidateLimit := limit * pam
 	if candidateLimit > maxCandidates {
 		candidateLimit = maxCandidates
 	}
@@ -198,16 +249,21 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 		tw = timeWindow[0]
 	}
 
-	vectorResults, err := db.SearchMemories(queryVec, querySource, scope, candidateLimit)
+	// Vector arm with full filtering (entity, trust, policy)
+	vectorResults, err := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, candidateLimit, entityID, trustFilter, policyFilter, tw)
 	if err != nil {
 		return nil, err
 	}
 
+	// BM25 arm (scope-filtered only; entity/trust/policy filtering is
+	// applied at the vector side and naturally down-ranks non-matching
+	// results through RRF fusion)
 	bm25Results, err := db.SearchMemoriesBM25(queryText, scope, candidateLimit, tw)
 	if err != nil {
 		return nil, err
 	}
 
+	// Build ID lists for RRF
 	var vectorList, bm25List []string
 	for _, r := range vectorResults {
 		vectorList = append(vectorList, r.Memory.ID)
@@ -218,6 +274,7 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 
 	rrfScores := ReciprocalRankFusion([][]string{vectorList, bm25List}, 60)
 
+	// Index by ID
 	memByID := make(map[string]*Memory)
 	vecScoreByID := make(map[string]float32)
 	for _, r := range vectorResults {
@@ -226,7 +283,9 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 	}
 	bm25ScoreByID := make(map[string]float64)
 	for _, r := range bm25Results {
-		memByID[r.Memory.ID] = r.Memory
+		if _, exists := memByID[r.Memory.ID]; !exists {
+			memByID[r.Memory.ID] = r.Memory
+		}
 		bm25ScoreByID[r.Memory.ID] = float64(r.Score)
 	}
 
@@ -234,7 +293,7 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 		id         string
 		fusedScore float64
 	}
-	var all []fused
+	all := make([]fused, 0, len(rrfScores))
 	for id, rrf := range rrfScores {
 		vecS := float64(vecScoreByID[id])
 		bm25S := bm25ScoreByID[id]
@@ -245,11 +304,33 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 		return all[i].fusedScore > all[j].fusedScore
 	})
 
+	// Optional sparsemax sparsification (α=2)
+	if db.sparsemaxEnabled && len(all) > 0 {
+		scores := make([]float64, len(all))
+		for i, f := range all {
+			scores[i] = f.fusedScore
+		}
+		sparseScores := Sparsemax(scores)
+		kept := make([]fused, 0, len(all))
+		for i, f := range all {
+			if sparseScores[i] > 0 {
+				f.fusedScore = sparseScores[i]
+				kept = append(kept, f)
+			}
+		}
+		all = kept
+		// Re-sort by sparsemax score (should already be in order, but be safe)
+		sort.Slice(all, func(i, j int) bool {
+			return all[i].fusedScore > all[j].fusedScore
+		})
+	}
+
+	// Hard bound: limit
 	if limit > len(all) {
 		limit = len(all)
 	}
 
-	var results []HybridResult
+	results := make([]HybridResult, 0, limit)
 	for i := 0; i < limit; i++ {
 		id := all[i].id
 		results = append(results, HybridResult{

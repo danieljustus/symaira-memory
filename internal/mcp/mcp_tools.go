@@ -70,6 +70,19 @@ func searchResultResponse(r db.SearchResult) SearchResultResponse {
 	}
 }
 
+// hybridResultsToSearchResults converts HybridResult slices to SearchResult
+// slices, using FusedScore as the result Score for downstream formatting.
+func hybridResultsToSearchResults(hybrid []db.HybridResult) []db.SearchResult {
+	results := make([]db.SearchResult, len(hybrid))
+	for i, h := range hybrid {
+		results[i] = db.SearchResult{
+			Memory: h.Memory,
+			Score:  float32(h.FusedScore),
+		}
+	}
+	return results
+}
+
 func (s *Server) MCPServer() *mcpserver.Server {
 	srv := mcpserver.New("symaira-memory", s.version)
 	srv.SetInstructions(instructions.Text(s.version))
@@ -322,13 +335,44 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		}
 	}
 
-	var results []db.SearchResult
+	var searchResults []db.SearchResult
 	var err error
-	if args.Profile != "" {
-		results, err = s.service.SearchWithProfile(args.Query, args.Profile, limit, args.Entity, trustFilter, policyFilter, timeWindow)
+
+	useHybrid := s.cfg != nil && s.cfg.HybridSearch.Enabled && args.Profile == ""
+
+	if useHybrid {
+		hybridResults, hErr := s.service.HybridSearch(
+			args.Query, args.Scope, limit, args.Entity,
+			trustFilter, policyFilter,
+			s.cfg.HybridSearch.VectorWeight, s.cfg.HybridSearch.BM25Weight,
+			timeWindow,
+		)
+		if hErr != nil {
+			if nf, ok := hErr.(*NotFoundError); ok {
+				return nil, fmt.Errorf("%s", nf.Error())
+			}
+			return mcpError("Failed to search memories", hErr)
+		}
+
+		minScore := args.MinScore
+		if minScore <= 0 && s.cfg != nil {
+			minScore = s.cfg.Search.MinScore
+		}
+		if minScore > 0 {
+			before := len(hybridResults)
+			hybridResults = db.FilterHybridByMinScore(hybridResults, minScore)
+			if len(hybridResults) == 0 && before > 0 {
+				return fmt.Sprintf("No confident match: all %d hybrid result(s) scored below the min_score threshold %.3f.", before, minScore), nil
+			}
+		}
+
+		searchResults = hybridResultsToSearchResults(hybridResults)
+	} else if args.Profile != "" {
+		searchResults, err = s.service.SearchWithProfile(args.Query, args.Profile, limit, args.Entity, trustFilter, policyFilter, timeWindow)
 	} else {
-		results, err = s.service.Search(args.Query, args.Scope, limit, args.Entity, trustFilter, policyFilter, timeWindow)
+		searchResults, err = s.service.Search(args.Query, args.Scope, limit, args.Entity, trustFilter, policyFilter, timeWindow)
 	}
+
 	if err != nil {
 		if nf, ok := err.(*NotFoundError); ok {
 			return nil, fmt.Errorf("%s", nf.Error())
@@ -343,34 +387,37 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 			return nil, fmt.Errorf("invalid arguments for 'memory_search': invalid cursor: %w", err)
 		}
 		var filtered []db.SearchResult
-		for _, r := range results {
+		for _, r := range searchResults {
 			if r.Memory != nil && r.Memory.CreatedAt.Before(cursorTime) {
 				filtered = append(filtered, r)
 			}
 		}
-		results = filtered
+		searchResults = filtered
 	}
 
-	minScore := args.MinScore
-	if minScore <= 0 && s.cfg != nil {
-		minScore = s.cfg.Search.MinScore
-	}
-	if minScore > 0 {
-		before := len(results)
-		results = db.FilterByMinScore(results, minScore)
-		if len(results) == 0 && before > 0 {
-			s.service.LogQuery("memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
-			return fmt.Sprintf("No confident match: all %d result(s) scored below the min_score threshold %.3f.", before, minScore), nil
+	// Apply min-score filtering (only for non-hybrid path; hybrid handled above)
+	if !useHybrid {
+		minScore := args.MinScore
+		if minScore <= 0 && s.cfg != nil {
+			minScore = s.cfg.Search.MinScore
+		}
+		if minScore > 0 {
+			before := len(searchResults)
+			searchResults = db.FilterByMinScore(searchResults, minScore)
+			if len(searchResults) == 0 && before > 0 {
+				s.service.LogQuery("memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
+				return fmt.Sprintf("No confident match: all %d result(s) scored below the min_score threshold %.3f.", before, minScore), nil
+			}
 		}
 	}
 
-	if len(results) == 0 {
+	if len(searchResults) == 0 {
 		s.service.LogQuery("memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
 		return "No relevant memories found.", nil
 	}
 
-	compact := make([]SearchResultResponse, len(results))
-	for i, r := range results {
+	compact := make([]SearchResultResponse, len(searchResults))
+	for i, r := range searchResults {
 		compact[i] = searchResultResponse(r)
 		if args.WithEvidence && r.Memory != nil {
 			evidence, err := s.service.GetMemoryEvidence(r.Memory.ID)
@@ -397,7 +444,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 	// Generate next cursor from the last result if there are results
 	if len(compact) > 0 && compact[len(compact)-1].Memory.CreatedAt != (time.Time{}) {
 		pageInfo.NextCursor = compact[len(compact)-1].Memory.CreatedAt.UTC().Format(time.RFC3339Nano)
-		pageInfo.Truncated = len(compact) < len(results) || (args.MaxPayloadBytes > 0 && len(compact) != len(results))
+		pageInfo.Truncated = len(compact) < len(searchResults) || (args.MaxPayloadBytes > 0 && len(compact) != len(searchResults))
 	}
 
 	s.service.LogQuery("memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())

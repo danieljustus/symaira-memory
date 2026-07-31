@@ -17,6 +17,8 @@ type DB struct {
 	conn             *sql.DB
 	quantizeBinary   bool // store sign-bit binary vectors on save
 	prefilterEnabled bool // use Hamming prefilter before cosine scoring
+	sparsemaxEnabled bool // apply sparsemax (α=2) to fused hybrid scores
+	perArmMultiplier int  // per-arm result cap multiplier before fusion
 	retrievalStats   *RetrievalStats
 }
 
@@ -53,6 +55,8 @@ func Open(cfg *config.Config) (*DB, error) {
 		conn:             conn,
 		quantizeBinary:   cfg.HybridSearch.QuantizeToBinary,
 		prefilterEnabled: cfg.HybridSearch.PrefilterEnabled,
+		sparsemaxEnabled: cfg.HybridSearch.SparsemaxEnabled,
+		perArmMultiplier: cfg.HybridSearch.PerArmMultiplier,
 		retrievalStats:   &RetrievalStats{},
 	}
 	if err := db.runMigrations(); err != nil {

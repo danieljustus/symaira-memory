@@ -98,7 +98,23 @@ var searchCmd = &cobra.Command{
 		var results []db.SearchResult
 		var err error
 
-		if emb.Source == "hash-fallback" {
+		cfg := GetConfig()
+		useHybrid := cfg.HybridSearch.Enabled && emb.Source != "hash-fallback"
+
+		if useHybrid {
+			hybridResults, hErr := GetDB().HybridSearch(emb.Vector, emb.Source, query, searchScope, searchLimit, entityID, trustFilter, policyFilter, cfg.HybridSearch.VectorWeight, cfg.HybridSearch.BM25Weight)
+			if hErr != nil {
+				return exitcodes.Wrapf(hErr, exitcodes.ExitSoftware, exitcodes.KindInternal, "hybrid search failure")
+			}
+			// Convert HybridResult to SearchResult for downstream formatting
+			results = make([]db.SearchResult, len(hybridResults))
+			for i, h := range hybridResults {
+				results[i] = db.SearchResult{
+					Memory: h.Memory,
+					Score:  float32(h.FusedScore),
+				}
+			}
+		} else if emb.Source == "hash-fallback" {
 			results, err = GetDB().SearchMemoriesBM25(query, searchScope, searchLimit)
 		} else {
 			results, err = GetDB().SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, searchScope, searchLimit, entityID, trustFilter, policyFilter, db.TimeWindow{})
