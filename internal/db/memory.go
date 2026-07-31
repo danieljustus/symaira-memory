@@ -35,11 +35,11 @@ type Memory struct {
 	ValidFrom           *time.Time        `json:"valid_from,omitempty"`
 	ValidTo             *time.Time        `json:"valid_to,omitempty"`
 	SupersededBy        string            `json:"superseded_by,omitempty"`
-	Tier                string            `json:"tier"`                 // "long_term" (default) or "working"
-	ExpiresAt           *time.Time        `json:"expires_at,omitempty"` // when tier=working, evict after this time
-	AccessCount         int64             `json:"access_count"`         // number of times retrieved (feedback loop)
+	Tier                string            `json:"tier"`                  // "long_term" (default) or "working"
+	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`  // when tier=working, evict after this time
+	AccessCount         int64             `json:"access_count"`          // number of times retrieved (feedback loop)
 	LastAccess          *time.Time        `json:"last_access,omitempty"` // last retrieval timestamp
-	Evidence            []EvidenceSpan    `json:"evidence,omitempty"`   // populated only on demand (e.g. --with-evidence), not by GetMemory/scanMemory
+	Evidence            []EvidenceSpan    `json:"evidence,omitempty"`    // populated only on demand (e.g. --with-evidence), not by GetMemory/scanMemory
 }
 
 // SearchResult wraps a Memory with its similarity score without mutating the original.
@@ -53,12 +53,12 @@ type SearchResult struct {
 
 // RankingWeights holds configurable weights for composite retrieval scoring.
 type RankingWeights struct {
-	RelevanceWeight          float64
-	RecencyWeight            float64
-	ImportanceWeight         float64
+	RelevanceWeight           float64
+	RecencyWeight             float64
+	ImportanceWeight          float64
 	AccessReinforcementWeight float64 // boost for frequently accessed memories (0 = disabled)
-	RecencyHalfLife          float64 // days
-	AccessHalfLife           float64 // days for last-access recency decay
+	RecencyHalfLife           float64 // days
+	AccessHalfLife            float64 // days for last-access recency decay
 }
 
 // TrustFilter defines retrieval filters for trust-aware memory search.
@@ -638,12 +638,12 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 // DefaultRankingWeights returns the default ranking configuration.
 func DefaultRankingWeights() RankingWeights {
 	return RankingWeights{
-		RelevanceWeight:          0.6,
-		RecencyWeight:            0.2,
-		ImportanceWeight:         0.2,
+		RelevanceWeight:           0.6,
+		RecencyWeight:             0.2,
+		ImportanceWeight:          0.2,
 		AccessReinforcementWeight: 0.0,
-		RecencyHalfLife:          30,
-		AccessHalfLife:           14,
+		RecencyHalfLife:           30,
+		AccessHalfLife:            14,
 	}
 }
 

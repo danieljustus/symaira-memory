@@ -26,10 +26,10 @@ type StalenessThreshold struct {
 // DefaultStalenessThreshold returns sensible defaults for decay-aware consolidation.
 func DefaultStalenessThreshold() StalenessThreshold {
 	return StalenessThreshold{
-		MinAccessCount:      1,    // memories accessed 0 times are stale
-		MaxDaysSinceAccess:  90,   // not accessed in 90 days = stale
+		MinAccessCount:       1,   // memories accessed 0 times are stale
+		MaxDaysSinceAccess:   90,  // not accessed in 90 days = stale
 		NeverAccessedPenalty: 0.1, // 90% reduction in consolidation priority
-		StaleAccessPenalty:  0.3, // 70% reduction for stale memories
+		StaleAccessPenalty:   0.3, // 70% reduction for stale memories
 	}
 }
 
@@ -63,7 +63,7 @@ func (db *DB) ConsolidationPriority(m *Memory, threshold StalenessThreshold) flo
 	}
 
 	// Apply staleness penalties.
-	var penalty float64 = 1.0
+	var penalty = 1.0
 	neverAccessed := m.AccessCount == 0 && m.LastAccess == nil
 
 	if neverAccessed {

@@ -142,12 +142,12 @@ func Defaults() *Config {
 			Model:       "",
 		},
 		Ranking: RankingConfig{
-			RelevanceWeight:          0.6,
-			RecencyWeight:            0.2,
-			ImportanceWeight:         0.2,
+			RelevanceWeight:           0.6,
+			RecencyWeight:             0.2,
+			ImportanceWeight:          0.2,
 			AccessReinforcementWeight: 0.0,
-			RecencyHalfLife:          30,
-			AccessHalfLife:           14,
+			RecencyHalfLife:           30,
+			AccessHalfLife:            14,
 		},
 		Context: ContextConfig{
 			TokenBudget:          2000,
