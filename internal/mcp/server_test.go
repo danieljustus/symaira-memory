@@ -152,6 +152,20 @@ func getToolError(res map[string]interface{}) (code float64, message string) {
 	return 0, ""
 }
 
+// searchResultPage wraps the paginated search response for test deserialization.
+type searchResultPage struct {
+	Results    []SearchResultResponse `json:"results"`
+	NextCursor string                 `json:"next_cursor,omitempty"`
+	Truncated  bool                   `json:"truncated,omitempty"`
+}
+
+// memoryListPageResponse wraps the paginated memory list response for test deserialization.
+type memoryListPageResponse struct {
+	Memories   []*db.Memory `json:"memories"`
+	NextCursor string       `json:"next_cursor,omitempty"`
+	Truncated  bool         `json:"truncated,omitempty"`
+}
+
 // --------------------------------------------------------------------------
 // JSON-RPC 2.0 Protocol
 // --------------------------------------------------------------------------
@@ -349,10 +363,11 @@ func TestToolMemorySearchWithEvidence(t *testing.T) {
 
 	res := callTool(s, "memory_search", map[string]interface{}{"query": content, "scope": "project", "limit": 5, "with_evidence": true})
 	text := getToolText(res)
-	var results []SearchResultResponse
-	if err := json.Unmarshal([]byte(text), &results); err != nil {
+	var page searchResultPage
+	if err := json.Unmarshal([]byte(text), &page); err != nil {
 		t.Fatalf("failed to unmarshal search results: %v\ntext: %s", err, text)
 	}
+	results := page.Results
 	found := false
 	for _, r := range results {
 		if r.Memory.ID == m.ID {
@@ -467,10 +482,11 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 	}
 
 	searchText := getToolText(searchRes)
-	var results []SearchResultResponse
-	if err := json.Unmarshal([]byte(searchText), &results); err != nil {
+	var page searchResultPage
+	if err := json.Unmarshal([]byte(searchText), &page); err != nil {
 		t.Fatalf("failed to unmarshal search results: %v\ntext: %s", err, searchText)
 	}
+	results := page.Results
 	if len(results) == 0 {
 		t.Fatal("expected at least one search result")
 	}
@@ -479,8 +495,10 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 	}
 
 	var raw []map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(searchText), &raw); err != nil {
-		t.Fatalf("failed to unmarshal raw search results: %v", err)
+	// Use the results directly (they're already unmarshalled)
+	data, _ := json.Marshal(page.Results)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("failed to remarshal search results: %v", err)
 	}
 	memRaw, ok := raw[0]["memory"]
 	if !ok {
@@ -549,12 +567,12 @@ func TestToolMemoryListWithMemories(t *testing.T) {
 	res := callTool(s, "memory_list", map[string]interface{}{})
 
 	text := getToolText(res)
-	var mems []*db.Memory
-	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+	var page memoryListPageResponse
+	if err := json.Unmarshal([]byte(text), &page); err != nil {
 		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
 	}
-	if len(mems) != 2 {
-		t.Errorf("expected 2 memories, got %d", len(mems))
+	if len(page.Memories) != 2 {
+		t.Errorf("expected 2 memories, got %d", len(page.Memories))
 	}
 }
 
@@ -577,12 +595,12 @@ func TestToolMemoryList_AsOfReturnsHistoricalVersion(t *testing.T) {
 		t.Fatalf("unexpected error: %v %s", code, msg)
 	}
 
-	var mems []*db.Memory
-	if err := json.Unmarshal([]byte(getToolText(res)), &mems); err != nil {
+	var page memoryListPageResponse
+	if err := json.Unmarshal([]byte(getToolText(res)), &page); err != nil {
 		t.Fatalf("failed to unmarshal memories: %v", err)
 	}
-	if len(mems) != 1 || mems[0].ID != "mcp-asof-old" {
-		t.Fatalf("expected the historical version 'mcp-asof-old', got %+v", mems)
+	if len(page.Memories) != 1 || page.Memories[0].ID != "mcp-asof-old" {
+		t.Fatalf("expected the historical version 'mcp-asof-old', got %+v", page.Memories)
 	}
 }
 
@@ -601,12 +619,12 @@ func TestToolMemoryListWithLimit(t *testing.T) {
 	res := callTool(s, "memory_list", map[string]interface{}{"limit": 2})
 
 	text := getToolText(res)
-	var mems []*db.Memory
-	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+	var page memoryListPageResponse
+	if err := json.Unmarshal([]byte(text), &page); err != nil {
 		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
 	}
-	if len(mems) != 2 {
-		t.Errorf("expected 2 memories with limit=2, got %d", len(mems))
+	if len(page.Memories) != 2 {
+		t.Errorf("expected 2 memories with limit=2, got %d", len(page.Memories))
 	}
 }
 
@@ -625,12 +643,12 @@ func TestToolMemoryListLimitClampedToMax(t *testing.T) {
 	res := callTool(s, "memory_list", map[string]interface{}{"limit": 5000})
 
 	text := getToolText(res)
-	var mems []*db.Memory
-	if err := json.Unmarshal([]byte(text), &mems); err != nil {
+	var page memoryListPageResponse
+	if err := json.Unmarshal([]byte(text), &page); err != nil {
 		t.Fatalf("failed to unmarshal memories: %v\ntext: %s", err, text)
 	}
-	if len(mems) != 3 {
-		t.Errorf("expected 3 memories (limit clamped to 1000), got %d", len(mems))
+	if len(page.Memories) != 3 {
+		t.Errorf("expected 3 memories (limit clamped to 1000), got %d", len(page.Memories))
 	}
 }
 
