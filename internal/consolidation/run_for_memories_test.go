@@ -105,7 +105,7 @@ func TestRunConsolidationForMemories_MultiMemoryUsesLLMAndGroupsByScope(t *testi
 				"consolidated": [
 					{
 						"content": "Daniel prefers dark mode.",
-						"replaces_ids": ["wm-a1", "wm-a2"],
+						"replaces_ids": ["1", "2"],
 						"metadata": {}
 					}
 				],
