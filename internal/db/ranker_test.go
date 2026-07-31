@@ -11,15 +11,17 @@ func TestCompositeScore_EqualRelevance_RecentHigher(t *testing.T) {
 	weekAgo := now.Add(-7 * 24 * time.Hour)
 
 	weights := RankingWeights{
-		RelevanceWeight:  0.4,
-		RecencyWeight:    0.3,
-		ImportanceWeight: 0.3,
-		RecencyHalfLife:  30,
+		RelevanceWeight:           0.4,
+		RecencyWeight:             0.3,
+		ImportanceWeight:          0.3,
+		AccessReinforcementWeight: 0.0,
+		RecencyHalfLife:           30,
+		AccessHalfLife:            14,
 	}
 
-	recent := CompositeScore(0.8, now, 0.5, weights)
-	yesterdayScore := CompositeScore(0.8, yesterday, 0.5, weights)
-	weekScore := CompositeScore(0.8, weekAgo, 0.5, weights)
+	recent := CompositeScore(0.8, now, 0.5, 0, nil, weights)
+	yesterdayScore := CompositeScore(0.8, yesterday, 0.5, 0, nil, weights)
+	weekScore := CompositeScore(0.8, weekAgo, 0.5, 0, nil, weights)
 
 	if recent <= yesterdayScore {
 		t.Errorf("expected recent (%f) > yesterday (%f)", recent, yesterdayScore)
@@ -32,14 +34,16 @@ func TestCompositeScore_EqualRelevance_RecentHigher(t *testing.T) {
 func TestCompositeScore_HighImportanceRanks(t *testing.T) {
 	now := time.Now()
 	weights := RankingWeights{
-		RelevanceWeight:  0.4,
-		RecencyWeight:    0.3,
-		ImportanceWeight: 0.3,
-		RecencyHalfLife:  30,
+		RelevanceWeight:           0.4,
+		RecencyWeight:             0.3,
+		ImportanceWeight:          0.3,
+		AccessReinforcementWeight: 0.0,
+		RecencyHalfLife:           30,
+		AccessHalfLife:            14,
 	}
 
-	low := CompositeScore(0.8, now, 0.1, weights)
-	high := CompositeScore(0.8, now, 0.9, weights)
+	low := CompositeScore(0.8, now, 0.1, 0, nil, weights)
+	high := CompositeScore(0.8, now, 0.9, 0, nil, weights)
 
 	if high <= low {
 		t.Errorf("expected high importance (%f) > low importance (%f)", high, low)
@@ -49,14 +53,16 @@ func TestCompositeScore_HighImportanceRanks(t *testing.T) {
 func TestCompositeScore_RelevanceDominatesWhenWeightsFavor(t *testing.T) {
 	now := time.Now()
 	weights := RankingWeights{
-		RelevanceWeight:  0.9,
-		RecencyWeight:    0.05,
-		ImportanceWeight: 0.05,
-		RecencyHalfLife:  30,
+		RelevanceWeight:           0.9,
+		RecencyWeight:             0.05,
+		ImportanceWeight:          0.05,
+		AccessReinforcementWeight: 0.0,
+		RecencyHalfLife:           30,
+		AccessHalfLife:            14,
 	}
 
-	highRel := CompositeScore(0.95, now, 0.1, weights)
-	lowRel := CompositeScore(0.3, now, 0.9, weights)
+	highRel := CompositeScore(0.95, now, 0.1, 0, nil, weights)
+	lowRel := CompositeScore(0.3, now, 0.9, 0, nil, weights)
 
 	if highRel <= lowRel {
 		t.Errorf("expected high relevance (%f) > low relevance (%f)", highRel, lowRel)
@@ -73,10 +79,12 @@ func TestRankSearchResults_Reorders(t *testing.T) {
 	}
 
 	weights := RankingWeights{
-		RelevanceWeight:  0.4,
-		RecencyWeight:    0.3,
-		ImportanceWeight: 0.3,
-		RecencyHalfLife:  30,
+		RelevanceWeight:           0.4,
+		RecencyWeight:             0.3,
+		ImportanceWeight:          0.3,
+		AccessReinforcementWeight: 0.0,
+		RecencyHalfLife:           30,
+		AccessHalfLife:            14,
 	}
 
 	ranked := RankSearchResults(results, weights)

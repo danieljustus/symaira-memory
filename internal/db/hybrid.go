@@ -119,6 +119,7 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 		        m.created_by, m.updated_by, m.created_session, m.updated_session,
 		        m.consolidation_status, m.consolidated_into_id, m.importance,
 		        m.valid_from, m.valid_to, m.superseded_by,
+		        m.access_count, m.last_access,
 		        rank
 		 FROM memories_fts fts
 		 JOIN memories m ON fts.id = m.id
@@ -145,14 +146,22 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 		var validFrom, validTo sql.NullTime
 		var supersededBy sql.NullString
 		var rank float64
+		var accessCount sql.NullInt64
+		var lastAccess sql.NullTime
 		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt,
 			&m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession,
 			&m.ConsolidationStatus, &consolidatedInto, &m.Importance,
-			&validFrom, &validTo, &supersededBy, &rank); err != nil {
+			&validFrom, &validTo, &supersededBy, &accessCount, &lastAccess, &rank); err != nil {
 			return nil, err
 		}
 		if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
 			return nil, err
+		}
+		if accessCount.Valid {
+			m.AccessCount = accessCount.Int64
+		}
+		if lastAccess.Valid {
+			m.LastAccess = &lastAccess.Time
 		}
 		results = append(results, SearchResult{
 			Memory: &m,
