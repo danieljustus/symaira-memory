@@ -5,7 +5,10 @@ options:
 packages:
   SymairaAppKit:
     url: https://github.com/danieljustus/symaira-appkit
-    exactVersion: 0.1.0
+    # 0.1.0 → 0.6.2: brings SymairaTypography / SymairaTextRole /
+    # SymairaTextFieldStyle / SymairaFormSection / SymairaStatusDot for #441.
+    # (The typography work landed in 0.6.2, not 0.6.1.)
+    exactVersion: 0.6.2
 
 targets:
   SymairaMemory:
