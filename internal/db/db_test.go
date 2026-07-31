@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -175,8 +176,12 @@ func TestMigrationsIdempotent(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("failed to query migrations: %v", err)
 	}
-	if count != 25 {
-		t.Errorf("expected 25 migrations after two opens, got %d", count)
+	entries, err := fs.ReadDir(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("failed to read embedded migrations: %v", err)
+	}
+	if count != len(entries) {
+		t.Errorf("expected %d migrations after two opens, got %d", len(entries), count)
 	}
 }
 
