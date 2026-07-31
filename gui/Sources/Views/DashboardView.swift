@@ -161,20 +161,16 @@ struct DashboardView: View {
     private var statusLight: some View {
         switch client.connectionStatus {
         case .connected:
-            Circle()
-                .fill(Color.goldPrimary)
-                .frame(width: 8, height: 8)
-                .shadow(color: .goldPrimary, radius: 4)
+            SymairaStatusDot(tone: .positive, accessibilityLabel: connectionLabel)
                 .scaleEffect(isPulsing ? 1.2 : 0.8)
                 .animation(Animation.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: isPulsing)
         case .connecting:
             ProgressView()
                 .controlSize(.mini)
-        case .disconnected, .failed:
-            Circle()
-                .fill(Color.red)
-                .frame(width: 8, height: 8)
-                .shadow(color: .red, radius: 4)
+        case .disconnected:
+            SymairaStatusDot(tone: .neutral, accessibilityLabel: connectionLabel)
+        case .failed:
+            SymairaStatusDot(tone: .critical, accessibilityLabel: connectionLabel)
         }
     }
     

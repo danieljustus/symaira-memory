@@ -86,17 +86,13 @@ struct ContentView: View {
     private var connectionStatusDot: some View {
         switch client.connectionStatus {
         case .connected:
-            Circle()
-                .fill(Color.goldPrimary)
-                .frame(width: 8, height: 8)
-                .shadow(color: .goldPrimary, radius: 4)
+            SymairaStatusDot(tone: .positive, accessibilityLabel: connectionStatusText)
         case .connecting:
             ProgressView().controlSize(.mini).scaleEffect(0.6)
-        case .disconnected, .failed:
-            Circle()
-                .fill(Color.red)
-                .frame(width: 8, height: 8)
-                .shadow(color: .red, radius: 4)
+        case .disconnected:
+            SymairaStatusDot(tone: .neutral, accessibilityLabel: connectionStatusText)
+        case .failed:
+            SymairaStatusDot(tone: .critical, accessibilityLabel: connectionStatusText)
         }
     }
     

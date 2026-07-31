@@ -41,13 +41,13 @@ struct AddMemoryView: View {
                         Image(systemName: "exclamationmark.octagon.fill")
                         Text(error)
                     }
-                    .foregroundColor(.red)
+                    .foregroundColor(SymairaTheme.critical)
                     .font(.subheadline)
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.1))
+                    .background(SymairaTheme.critical.opacity(0.1))
                     .cornerRadius(8)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.2), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(SymairaTheme.critical.opacity(0.2), lineWidth: 1))
                 }
                 
                 Text("Scope")

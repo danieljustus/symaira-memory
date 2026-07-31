@@ -30,7 +30,7 @@ struct MemoryRowView: View {
                 if isHovering {
                     Button(action: onDelete) {
                         Image(systemName: "trash")
-                            .foregroundColor(.red)
+                            .foregroundColor(SymairaTheme.critical)
                             .font(.caption)
                     }
                     .buttonStyle(.plain)
