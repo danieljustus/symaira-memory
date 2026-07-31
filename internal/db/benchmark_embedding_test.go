@@ -100,8 +100,8 @@ func saveMemoryBLOBTx(tx *sql.Tx, m *Memory) error {
 	}
 	m.UpdatedAt = now
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, access_count, last_access)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content, scope=excluded.scope, metadata=excluded.metadata,
 			embedding=excluded.embedding, embedding_dim=excluded.embedding_dim,
@@ -121,6 +121,7 @@ func saveMemoryBLOBTx(tx *sql.Tx, m *Memory) error {
 		m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy,
 		m.CreatedSession, m.UpdatedSession, status, nil,
 		m.Importance, m.CreatedAt, nil, nil,
+		m.AccessCount, nil,
 	)
 	return err
 }
@@ -133,17 +134,19 @@ func getMemoryBLOB(database *DB, id string) (*Memory, error) {
 	var consolidatedInto sql.NullString
 	var validFrom, validTo sql.NullTime
 	var supersededBy sql.NullString
+	var lastAccess sql.NullTime
 
 	err := database.conn.QueryRow(
 		`SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model,
 		        created_at, updated_at, created_by, updated_by, created_session, updated_session,
-		        consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by
+		        consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by,
+		        access_count, last_access
 		 FROM memories WHERE id = ?`, id,
 	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embBLOB,
 		&m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt,
 		&m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession,
 		&m.ConsolidationStatus, &consolidatedInto, &m.Importance,
-		&validFrom, &validTo, &supersededBy)
+		&validFrom, &validTo, &supersededBy, &m.AccessCount, &lastAccess)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +233,7 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 		}
 		inClause := strings.Join(placeholders, ", ")
 
-		query := "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by FROM memories WHERE id IN (" + inClause + ")"
+		query := "SELECT id, content, scope, metadata, embedding, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, access_count, last_access FROM memories WHERE id IN (" + inClause + ")"
 		rows, err := database.conn.Query(query, args...)
 		if err != nil {
 			return nil, err
@@ -243,11 +246,12 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 			var consolidatedInto sql.NullString
 			var validFrom, validTo sql.NullTime
 			var supersededBy sql.NullString
+			var lastAccess sql.NullTime
 			if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embBLOB,
 				&m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt,
 				&m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession,
 				&m.ConsolidationStatus, &consolidatedInto, &m.Importance,
-				&validFrom, &validTo, &supersededBy); err != nil {
+				&validFrom, &validTo, &supersededBy, &m.AccessCount, &lastAccess); err != nil {
 				rows.Close()
 				return nil, err
 			}
@@ -260,7 +264,7 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 			if len(m.Embedding) > 0 {
 				relevance := CosineSimilarity(queryVec, m.Embedding)
 				w := DefaultRankingWeights()
-				score := float32(CompositeScore(relevance, m.CreatedAt, float64(m.Importance)/10.0, w))
+				score := float32(CompositeScore(relevance, m.CreatedAt, float64(m.Importance)/10.0, m.AccessCount, m.LastAccess, w))
 				results = append(results, scored{m: &m, score: score})
 			}
 		}
