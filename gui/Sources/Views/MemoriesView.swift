@@ -33,7 +33,7 @@ struct MemoriesView: View {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(.textSecondary)
                         TextField("Search memories semantically...", text: $searchQuery)
-                            .textFieldStyle(.plain)
+                            .textFieldStyle(SymairaTextFieldStyle())
                             .foregroundColor(.textPrimary)
                             .autocorrectionDisabled()
                     }
@@ -104,7 +104,8 @@ struct MemoriesView: View {
                             Task { await reloadData() }
                         } label: {
                             Text(scope.capitalized)
-                                .font(.system(size: 13, weight: selectedScope == scope ? .semibold : .regular, design: .rounded))
+                                .symairaText(.body)
+.fontWeight(selectedScope == scope ? .semibold : .regular)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)
                                 .background(selectedScope == scope ? Color.goldPrimary.opacity(0.12) : Color.clear)
@@ -137,13 +138,13 @@ struct MemoriesView: View {
                     VStack(spacing: 12) {
                         Spacer()
                         Image(systemName: "brain.head.profile")
-                            .font(.system(size: 40))
+                            .symairaText(.display)
                             .foregroundColor(.textMuted)
                         Text(searchQuery.isEmpty ? "No memories found" : "No semantic matches found")
-                            .font(.headline)
+                            .symairaText(.bodyEmphasized)
                             .foregroundColor(.textSecondary)
                         Text(searchQuery.isEmpty ? "Create a fact using the 'Add Fact' button above." : "Try adjusting your search query.")
-                            .font(.subheadline)
+                            .symairaText(.callout)
                             .foregroundColor(.textMuted)
                         Spacer()
                     }

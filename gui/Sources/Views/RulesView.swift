@@ -26,11 +26,11 @@ struct RulesView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Behavioral Prompt Rules")
-                            .font(.title2)
+                            .symairaText(.heading)
                             .fontWeight(.bold)
                             .foregroundColor(.textPrimary)
                         Text("Procedural rules configured for AI agent execution contexts.")
-                            .font(.caption)
+                            .symairaText(.caption)
                             .foregroundColor(.textSecondary)
                     }
                     
@@ -68,7 +68,8 @@ struct RulesView: View {
                             Task { await client.fetchRules(scope: selectedScope) }
                         } label: {
                             Text(scope.capitalized)
-                                .font(.system(size: 13, weight: selectedScope == scope ? .semibold : .regular, design: .rounded))
+                                .symairaText(.body)
+.fontWeight(selectedScope == scope ? .semibold : .regular)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 7)
                                 .background(selectedScope == scope ? Color.goldPrimary.opacity(0.12) : Color.clear)
@@ -101,13 +102,13 @@ struct RulesView: View {
                     VStack(spacing: 12) {
                         Spacer()
                         Image(systemName: "doc.text")
-                            .font(.system(size: 40))
+                            .symairaText(.display)
                             .foregroundColor(.textMuted)
                         Text("No rules found")
-                            .font(.headline)
+                            .symairaText(.bodyEmphasized)
                             .foregroundColor(.textSecondary)
                         Text("Add rules via the `./symmemory rule add` terminal CLI.")
-                            .font(.subheadline)
+                            .symairaText(.callout)
                             .foregroundColor(.textMuted)
                         Spacer()
                     }
@@ -137,7 +138,8 @@ struct RuleRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text(rule.scope.uppercased())
-                    .font(.system(size: 8, weight: .bold, design: .rounded))
+                    .symairaText(.caption)
+.fontWeight(.bold)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(scopeColor.opacity(0.15))
@@ -147,18 +149,18 @@ struct RuleRow: View {
                 Spacer()
                 
                 Text(formattedDate)
-                    .font(.caption2)
+                    .symairaText(.caption)
                     .foregroundColor(.textSecondary)
             }
             
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "quote.opening")
                     .foregroundColor(.goldPrimary.opacity(0.8))
-                    .font(.title2)
+                    .symairaText(.heading)
                     .shadow(color: .goldPrimary, radius: 2)
                 
                 Text(rule.content)
-                    .font(.system(.body, design: .serif))
+                    .symairaText(.body)
                     .foregroundColor(.textPrimary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)

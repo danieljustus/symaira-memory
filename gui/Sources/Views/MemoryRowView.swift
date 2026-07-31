@@ -12,7 +12,8 @@ struct MemoryRowView: View {
             HStack(alignment: .top) {
                 // Scope Badge
                 Text(memory.scope.uppercased())
-                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .symairaText(.caption)
+.fontWeight(.bold)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .background(scopeColor.opacity(0.15))
@@ -23,15 +24,15 @@ struct MemoryRowView: View {
                 
                 // Timestamp
                 Text(formattedDate)
-                    .font(.caption)
+                    .symairaText(.caption)
                     .foregroundColor(.textSecondary)
                 
                 // Delete button (visible on hover)
                 if isHovering {
                     Button(action: onDelete) {
                         Image(systemName: "trash")
-                            .foregroundColor(.red)
-                            .font(.caption)
+                            .foregroundColor(SymairaTheme.critical)
+                            .symairaText(.caption)
                     }
                     .buttonStyle(.plain)
                     .transition(.opacity)
@@ -41,7 +42,7 @@ struct MemoryRowView: View {
             
             // Content
             Text(memory.content)
-                .font(.body)
+                .symairaText(.body)
                 .textSelection(.enabled)
                 .lineLimit(nil)
                 .fixedSize(horizontal: false, vertical: true)
@@ -57,9 +58,9 @@ struct MemoryRowView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: isMetadataExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 8))
+                                .symairaText(.caption)
                             Text("Metadata")
-                                .font(.caption)
+                                .symairaText(.caption)
                                 .fontWeight(.medium)
                         }
                         .foregroundColor(.textSecondary)
@@ -71,11 +72,11 @@ struct MemoryRowView: View {
                             ForEach(metadata.sorted(by: { $0.key < $1.key }), id: \.key) { key, val in
                                 HStack(alignment: .top) {
                                     Text("\(key):")
-                                        .font(.system(.caption, design: .monospaced))
+                                        .symairaText(.monoSmall)
                                         .fontWeight(.semibold)
                                         .foregroundColor(.textSecondary)
                                     Text(val)
-                                        .font(.system(.caption, design: .monospaced))
+                                        .symairaText(.monoSmall)
                                         .foregroundColor(.textPrimary)
                                         .textSelection(.enabled)
                                 }

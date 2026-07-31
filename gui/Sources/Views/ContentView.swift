@@ -27,8 +27,8 @@ struct ContentView: View {
             List(NavigationItem.allCases, selection: $selectedItem) { item in
                 NavigationLink(value: item) {
                     Label(item.rawValue, systemImage: item.iconName)
-                        .font(.system(.body, design: .rounded))
-                        .padding(.vertical, 4)
+                        .symairaText(.body, respectsForeground: false)
+                        .padding(.vertical, SymairaSpacing.xSmall)
                 }
                 .listRowSeparator(.hidden)
             }
@@ -42,15 +42,16 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     Divider()
                         .background(Color.borderGlass)
-                    HStack(spacing: 8) {
+                    HStack(spacing: SymairaSpacing.small) {
                         connectionStatusDot
                         Text(connectionStatusText)
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .symairaText(.caption)
+                            .fontWeight(.medium)
                             .foregroundColor(.textSecondary)
                             .lineLimit(1)
                         Spacer()
                     }
-                    .padding(12)
+                    .padding(SymairaSpacing.medium)
                     .background(Color.bgDarker)
                 }
             }
@@ -86,17 +87,13 @@ struct ContentView: View {
     private var connectionStatusDot: some View {
         switch client.connectionStatus {
         case .connected:
-            Circle()
-                .fill(Color.goldPrimary)
-                .frame(width: 8, height: 8)
-                .shadow(color: .goldPrimary, radius: 4)
+            SymairaStatusDot(tone: .positive, accessibilityLabel: connectionStatusText)
         case .connecting:
             ProgressView().controlSize(.mini).scaleEffect(0.6)
-        case .disconnected, .failed:
-            Circle()
-                .fill(Color.red)
-                .frame(width: 8, height: 8)
-                .shadow(color: .red, radius: 4)
+        case .disconnected:
+            SymairaStatusDot(tone: .neutral, accessibilityLabel: connectionStatusText)
+        case .failed:
+            SymairaStatusDot(tone: .critical, accessibilityLabel: connectionStatusText)
         }
     }
     

@@ -23,11 +23,11 @@ struct DashboardView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Symaira Memory Dashboard")
-                                .font(.system(.title, design: .rounded))
+                                .symairaText(.title)
                                 .fontWeight(.bold)
                                 .foregroundColor(.textPrimary)
                             Text("Offline-first semantic agent memory console")
-                                .font(.subheadline)
+                                .symairaText(.callout)
                                 .foregroundColor(.textSecondary)
                         }
                         
@@ -37,7 +37,8 @@ struct DashboardView: View {
                         HStack(spacing: 8) {
                             statusLight
                             Text(connectionLabel)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .symairaText(.caption)
+.fontWeight(.semibold)
                                 .foregroundColor(.textSecondary)
                         }
                         .padding(.horizontal, 14)
@@ -56,13 +57,13 @@ struct DashboardView: View {
                         HStack(spacing: 12) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundColor(.goldPrimary)
-                                .font(.title)
+                                .symairaText(.title)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Connection issue detected")
-                                    .font(.headline)
+                                    .symairaText(.bodyEmphasized)
                                     .foregroundColor(.textPrimary)
                                 Text(error)
-                                    .font(.subheadline)
+                                    .symairaText(.callout)
                                     .foregroundColor(.textSecondary)
                             }
                         }
@@ -98,7 +99,7 @@ struct DashboardView: View {
                     // Scope Breakdown
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Memories by Scope")
-                            .font(.headline)
+                            .symairaText(.bodyEmphasized)
                             .foregroundColor(.textPrimary)
                             .padding(.leading, 2)
                         
@@ -114,7 +115,7 @@ struct DashboardView: View {
                     // Quick Actions Panel
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Quick Actions")
-                            .font(.headline)
+                            .symairaText(.bodyEmphasized)
                             .foregroundColor(.textPrimary)
                             .padding(.leading, 2)
                         
@@ -161,20 +162,16 @@ struct DashboardView: View {
     private var statusLight: some View {
         switch client.connectionStatus {
         case .connected:
-            Circle()
-                .fill(Color.goldPrimary)
-                .frame(width: 8, height: 8)
-                .shadow(color: .goldPrimary, radius: 4)
+            SymairaStatusDot(tone: .positive, accessibilityLabel: connectionLabel)
                 .scaleEffect(isPulsing ? 1.2 : 0.8)
                 .animation(Animation.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: isPulsing)
         case .connecting:
             ProgressView()
                 .controlSize(.mini)
-        case .disconnected, .failed:
-            Circle()
-                .fill(Color.red)
-                .frame(width: 8, height: 8)
-                .shadow(color: .red, radius: 4)
+        case .disconnected:
+            SymairaStatusDot(tone: .neutral, accessibilityLabel: connectionLabel)
+        case .failed:
+            SymairaStatusDot(tone: .critical, accessibilityLabel: connectionLabel)
         }
     }
     
@@ -196,7 +193,7 @@ struct StatCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: icon)
-                    .font(.title2)
+                    .symairaText(.heading)
                     .foregroundColor(color)
                 Spacer()
                 if isLoading {
@@ -206,11 +203,11 @@ struct StatCard: View {
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(value)
-                    .font(.system(.largeTitle, design: .rounded))
+                    .symairaText(.display)
                     .fontWeight(.bold)
                     .foregroundColor(.textPrimary)
                 Text(title)
-                    .font(.subheadline)
+                    .symairaText(.callout)
                     .foregroundColor(.textSecondary)
             }
         }
@@ -245,12 +242,12 @@ struct ScopeMiniCard: View {
                     .fill(color)
                     .frame(width: 8, height: 8)
                 Text(title)
-                    .font(.subheadline)
+                    .symairaText(.callout)
                     .fontWeight(.medium)
                     .foregroundColor(.textSecondary)
             }
             Text("\(count)")
-                .font(.system(.title2, design: .rounded))
+                .symairaText(.heading)
                 .fontWeight(.bold)
                 .foregroundColor(.textPrimary)
         }
@@ -282,7 +279,7 @@ struct QuickActionBtn: View {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                 Text(title)
-                    .font(.system(.body, design: .rounded))
+                    .symairaText(.body)
                     .fontWeight(.semibold)
             }
             .padding(.horizontal, 18)

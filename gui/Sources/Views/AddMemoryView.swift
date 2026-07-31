@@ -18,13 +18,13 @@ struct AddMemoryView: View {
             // Header
             HStack {
                 Text("Add New Memory")
-                    .font(.system(.headline, design: .rounded))
+                    .symairaText(.bodyEmphasized)
                     .foregroundColor(.textPrimary)
                 Spacer()
                 Button(action: { dismiss() }) {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.textSecondary)
-                        .font(.title2)
+                        .symairaText(.heading)
                 }
                 .buttonStyle(.plain)
             }
@@ -41,17 +41,17 @@ struct AddMemoryView: View {
                         Image(systemName: "exclamationmark.octagon.fill")
                         Text(error)
                     }
-                    .foregroundColor(.red)
-                    .font(.subheadline)
+                    .foregroundColor(SymairaTheme.critical)
+                    .symairaText(.callout)
                     .padding()
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.1))
+                    .background(SymairaTheme.critical.opacity(0.1))
                     .cornerRadius(8)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.red.opacity(0.2), lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(SymairaTheme.critical.opacity(0.2), lineWidth: 1))
                 }
                 
                 Text("Scope")
-                    .font(.subheadline)
+                    .symairaText(.callout)
                     .fontWeight(.medium)
                     .foregroundColor(.textSecondary)
                 
@@ -63,12 +63,12 @@ struct AddMemoryView: View {
                 .pickerStyle(.segmented)
                 
                 Text("Memory Content")
-                    .font(.subheadline)
+                    .symairaText(.callout)
                     .fontWeight(.medium)
                     .foregroundColor(.textSecondary)
                 
                 TextEditor(text: $content)
-                    .font(.body)
+                    .symairaText(.body)
                     .foregroundColor(.textPrimary)
                     .padding(6)
                     .scrollContentBackground(.hidden)
@@ -81,7 +81,7 @@ struct AddMemoryView: View {
                     .frame(minHeight: 120)
                 
                 Text("Example: 'User prefers using Go and Python for API services'.")
-                    .font(.caption)
+                    .symairaText(.caption)
                     .foregroundColor(.textMuted)
             }
             .padding()
