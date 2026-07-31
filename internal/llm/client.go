@@ -1,10 +1,12 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,6 +15,50 @@ import (
 
 	"github.com/danieljustus/symaira-corekit/ollamakit"
 )
+
+// ConsolidationResponseSchema returns a JSON Schema (draft-07) for the
+// consolidation response type. Both Ollama (format object) and OpenAI
+// (response_format / json_schema) use this to constrain the LLM to emit
+// valid ConsolidationResult JSON, eliminating the need for the salvage
+// strategies in parseJSONResponse when the model supports schema-guided
+// output.
+func ConsolidationResponseSchema() map[string]any {
+	return map[string]any{
+		"$schema": "http://json-schema.org/draft-07/schema#",
+		"type":    "object",
+		"properties": map[string]any{
+			"consolidated": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"content": map[string]any{
+							"type": "string",
+						},
+						"replaces_ids": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type": "string",
+							},
+						},
+						"metadata": map[string]any{
+							"type":                 "object",
+							"additionalProperties": map[string]any{"type": "string"},
+						},
+					},
+					"required": []any{"content", "replaces_ids", "metadata"},
+				},
+			},
+			"discarded_ids": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+		},
+		"required": []any{"consolidated", "discarded_ids"},
+	}
+}
 
 type Client struct {
 	OllamaURL   string
@@ -56,17 +102,61 @@ func ollamaBaseURL(raw string) string {
 }
 
 func (c *Client) QueryOllama(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	var out strings.Builder
-	err := c.ollama.Generate(ctx, c.OllamaModel, userPrompt, &ollamakit.GenerateOptions{
-		Format: "json",
-		System: systemPrompt,
-	}, func(chunk ollamakit.GenerateResponse) error {
-		out.WriteString(chunk.Response)
-		return nil
-	})
+	schema := ConsolidationResponseSchema()
+	body := map[string]any{
+		"model":  c.OllamaModel,
+		"prompt": userPrompt,
+		"system": systemPrompt,
+		"stream": true,
+		"format": schema,
+	}
+
+	var reqBuf bytes.Buffer
+	if err := json.NewEncoder(&reqBuf).Encode(body); err != nil {
+		return "", fmt.Errorf("failed to encode Ollama request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.OllamaURL, &reqBuf)
+	if err != nil {
+		return "", fmt.Errorf("failed to create Ollama request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to query Ollama: %w", err)
 	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		return "", fmt.Errorf("ollama returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var out strings.Builder
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var chunk struct {
+			Response string `json:"response"`
+			Done     bool   `json:"done"`
+		}
+		if err := json.Unmarshal(line, &chunk); err != nil {
+			return "", fmt.Errorf("failed to decode Ollama response chunk: %w", err)
+		}
+		out.WriteString(chunk.Response)
+		if chunk.Done {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("ollama stream read error: %w", err)
+	}
+
 	return out.String(), nil
 }
 
@@ -78,13 +168,21 @@ func (c *Client) QueryOpenAI(ctx context.Context, systemPrompt, userPrompt, apiK
 		url = "https://api.openai.com/v1/chat/completions"
 	}
 
+	schema := ConsolidationResponseSchema()
 	reqBody, err := json.Marshal(map[string]interface{}{
 		"model": model,
 		"messages": []map[string]string{
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": userPrompt},
 		},
-		"response_format": map[string]string{"type": "json_object"},
+		"response_format": map[string]interface{}{
+			"type": "json_schema",
+			"json_schema": map[string]interface{}{
+				"name":   "consolidation_result",
+				"strict": true,
+				"schema": schema,
+			},
+		},
 	})
 	if err != nil {
 		return "", err
