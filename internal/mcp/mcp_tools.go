@@ -13,6 +13,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/instructions"
 	"github.com/danieljustus/symaira-memory/internal/security"
+	"github.com/danieljustus/symaira-memory/internal/temporal"
 )
 
 type MemoryResponse struct {
@@ -90,7 +91,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_search",
 		Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"profile":{"type":"string","description":"Optional context profile name for inherited scope resolution. When provided, searches across scopes defined by the profile in precedence order."},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"},"min_score":{"type":"number","description":"Optional minimum similarity score (0-1). Results below the threshold are dropped and the tool returns an explicit 'no confident match' marker instead of weak matches. Defaults to the search.min_score config value; 0 disables filtering."}},"required":["query"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"profile":{"type":"string","description":"Optional context profile name for inherited scope resolution. When provided, searches across scopes defined by the profile in precedence order."},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"},"min_score":{"type":"number","description":"Optional minimum similarity score (0-1). Results below the threshold are dropped and the tool returns an explicit 'no confident match' marker instead of weak matches. Defaults to the search.min_score config value; 0 disables filtering."},"from":{"type":"string","description":"Optional RFC3339 or YYYY-MM-DD timestamp: only return memories valid at or after this time (filters against valid_to column)"},"to":{"type":"string","description":"Optional RFC3339 or YYYY-MM-DD timestamp: only return memories valid at or before this time (filters against valid_from column)"}},"required":["query"]}`),
 		Handler:     s.handleMemorySearch,
 	})
 
@@ -235,6 +236,8 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		ClientID          string  `json:"client_id"`
 		WithEvidence      bool    `json:"with_evidence"`
 		MinScore          float64 `json:"min_score"`
+		From              string  `json:"from"`
+		To                string  `json:"to"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_search': failed to parse arguments: %w", err)
@@ -267,12 +270,36 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		ClientID:        args.ClientID,
 	}
 
+	// Build time window from explicit from/to.
+	timeWindow := db.TimeWindow{}
+	if args.From != "" {
+		t, err := parseTimeArg(args.From)
+		if err != nil {
+			return nil, fmt.Errorf("invalid arguments for 'memory_search': invalid from: %w", err)
+		}
+		timeWindow.From = &t
+	}
+	if args.To != "" {
+		t, err := parseTimeArg(args.To)
+		if err != nil {
+			return nil, fmt.Errorf("invalid arguments for 'memory_search': invalid to: %w", err)
+		}
+		timeWindow.To = &t
+	}
+
+	// Temporal extraction from query text (config-gated, off by default).
+	if s.cfg != nil && s.cfg.Search.TemporalExtractionEnabled && timeWindow.From == nil && timeWindow.To == nil {
+		if tw, err := extractTemporalFromQuery(args.Query); err == nil && tw != nil {
+			timeWindow = *tw
+		}
+	}
+
 	var results []db.SearchResult
 	var err error
 	if args.Profile != "" {
-		results, err = s.service.SearchWithProfile(args.Query, args.Profile, limit, args.Entity, trustFilter, policyFilter)
+		results, err = s.service.SearchWithProfile(args.Query, args.Profile, limit, args.Entity, trustFilter, policyFilter, timeWindow)
 	} else {
-		results, err = s.service.Search(args.Query, args.Scope, limit, args.Entity, trustFilter, policyFilter)
+		results, err = s.service.Search(args.Query, args.Scope, limit, args.Entity, trustFilter, policyFilter, timeWindow)
 	}
 	if err != nil {
 		if nf, ok := err.(*NotFoundError); ok {
@@ -639,4 +666,38 @@ func parseDuration(s string) (time.Duration, error) {
 	default:
 		return time.ParseDuration(s)
 	}
+}
+
+// parseTimeArg parses an RFC3339 or YYYY-MM-DD timestamp string.
+func parseTimeArg(s string) (time.Time, error) {
+	// Try RFC3339 first.
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.UTC(), nil
+	}
+	// Try YYYY-MM-DD.
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t.UTC(), nil
+	}
+	// Try YYYY-MM-DDTHH:MM:SS without timezone (treat as UTC).
+	if t, err := time.Parse("2006-01-02T15:04:05", s); err == nil {
+		return t.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("cannot parse %q as RFC3339 or YYYY-MM-DD", s)
+}
+
+// extractTemporalFromQuery runs the query through the temporal extractor and
+// returns a *db.TimeWindow when a match is found (nil when no expression).
+func extractTemporalFromQuery(query string) (*db.TimeWindow, error) {
+	result := temporal.Extract(query, time.Now())
+	if result == nil {
+		return nil, nil
+	}
+	tw := &db.TimeWindow{}
+	if result.Window.From != nil {
+		tw.From = result.Window.From
+	}
+	if result.Window.To != nil {
+		tw.To = result.Window.To
+	}
+	return tw, nil
 }
