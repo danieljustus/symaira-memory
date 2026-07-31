@@ -2,8 +2,11 @@ package extractor
 
 import (
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -153,4 +156,82 @@ func mathAbs(f float32) float32 {
 		return -f
 	}
 	return f
+}
+
+// TestGenerateVectorUsesOllamakitEmbedEndpoint guards the shared-transport
+// switch (#438): the generator must talk to Ollama through ollamakit's
+// /api/embed endpoint (plural, "input" field) instead of a hand-rolled
+// http.Client against the legacy /api/embeddings endpoint.
+func TestGenerateVectorUsesOllamakitEmbedEndpoint(t *testing.T) {
+	var gotPath, gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		gotPath = r.URL.Path
+		gotBody = string(body)
+		vec := make([]float32, DefaultDimensions)
+		for i := range vec {
+			vec[i] = float32(i+1) / float32(DefaultDimensions)
+		}
+		json.NewEncoder(w).Encode(struct {
+			Embeddings [][]float32 `json:"embeddings"`
+		}{Embeddings: [][]float32{vec}})
+	}))
+	defer server.Close()
+
+	eg := NewEmbeddingsGenerator(nil)
+	eg.OllamaURL = server.URL
+
+	result := eg.GenerateVector("transport switch check")
+
+	if result.Source != "ollama" {
+		t.Fatalf("expected source ollama, got %q", result.Source)
+	}
+	if result.Model != eg.Model {
+		t.Fatalf("expected provenance model %q, got %q", eg.Model, result.Model)
+	}
+	if len(result.Vector) != DefaultDimensions {
+		t.Fatalf("expected %d dimensions, got %d", DefaultDimensions, len(result.Vector))
+	}
+	if gotPath != "/api/embed" {
+		t.Errorf("expected request to ollamakit /api/embed, got path %q", gotPath)
+	}
+	if !strings.Contains(gotBody, `"input"`) {
+		t.Errorf("expected request body with \"input\" field, got %s", gotBody)
+	}
+	if strings.Contains(gotBody, `"prompt"`) {
+		t.Errorf("legacy /api/embeddings style \"prompt\" field must not be used, got %s", gotBody)
+	}
+}
+
+// TestGenerateVectorUnreachableEndpointFallsBack covers the required
+// degradation behavior (#438): when the embedding endpoint is not reachable
+// the generator must fall back to the deterministic hash vector with
+// unchanged provenance (Source "hash-fallback", Model "").
+func TestGenerateVectorUnreachableEndpointFallsBack(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	server.Close() // guaranteed connection refused
+
+	eg := NewEmbeddingsGenerator(nil)
+	eg.OllamaURL = server.URL
+
+	result := eg.GenerateVector("no endpoint reachable")
+
+	if result.Source != "hash-fallback" {
+		t.Fatalf("expected hash-fallback, got %q", result.Source)
+	}
+	if result.Model != "" {
+		t.Errorf("expected empty model for hash fallback, got %q", result.Model)
+	}
+	want := GenerateLocalHashVector("no endpoint reachable", DefaultDimensions)
+	if len(result.Vector) != len(want) {
+		t.Fatalf("expected %d dimensions, got %d", len(want), len(result.Vector))
+	}
+	for i := range want {
+		if result.Vector[i] != want[i] {
+			t.Fatalf("hash fallback vector mismatch at index %d", i)
+		}
+	}
+	if got := eg.Metrics().FallbackCount; got != 1 {
+		t.Errorf("expected fallback count 1, got %d", got)
+	}
 }
