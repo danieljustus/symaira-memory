@@ -37,6 +37,7 @@ type Memory struct {
 	SupersededBy        string            `json:"superseded_by,omitempty"`
 	Tier                string            `json:"tier"`                 // "long_term" (default) or "working"
 	ExpiresAt           *time.Time        `json:"expires_at,omitempty"` // when tier=working, evict after this time
+	AccessCount         int               `json:"access_count"`         // number of times this exact content has been written (reinforcement counter)
 	Evidence            []EvidenceSpan    `json:"evidence,omitempty"`   // populated only on demand (e.g. --with-evidence), not by GetMemory/scanMemory
 }
 
@@ -137,14 +138,18 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	if tier == "" {
 		tier = "long_term"
 	}
+	accessCount := m.AccessCount
+	if accessCount == 0 {
+		accessCount = 1
+	}
 	var expiresAt sql.NullTime
 	if m.ExpiresAt != nil {
 		expiresAt.Time = *m.ExpiresAt
 		expiresAt.Valid = true
 	}
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_binary, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_binary, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
@@ -166,7 +171,8 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 			valid_to=excluded.valid_to,
 			superseded_by=excluded.superseded_by,
 			tier=excluded.tier,
-			expires_at=excluded.expires_at`
+			expires_at=excluded.expires_at,
+			access_count=excluded.access_count`
 
 	now := time.Now().UTC()
 	if m.CreatedAt.IsZero() {
@@ -174,7 +180,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	}
 	m.UpdatedAt = now
 
-	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt, accessCount)
 	return err
 }
 
