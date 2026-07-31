@@ -205,11 +205,11 @@ func TestEngineConsolidation(t *testing.T) {
 				"consolidated": [
 					{
 						"content": "Daniel prefers dark mode.",
-						"replaces_ids": ["mem-1", "mem-2"],
+						"replaces_ids": ["1", "2"],
 						"metadata": { "topic": "preferences" }
 					}
 				],
-				"discarded_ids": ["mem-3"]
+				"discarded_ids": ["3"]
 			}`,
 		}
 		json.NewEncoder(w).Encode(respObj)
@@ -370,7 +370,7 @@ func TestEngineConsolidationPropagatesEvidence(t *testing.T) {
 				"consolidated": [
 					{
 						"content": "Daniel prefers dark mode.",
-						"replaces_ids": ["ev-mem-1", "ev-mem-2"],
+						"replaces_ids": ["1", "2"],
 						"metadata": {}
 					}
 				],
@@ -457,7 +457,7 @@ func TestRunConsolidationSkipsFailedScope(t *testing.T) {
 		if strings.Contains(prompt, `"bad-scope"`) {
 			resp = "this is not json at all"
 		} else {
-			resp = `{"consolidated": [{"content": "Daniel prefers dark mode.", "replaces_ids": ["good-1", "good-2"], "metadata": {}}], "discarded_ids": []}`
+			resp = `{"consolidated": [{"content": "Daniel prefers dark mode.", "replaces_ids": ["1", "2"], "metadata": {}}], "discarded_ids": []}`
 		}
 		json.NewEncoder(w).Encode(map[string]string{"response": resp})
 	}))
