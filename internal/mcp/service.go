@@ -37,7 +37,7 @@ func (s *MemoryService) ActiveBackend() string {
 	return s.embeddings.ActiveBackend()
 }
 
-func (s *MemoryService) Search(query, scope string, limit int, entityName string, trustFilter db.TrustFilter, policyFilter db.PolicyFilter) ([]db.SearchResult, error) {
+func (s *MemoryService) Search(query, scope string, limit int, entityName string, trustFilter db.TrustFilter, policyFilter db.PolicyFilter, timeWindow ...db.TimeWindow) ([]db.SearchResult, error) {
 	var entityID string
 	if entityName != "" {
 		entity, err := s.db.ResolveEntity(entityName)
@@ -50,11 +50,16 @@ func (s *MemoryService) Search(query, scope string, limit int, entityName string
 		entityID = entity.ID
 	}
 
+	tw := db.TimeWindow{}
+	if len(timeWindow) > 0 {
+		tw = timeWindow[0]
+	}
+
 	emb := s.embeddings.GenerateVector(query)
-	return s.db.SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, scope, limit, entityID, trustFilter, policyFilter)
+	return s.db.SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, scope, limit, entityID, trustFilter, policyFilter, tw)
 }
 
-func (s *MemoryService) SearchWithProfile(query, profileName string, limit int, entityName string, trustFilter db.TrustFilter, policyFilter db.PolicyFilter) ([]db.SearchResult, error) {
+func (s *MemoryService) SearchWithProfile(query, profileName string, limit int, entityName string, trustFilter db.TrustFilter, policyFilter db.PolicyFilter, timeWindow ...db.TimeWindow) ([]db.SearchResult, error) {
 	var entityID string
 	if entityName != "" {
 		entity, err := s.db.ResolveEntity(entityName)
@@ -67,8 +72,13 @@ func (s *MemoryService) SearchWithProfile(query, profileName string, limit int, 
 		entityID = entity.ID
 	}
 
+	tw := db.TimeWindow{}
+	if len(timeWindow) > 0 {
+		tw = timeWindow[0]
+	}
+
 	emb := s.embeddings.GenerateVector(query)
-	return s.db.SearchMemoriesWithProfile(emb.Vector, emb.Source, profileName, limit, entityID, trustFilter, policyFilter)
+	return s.db.SearchMemoriesWithProfile(emb.Vector, emb.Source, profileName, limit, entityID, trustFilter, policyFilter, tw)
 }
 
 func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string, working bool, ttl time.Duration) (string, error) {
