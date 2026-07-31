@@ -25,6 +25,8 @@ var (
 	searchClientID          string
 	searchIncludeEmbedding  bool
 	searchMinScore          float64
+	searchFrom              string
+	searchTo                string
 )
 
 func init() {
@@ -40,6 +42,8 @@ func init() {
 	searchCmd.Flags().StringVar(&searchClientID, "client-id", "", "Client ID for access control filtering")
 	searchCmd.Flags().BoolVar(&searchIncludeEmbedding, "include-embedding", false, "Include raw embedding vectors in JSON output (omitted by default)")
 	searchCmd.Flags().Float64Var(&searchMinScore, "min-score", 0, "Minimum similarity score; results below are reported as no confident match (default: search.min_score config, 0 = disabled)")
+	searchCmd.Flags().StringVar(&searchFrom, "from", "", "Filter memories valid at or after this time (RFC3339 or YYYY-MM-DD)")
+	searchCmd.Flags().StringVar(&searchTo, "to", "", "Filter memories valid at or before this time (RFC3339 or YYYY-MM-DD)")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -113,7 +117,7 @@ var searchCmd = &cobra.Command{
 		} else if emb.Source == "hash-fallback" {
 			results, err = GetDB().SearchMemoriesBM25(query, searchScope, searchLimit)
 		} else {
-			results, err = GetDB().SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, searchScope, searchLimit, entityID, trustFilter, policyFilter)
+			results, err = GetDB().SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, searchScope, searchLimit, entityID, trustFilter, policyFilter, db.TimeWindow{})
 		}
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "semantic search failure")
