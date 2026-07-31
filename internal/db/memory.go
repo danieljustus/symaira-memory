@@ -729,6 +729,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		score float32
 	}
 	var results []scored
+	start := time.Now()
 
 	queryLSH := ComputeLSH(queryVec)
 	buckets := LSHNeighbors(queryLSH, 2)
@@ -788,6 +789,8 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 	}
 
 	if len(candidateIDs) == 0 {
+		latency := time.Since(start)
+		db.retrievalStats.Record(0, 0, latency)
 		return nil, nil
 	}
 
@@ -880,6 +883,12 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		})
 	}
 
+	latency := time.Since(start)
+	if len(final) > 0 {
+		db.retrievalStats.Record(len(final), float64(final[0].Score), latency)
+	} else {
+		db.retrievalStats.Record(0, 0, latency)
+	}
 	// Track access for retrieval feedback loop.
 	if len(final) > 0 {
 		ids := make([]string, len(final))
@@ -892,6 +901,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 	return final, nil
 }
 
+// passesTrustFilter implements trust-aware filtering for search results.
 func passesTrustFilter(m *Memory, f TrustFilter) bool {
 	if f.ExcludeSuperseded && m.SupersededBy != "" {
 		return false
