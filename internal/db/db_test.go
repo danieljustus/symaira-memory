@@ -70,7 +70,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 
 	// Test Search (Vector Cosine Similarity check)
 	query := []float32{1.0, 0.0, 0.0} // Perfect match
-	results, err := database.SearchMemoriesFiltered(query, "", "", 5, "", RankingWeights{RelevanceWeight: 1.0, RecencyWeight: 0, ImportanceWeight: 0, RecencyHalfLife: 30})
+	results, err := database.SearchMemoriesFiltered(query, "", "", 5, "", RankingWeights{RelevanceWeight: 1.0, RecencyWeight: 0, ImportanceWeight: 0, AccessReinforcementWeight: 0, RecencyHalfLife: 30, AccessHalfLife: 14})
 	if err != nil {
 		t.Fatalf("failed to search memories: %v", err)
 	}
