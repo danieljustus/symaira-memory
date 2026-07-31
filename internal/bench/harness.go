@@ -205,7 +205,7 @@ func runMode(database *db.DB, corpus *Corpus, mode string, repetitions int) (map
 				}
 			case "hybrid":
 				vec := extractor.GenerateLocalHashVector(gt.Query, extractor.DefaultDimensions)
-				results, err := database.HybridSearch(vec, "hash-fallback", gt.Query, "", 10, 0.7, 0.3)
+				results, err := database.HybridSearch(vec, "hash-fallback", gt.Query, "", 10, "", db.TrustFilter{}, db.PolicyFilter{}, 0.7, 0.3)
 				if err == nil {
 					for _, r := range results {
 						ids = append(ids, r.Memory.ID)
@@ -256,7 +256,7 @@ func evaluateTemporal(database *db.DB, corpus *Corpus, embeddings *extractor.Emb
 				}
 			case "hybrid":
 				vec := embeddings.GenerateVector(ts.Query)
-				results, err := database.HybridSearch(vec.Vector, vec.Source, ts.Query, "", 5, 0.7, 0.3)
+				results, err := database.HybridSearch(vec.Vector, vec.Source, ts.Query, "", 5, "", db.TrustFilter{}, db.PolicyFilter{}, 0.7, 0.3)
 				if err == nil {
 					for _, r := range results {
 						ids = append(ids, r.Memory.ID)
@@ -319,7 +319,7 @@ func evaluateScope(database *db.DB, corpus *Corpus, embeddings *extractor.Embedd
 				}
 			case "hybrid":
 				vec := embeddings.GenerateVector(ss.Query)
-				results, err := database.HybridSearch(vec.Vector, vec.Source, ss.Query, ss.Scope, 10, 0.7, 0.3)
+				results, err := database.HybridSearch(vec.Vector, vec.Source, ss.Query, ss.Scope, 10, "", db.TrustFilter{}, db.PolicyFilter{}, 0.7, 0.3)
 				if err == nil {
 					for _, r := range results {
 						ids = append(ids, r.Memory.ID)
@@ -362,7 +362,7 @@ func evaluateAbstention(database *db.DB, corpus *Corpus, embeddings *extractor.E
 	topScores := make(map[int]float64, len(corpus.Queries))
 	for i, gt := range corpus.Queries {
 		vec := embeddings.GenerateVector(gt.Query)
-		results, err := database.HybridSearch(vec.Vector, vec.Source, gt.Query, "", 10, 0.7, 0.3)
+		results, err := database.HybridSearch(vec.Vector, vec.Source, gt.Query, "", 10, "", db.TrustFilter{}, db.PolicyFilter{}, 0.7, 0.3)
 		if err == nil && len(results) > 0 {
 			topScores[i] = results[0].FusedScore
 		}
