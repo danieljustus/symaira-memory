@@ -61,7 +61,7 @@ Use --dry-run to preview what would happen without making changes.`,
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "consolidation failed")
 		}
 
-		if summaries == nil || len(summaries) == 0 {
+		if len(summaries) == 0 {
 			fmt.Println("No raw memories to consolidate.")
 			return nil
 		}
