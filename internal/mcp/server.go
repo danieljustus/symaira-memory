@@ -22,6 +22,13 @@ const (
 	CodeMethodNotAllowed = "METHOD_NOT_ALLOWED"
 )
 
+// SystemStats holds a combined snapshot of all live system statistics.
+type SystemStats struct {
+	Retrieval db.RetrievalStatsSnapshot  `json:"retrieval"`
+	Embedding extractor.EmbeddingMetrics `json:"embedding"`
+	Database  db.DBMetrics               `json:"database"`
+}
+
 type Server struct {
 	service          *MemoryService
 	auth             *AuthMiddleware
@@ -75,6 +82,15 @@ func (s *Server) SetAllowedOrigins(origins []string) {
 func (s *Server) SetProfile(p *db.Profile) {
 	s.profile = p
 	s.auth.SetProfile(p)
+}
+
+// Stats returns combined system statistics (retrieval + embedding + database).
+func (s *Server) Stats() SystemStats {
+	return SystemStats{
+		Retrieval: s.service.RetrievalStats().Snapshot(),
+		Embedding: s.service.EmbeddingMetrics(),
+		Database:  s.service.db.Metrics(),
+	}
 }
 
 func (s *Server) DB() *db.DB {

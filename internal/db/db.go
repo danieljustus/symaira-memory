@@ -17,6 +17,7 @@ type DB struct {
 	conn             *sql.DB
 	quantizeBinary   bool // store sign-bit binary vectors on save
 	prefilterEnabled bool // use Hamming prefilter before cosine scoring
+	retrievalStats   *RetrievalStats
 }
 
 // Open initializes the SQLite database at the standard XDG path,
@@ -52,6 +53,7 @@ func Open(cfg *config.Config) (*DB, error) {
 		conn:             conn,
 		quantizeBinary:   cfg.HybridSearch.QuantizeToBinary,
 		prefilterEnabled: cfg.HybridSearch.PrefilterEnabled,
+		retrievalStats:   &RetrievalStats{},
 	}
 	if err := db.runMigrations(); err != nil {
 		conn.Close()
@@ -86,6 +88,11 @@ func ResolvePath(cfg *config.Config) string {
 		return ""
 	}
 	return path
+}
+
+// RetrievalStats returns the live retrieval stats accumulator.
+func (db *DB) RetrievalStats() *RetrievalStats {
+	return db.retrievalStats
 }
 
 // Close closes the database connection.
