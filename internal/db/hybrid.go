@@ -92,7 +92,7 @@ func ReciprocalRankFusion(rankedLists [][]string, k int) map[string]float64 {
 }
 
 // SearchMemoriesBM25 performs keyword-based search using SQLite FTS5 BM25 scoring.
-func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]SearchResult, error) {
+func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWindow ...TimeWindow) ([]SearchResult, error) {
 	if !allowedFTSScopes[scope] {
 		return nil, fmt.Errorf("invalid search scope %q: must be one of global, project, agent, user, session", scope)
 	}
@@ -102,6 +102,12 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 		return nil, nil
 	}
 
+	tw := TimeWindow{}
+	if len(timeWindow) > 0 {
+		tw = timeWindow[0]
+	}
+	twClause, twArgs := TimeWindowClause(tw, "m")
+
 	var ftsQuery string
 	if scope != "" {
 		ftsQuery = "scope:" + scope + " AND (" + strings.Join(queryTerms, " OR ") + ")"
@@ -109,8 +115,7 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 		ftsQuery = strings.Join(queryTerms, " OR ")
 	}
 
-	rows, err := db.conn.Query(
-		`SELECT m.id, m.content, m.scope, m.metadata, m.created_at, m.updated_at,
+	baseSQL := `SELECT m.id, m.content, m.scope, m.metadata, m.created_at, m.updated_at,
 		        m.created_by, m.updated_by, m.created_session, m.updated_session,
 		        m.consolidation_status, m.consolidated_into_id, m.importance,
 		        m.valid_from, m.valid_to, m.superseded_by,
@@ -118,11 +123,16 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 		        rank
 		 FROM memories_fts fts
 		 JOIN memories m ON fts.id = m.id
-		 WHERE memories_fts MATCH ?
+		 WHERE memories_fts MATCH ?` + twClause + `
 		 ORDER BY rank
-		 LIMIT ?`,
-		ftsQuery, limit,
-	)
+		 LIMIT ?`
+
+	args := make([]interface{}, 0, 2+len(twArgs))
+	args = append(args, ftsQuery)
+	args = append(args, twArgs...)
+	args = append(args, limit)
+
+	rows, err := db.conn.Query(baseSQL, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,10 +174,15 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int) ([]Searc
 
 // HybridSearch combines vector similarity and BM25 keyword search using
 // Reciprocal Rank Fusion. Returns results ranked by fused score.
-func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText string, scope string, limit int, vectorWeight, bm25Weight float64) ([]HybridResult, error) {
+func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText string, scope string, limit int, vectorWeight, bm25Weight float64, timeWindow ...TimeWindow) ([]HybridResult, error) {
 	candidateLimit := limit * 3
 	if candidateLimit > maxCandidates {
 		candidateLimit = maxCandidates
+	}
+
+	tw := TimeWindow{}
+	if len(timeWindow) > 0 {
+		tw = timeWindow[0]
 	}
 
 	vectorResults, err := db.SearchMemories(queryVec, querySource, scope, candidateLimit)
@@ -175,7 +190,7 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 		return nil, err
 	}
 
-	bm25Results, err := db.SearchMemoriesBM25(queryText, scope, candidateLimit)
+	bm25Results, err := db.SearchMemoriesBM25(queryText, scope, candidateLimit, tw)
 	if err != nil {
 		return nil, err
 	}
