@@ -27,7 +27,7 @@ func helperMemory(id, content string, updatedAt time.Time) *db.Memory {
 		Content:   content,
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: syncDeltaEmbedding(),
 		CreatedAt: updatedAt,
 		UpdatedAt: updatedAt,
 	}
@@ -352,4 +352,12 @@ func TestReadPassphraseFile(t *testing.T) {
 	if _, err := readPassphraseFile(empty); err == nil {
 		t.Fatal("empty passphrase file must error")
 	}
+}
+
+// syncDeltaEmbedding builds a valid db.EmbeddingDim-sized vector (dimension
+// mismatches are now a handled error in save paths).
+func syncDeltaEmbedding() []float32 {
+	v := make([]float32, db.EmbeddingDim)
+	v[0] = 0.1
+	return v
 }

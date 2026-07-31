@@ -352,7 +352,7 @@ func TestStripEmbedding_DBNonPointerMemory(t *testing.T) {
 	m := db.Memory{
 		ID:        "val-mem-1",
 		Content:   "value type memory",
-		Embedding: []float32{0.1, 0.2, 0.3},
+		Embedding: cmdTestEmbedding(0.1, 0.2, 0.3),
 	}
 	result := stripEmbedding(m)
 	cloned, ok := result.(db.Memory)
@@ -374,7 +374,7 @@ func TestStripEmbedding_DBSearchResultValue(t *testing.T) {
 		Memory: &db.Memory{
 			ID:        "sr-val-1",
 			Content:   "search result value",
-			Embedding: []float32{0.4, 0.5},
+			Embedding: cmdTestEmbedding(0.4, 0.5),
 		},
 	}
 	result := stripEmbedding(sr)
@@ -403,7 +403,7 @@ func TestStripEmbedding_DBSearchResultPointer(t *testing.T) {
 		Memory: &db.Memory{
 			ID:        "sr-ptr-1",
 			Content:   "search result pointer",
-			Embedding: []float32{0.6},
+			Embedding: cmdTestEmbedding(0.6),
 		},
 	}
 	result := stripEmbedding(sr)
@@ -419,8 +419,8 @@ func TestStripEmbedding_DBSearchResultPointer(t *testing.T) {
 func TestStripEmbedding_PointerMemorySlice(t *testing.T) {
 	// Test []*db.Memory
 	mems := []*db.Memory{
-		{ID: "a", Content: "mem a", Embedding: []float32{0.1}},
-		{ID: "b", Content: "mem b", Embedding: []float32{0.2}},
+		{ID: "a", Content: "mem a", Embedding: cmdTestEmbedding(0.1)},
+		{ID: "b", Content: "mem b", Embedding: cmdTestEmbedding(0.2)},
 	}
 	result := stripEmbedding(mems)
 	cloned, ok := result.([]*db.Memory)
@@ -444,8 +444,8 @@ func TestStripEmbedding_PointerMemorySlice(t *testing.T) {
 func TestStripEmbedding_ValueMemorySlice(t *testing.T) {
 	// Test []db.Memory
 	mems := []db.Memory{
-		{ID: "a", Content: "mem a", Embedding: []float32{0.1}},
-		{ID: "b", Content: "mem b", Embedding: []float32{0.2}},
+		{ID: "a", Content: "mem a", Embedding: cmdTestEmbedding(0.1)},
+		{ID: "b", Content: "mem b", Embedding: cmdTestEmbedding(0.2)},
 	}
 	result := stripEmbedding(mems)
 	cloned, ok := result.([]db.Memory)
@@ -467,11 +467,11 @@ func TestStripEmbedding_PointerSearchResultSlice(t *testing.T) {
 	results := []*db.SearchResult{
 		{
 			Score:  0.9,
-			Memory: &db.Memory{ID: "a", Content: "sr a", Embedding: []float32{0.1}},
+			Memory: &db.Memory{ID: "a", Content: "sr a", Embedding: cmdTestEmbedding(0.1)},
 		},
 		{
 			Score:  0.8,
-			Memory: &db.Memory{ID: "b", Content: "sr b", Embedding: []float32{0.2}},
+			Memory: &db.Memory{ID: "b", Content: "sr b", Embedding: cmdTestEmbedding(0.2)},
 		},
 	}
 	result := stripEmbedding(results)
@@ -494,11 +494,11 @@ func TestStripEmbedding_ValueSearchResultSlice(t *testing.T) {
 	results := []db.SearchResult{
 		{
 			Score:  0.7,
-			Memory: &db.Memory{ID: "a", Content: "sr a", Embedding: []float32{0.1}},
+			Memory: &db.Memory{ID: "a", Content: "sr a", Embedding: cmdTestEmbedding(0.1)},
 		},
 		{
 			Score:  0.6,
-			Memory: &db.Memory{ID: "b", Content: "sr b", Embedding: []float32{0.2}},
+			Memory: &db.Memory{ID: "b", Content: "sr b", Embedding: cmdTestEmbedding(0.2)},
 		},
 	}
 	result := stripEmbedding(results)
@@ -923,3 +923,11 @@ func TestNewOutputFormatter(t *testing.T) {
 // assembleRecentMemories (context.go) — needs real DB with memories
 // We skip those as they require integration-style setup.
 // --------------------------------------------------------------------------
+
+// cmdTestEmbedding builds a valid db.EmbeddingDim-sized vector with the given
+// leading values (dimension mismatches are now a handled error).
+func cmdTestEmbedding(leading ...float32) []float32 {
+	v := make([]float32, db.EmbeddingDim)
+	copy(v, leading)
+	return v
+}

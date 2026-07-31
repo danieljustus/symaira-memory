@@ -16,7 +16,7 @@ func sampleMemory() *db.Memory {
 		Content:   "Alice prefers dark mode in all applications.",
 		Scope:     "global",
 		Metadata:  map[string]string{"source": "chat"},
-		Embedding: []float32{0.1, 0.2, 0.3},
+		Embedding: []float32{0.1, 0.2, 0.3}, // pure formatting path, no DB save
 		CreatedAt: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC),
 		UpdatedAt: time.Date(2026, 1, 15, 10, 30, 0, 0, time.UTC),
 		Entities:  []string{"alice"},
