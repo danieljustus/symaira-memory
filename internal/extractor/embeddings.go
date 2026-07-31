@@ -1,19 +1,18 @@
 package extractor
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"math"
-	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/danieljustus/symaira-corekit/ollamakit"
 	"github.com/danieljustus/symaira-memory/internal/config"
 	lru "github.com/hashicorp/golang-lru/v2"
 )
@@ -22,11 +21,17 @@ import (
 type EmbeddingsGenerator struct {
 	OllamaURL      string
 	Model          string
-	httpClient     *http.Client
+	OllamaTimeout  time.Duration
 	mu             sync.Mutex
 	lastFail       time.Time
 	embeddingCache *lru.Cache[string, []float32]
-	OllamaTimeout  time.Duration
+
+	// ollama is the shared ollamakit transport (no hand-rolled http.Client
+	// here, see #438). It is rebuilt lazily when OllamaURL or OllamaTimeout
+	// change so callers can reconfigure the generator after construction.
+	ollama           *ollamakit.Client
+	ollamaBaseURL    string
+	ollamaTimeoutSet time.Duration
 
 	// Metrics
 	ollamaHits      atomic.Int64
@@ -39,7 +44,6 @@ type EmbeddingsGenerator struct {
 const (
 	DefaultDimensions    = 768
 	ollamaCacheTTL       = 30 * time.Second
-	defaultTimeout       = 5 * time.Second
 	defaultOllamaTimeout = 2 * time.Second
 )
 
@@ -63,16 +67,9 @@ func NewEmbeddingsGenerator(cfg *config.Config) *EmbeddingsGenerator {
 	cache, _ := lru.New[string, []float32](10000)
 
 	return &EmbeddingsGenerator{
-		OllamaURL:     ollamaURL,
-		Model:         model,
-		OllamaTimeout: defaultOllamaTimeout,
-		httpClient: &http.Client{
-			Timeout: defaultTimeout,
-			Transport: &http.Transport{
-				MaxIdleConns:    10,
-				IdleConnTimeout: 90 * time.Second,
-			},
-		},
+		OllamaURL:      ollamaURL,
+		Model:          model,
+		OllamaTimeout:  defaultOllamaTimeout,
 		embeddingCache: cache,
 	}
 }
@@ -198,59 +195,61 @@ func (eg *EmbeddingsGenerator) cacheKey(text string) string {
 	return fmt.Sprintf("%x", h[:16])
 }
 
+// ollamaClient returns the shared ollamakit transport, rebuilding it when
+// OllamaURL or OllamaTimeout changed since the last call. Timeout and retry
+// behavior is configured deliberately rather than inherited: a single
+// attempt with an explicit OllamaTimeout (default 2s, matching the legacy
+// embedding path) is used, and no retries are performed — embedding calls
+// are cheap to recompute, and the failure cooldown (ollamaCacheTTL) plus
+// the deterministic hash fallback already absorb transient Ollama outages.
+// The caller's context deadline layers on top of the client timeout, so the
+// shorter of the two wins.
+func (eg *EmbeddingsGenerator) ollamaClient() *ollamakit.Client {
+	base := ollamaBaseURL(eg.OllamaURL)
+	timeout := eg.OllamaTimeout
+	if timeout <= 0 {
+		timeout = defaultOllamaTimeout
+	}
+
+	eg.mu.Lock()
+	defer eg.mu.Unlock()
+	if eg.ollama == nil || eg.ollamaBaseURL != base || eg.ollamaTimeoutSet != timeout {
+		eg.ollama = ollamakit.New(ollamakit.Config{
+			BaseURL: base,
+			Model:   eg.Model,
+			Timeout: timeout,
+		})
+		eg.ollamaBaseURL = base
+		eg.ollamaTimeoutSet = timeout
+	}
+	return eg.ollama
+}
+
+// ollamaBaseURL strips a configured Ollama endpoint URL (e.g.
+// "http://localhost:11434/api/embeddings") down to the scheme+host root
+// that ollamakit.Config.BaseURL expects. Malformed input is passed through
+// unchanged so ollamakit's own defaulting takes over.
+func ollamaBaseURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return raw
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 func (eg *EmbeddingsGenerator) queryOllamaWithContext(ctx context.Context, text string) ([]float32, error) {
-	reqBody, err := json.Marshal(map[string]string{
-		"model":  eg.Model,
-		"prompt": text,
-	})
+	// The single Ollama call goes through the shared ollamakit transport
+	// (corekit v0.7.0) — the same client family internal/llm uses — instead
+	// of a hand-rolled http.Client (see #438). ollamakit posts to the
+	// current /api/embed endpoint; for the same model and input text the
+	// resulting vector is identical to the legacy /api/embeddings response,
+	// so no reindex is required. Any error (unreachable host, timeout, non-2xx)
+	// is returned as-is; the caller degrades to the hash fallback.
+	embeddings, err := eg.ollamaClient().Embed(ctx, eg.Model, []string{text})
 	if err != nil {
 		return nil, err
 	}
-
-	var HTTPClient *http.Client
-	if _, hasDeadline := ctx.Deadline(); hasDeadline {
-		HTTPClient = &http.Client{
-			Transport: &http.Transport{
-				MaxIdleConns:    10,
-				IdleConnTimeout: 90 * time.Second,
-			},
-		}
-	} else if eg.OllamaTimeout > 0 {
-		HTTPClient = &http.Client{
-			Timeout: eg.OllamaTimeout,
-			Transport: &http.Transport{
-				MaxIdleConns:    10,
-				IdleConnTimeout: 90 * time.Second,
-			},
-		}
-	} else {
-		HTTPClient = eg.httpClient
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, eg.OllamaURL, bytes.NewBuffer(reqBody))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := HTTPClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("ollama returned status %d", resp.StatusCode)
-	}
-
-	var res struct {
-		Embedding []float32 `json:"embedding"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return nil, err
-	}
-
-	return res.Embedding, nil
+	return embeddings[0], nil
 }
 
 // GenerateLocalHashVector utilizes the "Hashing Trick" to produce a normalized 768-dim vector in microseconds.
