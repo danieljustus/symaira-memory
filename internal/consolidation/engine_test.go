@@ -533,8 +533,8 @@ func TestRunConsolidationAllScopesFail(t *testing.T) {
 // the provider path eliminates the need for post-hoc salvage.
 func TestSchemaConstrainedPathNeedsNoSalvage(t *testing.T) {
 	tests := []struct {
-		name    string
-		json    string
+		name string
+		json string
 	}{
 		{
 			name: "full response with all fields",
