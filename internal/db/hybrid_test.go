@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"fmt"
 	"testing"
 
@@ -305,6 +306,53 @@ func TestSparsemax_ZeroVector(t *testing.T) {
 	for i, v := range sparse {
 		if v < 0.24 || v > 0.26 {
 			t.Errorf("element %d: expected ~0.25, got %f", i, v)
+		}
+	}
+}
+
+func TestTrackMemoryAccessBatchWritesTimestamp(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Database.Path = t.TempDir() + "/test.db"
+	database, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	ids := []string{"acc-1", "acc-2", "acc-3"}
+	for _, id := range ids {
+		m := &Memory{
+			ID:        id,
+			Content:   "access tracking " + id,
+			Scope:     "global",
+			Metadata:  map[string]string{},
+			Embedding: make([]float32, EmbeddingDim),
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := database.TrackMemoryAccessBatch(ids); err != nil {
+		t.Fatalf("TrackMemoryAccessBatch failed: %v", err)
+	}
+
+	// Regression guard: last_access must hold a real timestamp that scans as
+	// sql.NullTime, not one of the IDs (a swapped-argument bug once wrote the
+	// first ID into last_access, which broke every later scan).
+	for _, id := range ids {
+		var ac int
+		var la sql.NullTime
+		if err := database.Conn().QueryRow(
+			"SELECT access_count, last_access FROM memories WHERE id = ?", id,
+		).Scan(&ac, &la); err != nil {
+			t.Fatalf("read back %s failed: %v", id, err)
+		}
+		if ac != 2 {
+			t.Errorf("%s: expected access_count 2 after batch (1 from save default + 1), got %d", id, ac)
+		}
+		if !la.Valid {
+			t.Errorf("%s: expected last_access timestamp after batch, got NULL", id)
 		}
 	}
 }
