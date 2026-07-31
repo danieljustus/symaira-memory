@@ -14,11 +14,11 @@ import (
 
 // DB wraps the SQL connection.
 type DB struct {
-	conn              *sql.DB
-	quantizeBinary    bool // store sign-bit binary vectors on save
-	prefilterEnabled  bool // use Hamming prefilter before cosine scoring
-	sparsemaxEnabled  bool // apply sparsemax (α=2) to fused hybrid scores
-	perArmMultiplier  int  // per-arm result cap multiplier before fusion
+	conn             *sql.DB
+	quantizeBinary   bool // store sign-bit binary vectors on save
+	prefilterEnabled bool // use Hamming prefilter before cosine scoring
+	sparsemaxEnabled bool // apply sparsemax (α=2) to fused hybrid scores
+	perArmMultiplier int  // per-arm result cap multiplier before fusion
 }
 
 // Open initializes the SQLite database at the standard XDG path,

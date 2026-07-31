@@ -120,15 +120,15 @@ type RetentionConfig struct {
 
 // HybridSearchConfig controls hybrid vector + BM25 retrieval.
 type HybridSearchConfig struct {
-	Enabled          bool    `json:"enabled"`             // enable hybrid search (default true)
-	BM25Weight       float64 `json:"bm25_weight"`         // BM25 weight in fusion (default 0.3)
-	VectorWeight     float64 `json:"vector_weight"`       // vector weight in fusion (default 0.7)
-	MMREnabled       bool    `json:"mmr_enabled"`         // enable MMR diversity (default false)
-	MMRLambda        float64 `json:"mmr_lambda"`          // MMR lambda (0=diversity, 1=relevance, default 0.7)
-	QuantizeToBinary bool    `json:"quantize_to_binary"`  // store sign-bit binary vectors for fast Hamming prefilter
-	PrefilterEnabled bool    `json:"prefilter_enabled"`   // use Hamming prefilter before cosine scoring (opt-in)
-	SparsemaxEnabled bool    `json:"sparsemax_enabled"`   // apply sparsemax (α=2) to fused scores (default false)
-	PerArmMultiplier int     `json:"per_arm_multiplier"`  // per-arm result cap multiplier before fusion (default 3)
+	Enabled          bool    `json:"enabled"`            // enable hybrid search (default true)
+	BM25Weight       float64 `json:"bm25_weight"`        // BM25 weight in fusion (default 0.3)
+	VectorWeight     float64 `json:"vector_weight"`      // vector weight in fusion (default 0.7)
+	MMREnabled       bool    `json:"mmr_enabled"`        // enable MMR diversity (default false)
+	MMRLambda        float64 `json:"mmr_lambda"`         // MMR lambda (0=diversity, 1=relevance, default 0.7)
+	QuantizeToBinary bool    `json:"quantize_to_binary"` // store sign-bit binary vectors for fast Hamming prefilter
+	PrefilterEnabled bool    `json:"prefilter_enabled"`  // use Hamming prefilter before cosine scoring (opt-in)
+	SparsemaxEnabled bool    `json:"sparsemax_enabled"`  // apply sparsemax (α=2) to fused scores (default false)
+	PerArmMultiplier int     `json:"per_arm_multiplier"` // per-arm result cap multiplier before fusion (default 3)
 }
 
 // SearchConfig controls default retrieval behavior for memory_search / search.
@@ -223,13 +223,13 @@ func Defaults() *Config {
 			AuditRetention:   "720h",
 		},
 		HybridSearch: HybridSearchConfig{
-			Enabled:           true,
-			BM25Weight:        0.3,
-			VectorWeight:      0.7,
-			MMREnabled:        false,
-			MMRLambda:         0.7,
-			SparsemaxEnabled:  false,
-			PerArmMultiplier:  3,
+			Enabled:          true,
+			BM25Weight:       0.3,
+			VectorWeight:     0.7,
+			MMREnabled:       false,
+			MMRLambda:        0.7,
+			SparsemaxEnabled: false,
+			PerArmMultiplier: 3,
 		},
 		Import: ImportConfig{
 			ExtractOnImport: true,
