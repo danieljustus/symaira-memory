@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -137,12 +138,15 @@ func Sparsemax(scores []float64) []float64 {
 
 // SearchMemoriesBM25 performs keyword-based search using SQLite FTS5 BM25 scoring.
 func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWindow ...TimeWindow) ([]SearchResult, error) {
+	start := time.Now()
 	if !allowedFTSScopes[scope] {
 		return nil, fmt.Errorf("invalid search scope %q: must be one of global, project, agent, user, session", scope)
 	}
 
 	queryTerms := Tokenize(query)
 	if len(queryTerms) == 0 {
+		latency := time.Since(start)
+		db.retrievalStats.Record(0, 0, latency)
 		return nil, nil
 	}
 
@@ -213,7 +217,16 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 		})
 	}
 
-	return results, rows.Err()
+	latency := time.Since(start)
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(results) > 0 {
+		db.retrievalStats.Record(len(results), float64(results[0].Score), latency)
+	} else {
+		db.retrievalStats.Record(0, 0, latency)
+	}
+	return results, nil
 }
 
 // HybridSearch combines vector similarity and BM25 keyword search using

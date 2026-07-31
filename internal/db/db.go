@@ -19,6 +19,7 @@ type DB struct {
 	prefilterEnabled bool // use Hamming prefilter before cosine scoring
 	sparsemaxEnabled bool // apply sparsemax (α=2) to fused hybrid scores
 	perArmMultiplier int  // per-arm result cap multiplier before fusion
+	retrievalStats   *RetrievalStats
 }
 
 // Open initializes the SQLite database at the standard XDG path,
@@ -56,6 +57,7 @@ func Open(cfg *config.Config) (*DB, error) {
 		prefilterEnabled: cfg.HybridSearch.PrefilterEnabled,
 		sparsemaxEnabled: cfg.HybridSearch.SparsemaxEnabled,
 		perArmMultiplier: cfg.HybridSearch.PerArmMultiplier,
+		retrievalStats:   &RetrievalStats{},
 	}
 	if err := db.runMigrations(); err != nil {
 		conn.Close()
@@ -90,6 +92,11 @@ func ResolvePath(cfg *config.Config) string {
 		return ""
 	}
 	return path
+}
+
+// RetrievalStats returns the live retrieval stats accumulator.
+func (db *DB) RetrievalStats() *RetrievalStats {
+	return db.retrievalStats
 }
 
 // Close closes the database connection.
