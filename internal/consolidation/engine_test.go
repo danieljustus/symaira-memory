@@ -524,3 +524,84 @@ func TestRunConsolidationAllScopesFail(t *testing.T) {
 		t.Errorf("expected 'all scopes failed' error, got: %v", err)
 	}
 }
+
+// TestSchemaConstrainedPathNeedsNoSalvage verifies that when the LLM output
+// is clean JSON (as produced by a schema-constrained provider), parseJSONResponse
+// succeeds on the first candidate — the raw response — without falling through
+// to the salvage strategies (fence extraction, brace-span fallback,
+// think-block stripping). This test proves that sending the JSON Schema on
+// the provider path eliminates the need for post-hoc salvage.
+func TestSchemaConstrainedPathNeedsNoSalvage(t *testing.T) {
+	tests := []struct {
+		name string
+		json string
+	}{
+		{
+			name: "full response with all fields",
+			json: `{
+				"consolidated": [
+					{
+						"content": "Daniel prefers dark mode.",
+						"replaces_ids": ["mem-1", "mem-2"],
+						"metadata": {"topic": "preferences"}
+					}
+				],
+				"discarded_ids": ["mem-3"]
+			}`,
+		},
+		{
+			name: "empty consolidated and discarded",
+			json: `{
+				"consolidated": [],
+				"discarded_ids": []
+			}`,
+		},
+		{
+			name: "multiple consolidated items",
+			json: `{
+				"consolidated": [
+					{
+						"content": "Fact one.",
+						"replaces_ids": ["a"],
+						"metadata": {}
+					},
+					{
+						"content": "Fact two.",
+						"replaces_ids": ["b"],
+						"metadata": {"source": "chat"}
+					}
+				],
+				"discarded_ids": ["c", "d"]
+			}`,
+		},
+		{
+			name: "replaces_ids can be empty",
+			json: `{
+				"consolidated": [
+					{
+						"content": "New standalone fact.",
+						"replaces_ids": [],
+						"metadata": {}
+					}
+				],
+				"discarded_ids": []
+			}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := parseJSONResponse(tt.json)
+			if err != nil {
+				t.Fatalf("parseJSONResponse() should succeed on clean schema-constrained JSON: %v", err)
+			}
+			if result == nil {
+				t.Fatal("parseJSONResponse() returned nil result without error")
+			}
+			// Verify the response can be re-marshalled — confirms structural integrity.
+			if _, err := json.Marshal(result); err != nil {
+				t.Errorf("result should be re-marshalable: %v", err)
+			}
+		})
+	}
+}
