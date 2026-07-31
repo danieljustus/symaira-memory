@@ -13,33 +13,34 @@ import (
 
 // Memory represents a single saved fact or context snippet.
 type Memory struct {
-	ID                  string            `json:"id"`
-	Content             string            `json:"content"`
-	Scope               string            `json:"scope"`               // global, project, agent, user, session
-	Metadata            map[string]string `json:"metadata"`            // key-value metadata
-	Embedding           []float32         `json:"embedding,omitempty"` // semantic embedding
-	EmbeddingBinary     []byte            `json:"-"`                   // 96-byte sign-bit binary vector for Hamming prefilter
-	EmbeddingSource     string            `json:"embedding_source,omitempty"`
-	EmbeddingModel      string            `json:"embedding_model,omitempty"`
-	ContentHash         string            `json:"content_hash,omitempty"`
-	CreatedAt           time.Time         `json:"created_at"`
-	UpdatedAt           time.Time         `json:"updated_at"`
-	CreatedBy           string            `json:"created_by,omitempty"`
-	UpdatedBy           string            `json:"updated_by,omitempty"`
-	CreatedSession      string            `json:"created_session,omitempty"`
-	UpdatedSession      string            `json:"updated_session,omitempty"`
-	Entities            []string          `json:"entities,omitempty"` // linked entity names
-	ConsolidationStatus string            `json:"consolidation_status"`
-	ConsolidatedIntoID  string            `json:"consolidated_into_id,omitempty"`
-	Importance          float64           `json:"importance"` // 0.0–1.0, default 0.5
-	ValidFrom           *time.Time        `json:"valid_from,omitempty"`
-	ValidTo             *time.Time        `json:"valid_to,omitempty"`
-	SupersededBy        string            `json:"superseded_by,omitempty"`
-	Tier                string            `json:"tier"`                  // "long_term" (default) or "working"
-	ExpiresAt           *time.Time        `json:"expires_at,omitempty"`  // when tier=working, evict after this time
-	AccessCount         int64             `json:"access_count"`          // number of times retrieved (feedback loop)
-	LastAccess          *time.Time        `json:"last_access,omitempty"` // last retrieval timestamp
-	Evidence            []EvidenceSpan    `json:"evidence,omitempty"`    // populated only on demand (e.g. --with-evidence), not by GetMemory/scanMemory
+	ID                    string            `json:"id"`
+	Content               string            `json:"content"`
+	Scope                 string            `json:"scope"`               // global, project, agent, user, session
+	Metadata              map[string]string `json:"metadata"`            // key-value metadata
+	Embedding             []float32         `json:"embedding,omitempty"` // semantic embedding
+	EmbeddingBinary       []byte            `json:"-"`                   // 96-byte sign-bit binary vector for Hamming prefilter
+	EmbeddingSource       string            `json:"embedding_source,omitempty"`
+	EmbeddingModel        string            `json:"embedding_model,omitempty"`
+	EmbeddingQuantization string            `json:"embedding_quantization,omitempty"` // quantization level ("" = unquantized)
+	ContentHash           string            `json:"content_hash,omitempty"`
+	CreatedAt             time.Time         `json:"created_at"`
+	UpdatedAt             time.Time         `json:"updated_at"`
+	CreatedBy             string            `json:"created_by,omitempty"`
+	UpdatedBy             string            `json:"updated_by,omitempty"`
+	CreatedSession        string            `json:"created_session,omitempty"`
+	UpdatedSession        string            `json:"updated_session,omitempty"`
+	Entities              []string          `json:"entities,omitempty"` // linked entity names
+	ConsolidationStatus   string            `json:"consolidation_status"`
+	ConsolidatedIntoID    string            `json:"consolidated_into_id,omitempty"`
+	Importance            float64           `json:"importance"` // 0.0–1.0, default 0.5
+	ValidFrom             *time.Time        `json:"valid_from,omitempty"`
+	ValidTo               *time.Time        `json:"valid_to,omitempty"`
+	SupersededBy          string            `json:"superseded_by,omitempty"`
+	Tier                  string            `json:"tier"`                  // "long_term" (default) or "working"
+	ExpiresAt             *time.Time        `json:"expires_at,omitempty"`  // when tier=working, evict after this time
+	AccessCount           int64             `json:"access_count"`          // number of times retrieved (feedback loop)
+	LastAccess            *time.Time        `json:"last_access,omitempty"` // last retrieval timestamp
+	Evidence              []EvidenceSpan    `json:"evidence,omitempty"`    // populated only on demand (e.g. --with-evidence), not by GetMemory/scanMemory
 }
 
 // SearchResult wraps a Memory with its similarity score without mutating the original.
@@ -144,7 +145,10 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	}
 
 	embeddingDim := len(m.Embedding)
-	lshHash := ComputeLSH(m.Embedding)
+	lshHash, err := ComputeLSH(m.Embedding)
+	if err != nil {
+		return err
+	}
 	var embBin []byte
 	if quantizeBinary && len(m.Embedding) > 0 {
 		embBin = BinarizeVector(m.Embedding)
@@ -198,8 +202,8 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 		expiresAt.Valid = true
 	}
 
-	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_binary, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	query := `INSERT INTO memories (id, content, scope, metadata, embedding, embedding_binary, embedding_dim, embedding_source, embedding_model, embedding_quantization, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			content=excluded.content,
 			scope=excluded.scope,
@@ -209,6 +213,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 			embedding_dim=excluded.embedding_dim,
 			embedding_source=excluded.embedding_source,
 			embedding_model=excluded.embedding_model,
+			embedding_quantization=excluded.embedding_quantization,
 			content_hash=excluded.content_hash,
 			lsh_hash=excluded.lsh_hash,
 			updated_at=excluded.updated_at,
@@ -236,7 +241,7 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 		lastAccess.Valid = true
 	}
 
-	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt, accessCount, lastAccess)
+	_, err = execer.Exec(query, m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, m.EmbeddingQuantization, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, validFrom, validTo, supersededBy, tier, expiresAt, accessCount, lastAccess)
 	return err
 }
 
@@ -280,9 +285,9 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 	var expiresAt sql.NullTime
 	var lastAccess sql.NullTime
 	err := db.conn.QueryRow(
-		"SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE id = ?",
+		"SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, embedding_quantization, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE id = ?",
 		id,
-	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &embBin, &m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy, &m.Tier, &expiresAt, &m.AccessCount, &lastAccess)
+	).Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &embBin, &m.EmbeddingSource, &m.EmbeddingModel, &m.EmbeddingQuantization, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy, &m.Tier, &expiresAt, &m.AccessCount, &lastAccess)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -343,7 +348,7 @@ func scanMemory(rows *sql.Rows) (*Memory, error) {
 	var supersededBy sql.NullString
 	var expiresAt sql.NullTime
 	var lastAccess sql.NullTime
-	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &embBin, &m.EmbeddingSource, &m.EmbeddingModel, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy, &m.Tier, &expiresAt, &m.AccessCount, &lastAccess); err != nil {
+	if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &embStr, &embBin, &m.EmbeddingSource, &m.EmbeddingModel, &m.EmbeddingQuantization, &m.CreatedAt, &m.UpdatedAt, &m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession, &m.ConsolidationStatus, &consolidatedInto, &m.Importance, &validFrom, &validTo, &supersededBy, &m.Tier, &expiresAt, &m.AccessCount, &lastAccess); err != nil {
 		return nil, err
 	}
 	if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
@@ -393,10 +398,10 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	var err error
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, embedding_quantization, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE consolidation_status != 'archived' AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, embedding_quantization, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE consolidation_status != 'archived' AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, limit, offset)
 	}
 
@@ -433,10 +438,10 @@ func (db *DB) ListMemoriesAsOf(scope string, asOf time.Time, offset, limit int) 
 	const expiredWorkingClause = " AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now'))"
 
 	if scope != "" {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE scope = ? AND consolidation_status != 'archived'" + expiredWorkingClause + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, embedding_quantization, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE scope = ? AND consolidation_status != 'archived'" + expiredWorkingClause + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, scope, asOf, asOf, limit, offset)
 	} else {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE consolidation_status != 'archived'" + expiredWorkingClause + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, embedding_quantization, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE consolidation_status != 'archived'" + expiredWorkingClause + asOfClause + " ORDER BY created_at DESC LIMIT ? OFFSET ?"
 		rows, err = db.conn.Query(query, asOf, asOf, limit, offset)
 	}
 
@@ -573,7 +578,7 @@ func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddin
 
 	var query string
 	if includeEmb {
-		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?"
+		query = "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, embedding_quantization, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?"
 	} else {
 		query = "SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE updated_at > ? ORDER BY updated_at ASC LIMIT ?"
 	}
@@ -601,7 +606,7 @@ func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddin
 
 // GetRawMemories returns all memories with consolidation_status = 'raw'.
 func (db *DB) GetRawMemories() ([]*Memory, error) {
-	query := "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
+	query := "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, embedding_quantization, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE consolidation_status = 'raw' ORDER BY created_at ASC"
 	rows, err := db.conn.Query(query)
 	if err != nil {
 		return nil, err
@@ -634,7 +639,10 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	}
 
 	embeddingDim := len(m.Embedding)
-	lshHash := ComputeLSH(m.Embedding)
+	lshHash, err := ComputeLSH(m.Embedding)
+	if err != nil {
+		return false, err
+	}
 	var embBin []byte
 	if db.quantizeBinary && len(m.Embedding) > 0 {
 		embBin = BinarizeVector(m.Embedding)
@@ -663,9 +671,9 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 
 	if err == sql.ErrNoRows {
 		_, err = db.conn.Exec(
-			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_binary, embedding_dim, embedding_source, embedding_model, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy), m.Tier, nullTimePtr(m.ExpiresAt), m.AccessCount, nullTimePtr(m.LastAccess),
+			`INSERT INTO memories (id, content, scope, metadata, embedding, embedding_binary, embedding_dim, embedding_source, embedding_model, embedding_quantization, content_hash, lsh_hash, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, m.EmbeddingQuantization, contentHash, lshHash, m.CreatedAt, m.UpdatedAt, m.CreatedBy, m.UpdatedBy, m.CreatedSession, m.UpdatedSession, status, consolidatedInto, m.Importance, m.ValidFrom, m.ValidTo, nullStr(m.SupersededBy), m.Tier, nullTimePtr(m.ExpiresAt), m.AccessCount, nullTimePtr(m.LastAccess),
 		)
 		if err != nil {
 			return false, err
@@ -678,8 +686,8 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	}
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_binary=?, embedding_dim=?, embedding_source=?, embedding_model=?, content_hash=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=?, importance=?, tier=?, expires_at=?, access_count=?, last_access=? WHERE id=?`,
-		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, contentHash, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.Importance, m.Tier, nullTimePtr(m.ExpiresAt), m.AccessCount, nullTimePtr(m.LastAccess), m.ID,
+		`UPDATE memories SET content=?, scope=?, metadata=?, embedding=?, embedding_binary=?, embedding_dim=?, embedding_source=?, embedding_model=?, embedding_quantization=?, content_hash=?, lsh_hash=?, updated_at=?, updated_by=?, updated_session=?, consolidation_status=?, consolidated_into_id=?, importance=?, tier=?, expires_at=?, access_count=?, last_access=? WHERE id=?`,
+		m.Content, m.Scope, string(metadataJSON), string(embeddingJSON), embBin, embeddingDim, m.EmbeddingSource, m.EmbeddingModel, m.EmbeddingQuantization, contentHash, lshHash, m.UpdatedAt, m.UpdatedBy, m.UpdatedSession, status, consolidatedInto, m.Importance, m.Tier, nullTimePtr(m.ExpiresAt), m.AccessCount, nullTimePtr(m.LastAccess), m.ID,
 	)
 	if err != nil {
 		return false, err
@@ -711,13 +719,13 @@ func (db *DB) SearchMemories(queryVec []float32, querySource string, scope strin
 // are filtered at the candidate-query level; rows from a different embedding
 // space are never hydrated or scored.
 func (db *DB) SearchMemoriesFiltered(queryVec []float32, querySource string, scope string, limit int, entityID string, weights ...RankingWeights) ([]SearchResult, error) {
-	return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, limit, entityID, TrustFilter{}, PolicyFilter{}, TimeWindow{}, weights...)
+	return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, limit, entityID, TrustFilter{}, PolicyFilter{}, TimeWindow{}, "", weights...)
 }
 
 // SearchMemoriesFilteredWithTrust extends SearchMemoriesFiltered with trust-aware
 // and policy-aware filtering. Memories that don't match the trust or policy filter
 // are excluded from results.
-func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, timeWindow TimeWindow, weights ...RankingWeights) ([]SearchResult, error) {
+func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, timeWindow TimeWindow, quantization string, weights ...RankingWeights) ([]SearchResult, error) {
 	w := DefaultRankingWeights()
 	if len(weights) > 0 {
 		w = weights[0]
@@ -731,7 +739,10 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 	var results []scored
 	start := time.Now()
 
-	queryLSH := ComputeLSH(queryVec)
+	queryLSH, err := ComputeLSH(queryVec)
+	if err != nil {
+		return nil, fmt.Errorf("search vector: %w", err)
+	}
 	buckets := LSHNeighbors(queryLSH, 2)
 
 	twClause, twArgs := TimeWindowClause(timeWindow, "")
@@ -755,11 +766,11 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 
 		var query string
 		if scope != "" {
-			query = "SELECT id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND embedding_source = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now'))"
-			args = append([]interface{}{scope, querySource}, args...)
+			query = "SELECT id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND embedding_source = ? AND embedding_quantization = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now'))"
+			args = append([]interface{}{scope, querySource, quantization}, args...)
 		} else {
-			query = "SELECT id FROM memories WHERE consolidation_status != 'archived' AND embedding_source = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now'))"
-			args = append([]interface{}{querySource}, args...)
+			query = "SELECT id FROM memories WHERE consolidation_status != 'archived' AND embedding_source = ? AND embedding_quantization = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now'))"
+			args = append([]interface{}{querySource, quantization}, args...)
 		}
 		if entityID != "" {
 			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
@@ -809,7 +820,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		}
 		inClause := strings.Join(placeholders, ", ")
 
-		query := "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE id IN (" + inClause + ")"
+		query := "SELECT id, content, scope, metadata, embedding, embedding_binary, embedding_source, embedding_model, embedding_quantization, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access FROM memories WHERE id IN (" + inClause + ")"
 
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
@@ -821,6 +832,10 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 			if err != nil {
 				rows.Close()
 				return nil, err
+			}
+			if len(m.Embedding) != len(queryVec) {
+				// Different embedding space (dimension mismatch): never cross-score.
+				continue
 			}
 			if len(m.Embedding) > 0 {
 				if !passesTrustFilter(m, trustFilter) {
@@ -1180,21 +1195,24 @@ func (db *DB) FactExists(contentHash string) (bool, error) {
 
 // SetMemoryEmbedding updates only the embedding columns of an existing memory,
 // leaving all other fields (identity, timestamps, content, metadata) untouched.
-func (db *DB) SetMemoryEmbedding(id string, embedding []float32, source, model string) error {
+func (db *DB) SetMemoryEmbedding(id string, embedding []float32, source, model, quantization string) error {
 	embeddingJSON, err := json.Marshal(embedding)
 	if err != nil {
 		return fmt.Errorf("failed to marshal embedding: %w", err)
 	}
 	embeddingDim := len(embedding)
-	lshHash := ComputeLSH(embedding)
+	lshHash, err := ComputeLSH(embedding)
+	if err != nil {
+		return err
+	}
 	var embBin []byte
 	if db.quantizeBinary && len(embedding) > 0 {
 		embBin = BinarizeVector(embedding)
 	}
 
 	_, err = db.conn.Exec(
-		`UPDATE memories SET embedding = ?, embedding_binary = ?, embedding_dim = ?, embedding_source = ?, embedding_model = ?, lsh_hash = ? WHERE id = ?`,
-		string(embeddingJSON), embBin, embeddingDim, source, model, lshHash, id,
+		`UPDATE memories SET embedding = ?, embedding_binary = ?, embedding_dim = ?, embedding_source = ?, embedding_model = ?, embedding_quantization = ?, lsh_hash = ? WHERE id = ?`,
+		string(embeddingJSON), embBin, embeddingDim, source, model, quantization, lshHash, id,
 	)
 	return err
 }
@@ -1328,7 +1346,7 @@ func (db *DB) TrackMemoryAccessBatch(ids []string) error {
 // single-scope behaviour of SearchMemoriesFilteredWithTrust.
 func (db *DB) SearchMemoriesWithProfile(queryVec []float32, querySource string, profileName string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, timeWindow TimeWindow, weights ...RankingWeights) ([]SearchResult, error) {
 	if profileName == "" {
-		return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, "", limit, entityID, trustFilter, policyFilter, timeWindow, weights...)
+		return db.SearchMemoriesFilteredWithTrust(queryVec, querySource, "", limit, entityID, trustFilter, policyFilter, timeWindow, "", weights...)
 	}
 
 	scopes, err := db.ResolveContextProfile(profileName, DefaultMaxDepth)
@@ -1353,7 +1371,7 @@ func (db *DB) SearchMemoriesWithProfile(queryVec []float32, querySource string, 
 
 	var all []SearchResult
 	for _, rs := range searchScopes {
-		results, serr := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, rs.Scope, limit*2, entityID, trustFilter, policyFilter, timeWindow, w)
+		results, serr := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, rs.Scope, limit*2, entityID, trustFilter, policyFilter, timeWindow, "", w)
 		if serr != nil {
 			return nil, serr
 		}

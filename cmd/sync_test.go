@@ -83,7 +83,7 @@ func TestSyncFirstSyncNoCursor(t *testing.T) {
 			Content:   "Remote memory 1",
 			Scope:     "global",
 			Metadata:  map[string]string{},
-			Embedding: []float32{0.1},
+			Embedding: cmdTestEmbedding(0.1),
 			UpdatedAt: time.Now().UTC(),
 			CreatedAt: time.Now().UTC(),
 		},
@@ -92,7 +92,7 @@ func TestSyncFirstSyncNoCursor(t *testing.T) {
 			Content:   "Remote memory 2",
 			Scope:     "global",
 			Metadata:  map[string]string{},
-			Embedding: []float32{0.2},
+			Embedding: cmdTestEmbedding(0.2),
 			UpdatedAt: time.Now().UTC(),
 			CreatedAt: time.Now().UTC(),
 		},
@@ -132,7 +132,7 @@ func TestSyncIncremental(t *testing.T) {
 		Content:   "Old memory",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: cmdTestEmbedding(0.1),
 		UpdatedAt: oldTime,
 		CreatedAt: oldTime,
 	}
@@ -145,7 +145,7 @@ func TestSyncIncremental(t *testing.T) {
 		Content:   "New memory",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.2},
+		Embedding: cmdTestEmbedding(0.2),
 		UpdatedAt: newTime,
 		CreatedAt: newTime,
 	}
@@ -173,7 +173,7 @@ func TestSyncLWWSkip(t *testing.T) {
 		Content:   "Local version",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: cmdTestEmbedding(0.1),
 		UpdatedAt: existingTime,
 		CreatedAt: existingTime,
 	}
@@ -184,7 +184,7 @@ func TestSyncLWWSkip(t *testing.T) {
 		Content:   "Older remote version",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: cmdTestEmbedding(0.1),
 		UpdatedAt: existingTime.Add(-1 * time.Hour),
 		CreatedAt: existingTime.Add(-1 * time.Hour),
 	}
@@ -307,7 +307,7 @@ func TestSyncMultiPage(t *testing.T) {
 			Content:   "Memory " + string(rune('A'+i)),
 			Scope:     "global",
 			Metadata:  map[string]string{},
-			Embedding: []float32{float32(i) * 0.1},
+			Embedding: cmdTestEmbedding(float32(i) * 0.1),
 			UpdatedAt: base.Add(time.Duration(i) * time.Minute),
 			CreatedAt: base,
 		}
@@ -345,7 +345,7 @@ func TestSyncSecondSyncNoLoss(t *testing.T) {
 			Content:   "NoLoss " + string(rune('A'+i)),
 			Scope:     "global",
 			Metadata:  map[string]string{},
-			Embedding: []float32{float32(i) * 0.1},
+			Embedding: cmdTestEmbedding(float32(i) * 0.1),
 			UpdatedAt: base.Add(time.Duration(i) * time.Minute),
 			CreatedAt: base,
 		}

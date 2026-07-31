@@ -92,7 +92,10 @@ func (l *Linker) linkScopePair(scope1, scope2 string, result *LinkResult, dryRun
 
 	for _, m := range memories2 {
 		if len(m.Embedding) > 0 {
-			hash := db.ComputeLSH(m.Embedding)
+			hash, err := db.ComputeLSH(m.Embedding)
+			if err != nil {
+				return err
+			}
 			hashBuckets[hash] = append(hashBuckets[hash], m)
 			for _, neighbor := range db.LSHNeighbors(hash, 3) {
 				if neighbor != hash {
@@ -106,7 +109,10 @@ func (l *Linker) linkScopePair(scope1, scope2 string, result *LinkResult, dryRun
 		if len(m1.Embedding) == 0 {
 			continue
 		}
-		hash1 := db.ComputeLSH(m1.Embedding)
+		hash1, err := db.ComputeLSH(m1.Embedding)
+		if err != nil {
+			return err
+		}
 		seen := make(map[string]bool)
 		for _, neighbor := range db.LSHNeighbors(hash1, 3) {
 			for _, m2 := range hashBuckets[neighbor] {

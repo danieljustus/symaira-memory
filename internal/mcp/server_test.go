@@ -272,7 +272,7 @@ func TestToolMemoryGetSuccess(t *testing.T) {
 		Content:   "User prefers Go for backend",
 		Scope:     "global",
 		Metadata:  map[string]string{"source": "test"},
-		Embedding: []float32{0.1, 0.2, 0.3},
+		Embedding: testEmbedding(0.1, 0.2, 0.3),
 	}
 	if err := s.DB().SaveMemory(m); err != nil {
 		t.Fatalf("failed to save test memory: %v", err)
@@ -388,7 +388,7 @@ func TestToolMemoryGetOmitsEmbedding(t *testing.T) {
 		ID:        "test-mem-embed",
 		Content:   "embedding should not be returned",
 		Scope:     "global",
-		Embedding: []float32{0.9, 0.8, 0.7},
+		Embedding: testEmbedding(0.9, 0.8, 0.7),
 	}
 	if err := s.DB().SaveMemory(m); err != nil {
 		t.Fatalf("failed to save test memory: %v", err)
@@ -559,8 +559,8 @@ func TestToolMemoryListEmpty(t *testing.T) {
 
 func TestToolMemoryListWithMemories(t *testing.T) {
 	s := helperServer(t)
-	m1 := &db.Memory{ID: "list-1", Content: "Memory A", Scope: "global", Embedding: []float32{1.0}}
-	m2 := &db.Memory{ID: "list-2", Content: "Memory B", Scope: "project", Embedding: []float32{2.0}}
+	m1 := &db.Memory{ID: "list-1", Content: "Memory A", Scope: "global", Embedding: testEmbedding(1.0)}
+	m2 := &db.Memory{ID: "list-2", Content: "Memory B", Scope: "project", Embedding: testEmbedding(2.0)}
 	s.DB().SaveMemory(m1)
 	s.DB().SaveMemory(m2)
 
@@ -611,7 +611,7 @@ func TestToolMemoryListWithLimit(t *testing.T) {
 			ID:        fmt.Sprintf("limit-mem-%d", i),
 			Content:   fmt.Sprintf("Memory %d", i),
 			Scope:     "global",
-			Embedding: []float32{float32(i) * 0.1},
+			Embedding: testEmbedding(float32(i) * 0.1),
 		}
 		s.DB().SaveMemory(m)
 	}
@@ -635,7 +635,7 @@ func TestToolMemoryListLimitClampedToMax(t *testing.T) {
 			ID:        fmt.Sprintf("max-mem-%d", i),
 			Content:   fmt.Sprintf("Memory %d", i),
 			Scope:     "global",
-			Embedding: []float32{float32(i) * 0.1},
+			Embedding: testEmbedding(float32(i) * 0.1),
 		}
 		s.DB().SaveMemory(m)
 	}
@@ -659,7 +659,7 @@ func TestToolMemoryListInvalidLimitFallsBackToDefault(t *testing.T) {
 			ID:        fmt.Sprintf("inv-mem-%d", i),
 			Content:   fmt.Sprintf("Memory %d", i),
 			Scope:     "global",
-			Embedding: []float32{float32(i) * 0.1},
+			Embedding: testEmbedding(float32(i) * 0.1),
 		}
 		s.DB().SaveMemory(m)
 	}
@@ -766,7 +766,7 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 		Content:   "old memory",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 	}
 	s.DB().SaveMemory(old)
 
@@ -779,7 +779,7 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 		Content:   "new memory",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.2},
+		Embedding: testEmbedding(0.2),
 	}
 	s.DB().SaveMemory(new)
 
@@ -828,7 +828,7 @@ func TestSyncChangesCursorPagination(t *testing.T) {
 			Content:   fmt.Sprintf("Memory %d", i),
 			Scope:     "global",
 			Metadata:  map[string]string{},
-			Embedding: []float32{float32(i) * 0.1},
+			Embedding: testEmbedding(float32(i) * 0.1),
 		}
 		s.DB().SaveMemory(m)
 		time.Sleep(5 * time.Millisecond)
@@ -977,7 +977,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		Content:   "original content",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 	}
 	s.DB().SaveMemory(existing)
 
@@ -989,7 +989,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		Content:   "should be skipped",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 		UpdatedAt: existingTime.Add(-1 * time.Hour),
 		CreatedAt: existingTime.Add(-1 * time.Hour),
 	}
@@ -998,7 +998,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		Content:   "should overwrite",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 		UpdatedAt: existingTime.Add(1 * time.Hour),
 		CreatedAt: existingTime,
 	}
@@ -1007,7 +1007,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		Content:   "brand new",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.3},
+		Embedding: testEmbedding(0.3),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1063,7 +1063,7 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 		Content:   "Contact alice@example.com for details",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1072,7 +1072,7 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 		Content:   "This has invalid scope",
 		Scope:     "invalid-scope-value",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.2},
+		Embedding: testEmbedding(0.2),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1081,7 +1081,7 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 		Content:   "Normal content",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.3},
+		Embedding: testEmbedding(0.3),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1141,7 +1141,7 @@ func TestSyncApplyMetadataPIIRedaction(t *testing.T) {
 		Content:   "clean content",
 		Scope:     "global",
 		Metadata:  map[string]string{"contact": "eve@example.com", "source": "sync"},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1192,7 +1192,7 @@ func TestSyncApplyInvalidUUIDSkipped(t *testing.T) {
 		Content:   "Valid UUID memory",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1201,7 +1201,7 @@ func TestSyncApplyInvalidUUIDSkipped(t *testing.T) {
 		Content:   "Malicious ID memory",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.2},
+		Embedding: testEmbedding(0.2),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1210,7 +1210,7 @@ func TestSyncApplyInvalidUUIDSkipped(t *testing.T) {
 		Content:   "Truncated UUID memory",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.3},
+		Embedding: testEmbedding(0.3),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1267,7 +1267,7 @@ func TestSyncApplyAuditLogCreated(t *testing.T) {
 		Content:   "Memory for audit test",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 		UpdatedAt: time.Now().UTC(),
 		CreatedAt: time.Now().UTC(),
 	}
@@ -1377,7 +1377,7 @@ func TestApiGetSuccess(t *testing.T) {
 		Content:   "Test memory for GET endpoint",
 		Scope:     "global",
 		Metadata:  map[string]string{"source": "test"},
-		Embedding: []float32{0.1, 0.2},
+		Embedding: testEmbedding(0.1, 0.2),
 	}
 	s.DB().SaveMemory(m)
 
@@ -1476,7 +1476,7 @@ func TestApiDeleteSuccess(t *testing.T) {
 		Content:   "To be deleted",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 	}
 	s.DB().SaveMemory(m)
 
@@ -1516,7 +1516,7 @@ func TestApiDeleteViaPost(t *testing.T) {
 		Content:   "To be deleted via POST",
 		Scope:     "global",
 		Metadata:  map[string]string{},
-		Embedding: []float32{0.1},
+		Embedding: testEmbedding(0.1),
 	}
 	s.DB().SaveMemory(m)
 

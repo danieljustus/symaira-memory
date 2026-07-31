@@ -66,7 +66,7 @@ func (s *MemoryService) Search(query, scope string, limit int, entityName string
 	}
 
 	emb := s.embeddings.GenerateVector(query)
-	return s.db.SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, scope, limit, entityID, trustFilter, policyFilter, tw)
+	return s.db.SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, scope, limit, entityID, trustFilter, policyFilter, tw, "")
 }
 
 // HybridSearch performs hybrid vector + BM25 retrieval through the HybridSearch

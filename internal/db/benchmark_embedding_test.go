@@ -83,7 +83,7 @@ func saveMemoryBLOBTx(tx *sql.Tx, m *Memory) error {
 
 	embeddingBLOB := encodeEmbeddingBLOB(m.Embedding)
 	embeddingDim := len(m.Embedding)
-	lshHash := ComputeLSH(m.Embedding)
+	lshHash := mustComputeLSH(m.Embedding)
 
 	contentHash := m.ContentHash
 	if contentHash == "" {
@@ -167,7 +167,7 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 	}
 	var results []scored
 
-	queryLSH := ComputeLSH(queryVec)
+	queryLSH := mustComputeLSH(queryVec)
 	buckets := LSHNeighbors(queryLSH, 2)
 
 	var candidateIDs []string

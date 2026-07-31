@@ -250,7 +250,7 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 	}
 
 	// Vector arm with full filtering (entity, trust, policy)
-	vectorResults, err := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, candidateLimit, entityID, trustFilter, policyFilter, tw)
+	vectorResults, err := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, candidateLimit, entityID, trustFilter, policyFilter, tw, "")
 	if err != nil {
 		return nil, err
 	}

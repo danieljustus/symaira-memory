@@ -262,6 +262,7 @@ func (r *Registry) storeFacts(facts []ImportedFact, importer SessionImporter) er
 			memory.Embedding = emb.Vector
 			memory.EmbeddingSource = emb.Source
 			memory.EmbeddingModel = emb.Model
+			memory.EmbeddingQuantization = emb.Quantization
 		}
 
 		if err := r.database.SaveMemory(memory); err != nil {

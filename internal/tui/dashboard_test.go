@@ -98,13 +98,13 @@ func TestModelUpdateNavigationWithMemories(t *testing.T) {
 		ID:        "tui-mem-1",
 		Content:   "First memory",
 		Scope:     "global",
-		Embedding: []float32{1.0},
+		Embedding: testEmbedding(1.0),
 	})
 	database.SaveMemory(&db.Memory{
 		ID:        "tui-mem-2",
 		Content:   "Second memory",
 		Scope:     "global",
-		Embedding: []float32{2.0},
+		Embedding: testEmbedding(2.0),
 	})
 
 	m := newTestModel(database)
@@ -250,7 +250,7 @@ func TestModelUpdateDeleteMemory(t *testing.T) {
 		ID:        "delete-me",
 		Content:   "Delete me",
 		Scope:     "global",
-		Embedding: []float32{1.0},
+		Embedding: testEmbedding(1.0),
 	})
 
 	m := newTestModel(database)
@@ -295,7 +295,7 @@ func TestModelViewWithMemories(t *testing.T) {
 		ID:        "view-1",
 		Content:   "Test memory view",
 		Scope:     "global",
-		Embedding: []float32{0.5},
+		Embedding: testEmbedding(0.5),
 	})
 
 	m := newTestModel(database)
@@ -358,4 +358,12 @@ func TestModelViewSearchIndicator(t *testing.T) {
 	if !strings.Contains(view, "Search Keyword: test-query") {
 		t.Error("expected view to show search keyword prompt")
 	}
+}
+
+// testEmbedding builds a valid db.EmbeddingDim-sized vector with the given
+// leading values (dimension mismatches are now a handled error).
+func testEmbedding(leading ...float32) []float32 {
+	v := make([]float32, db.EmbeddingDim)
+	copy(v, leading)
+	return v
 }

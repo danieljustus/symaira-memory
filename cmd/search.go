@@ -117,7 +117,7 @@ var searchCmd = &cobra.Command{
 		} else if emb.Source == "hash-fallback" {
 			results, err = GetDB().SearchMemoriesBM25(query, searchScope, searchLimit)
 		} else {
-			results, err = GetDB().SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, searchScope, searchLimit, entityID, trustFilter, policyFilter, db.TimeWindow{})
+			results, err = GetDB().SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, searchScope, searchLimit, entityID, trustFilter, policyFilter, db.TimeWindow{}, "")
 		}
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "semantic search failure")
