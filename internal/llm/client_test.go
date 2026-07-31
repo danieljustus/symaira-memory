@@ -55,11 +55,20 @@ func TestQueryOllamaSuccess(t *testing.T) {
 		if reqBody["model"] != "llama3" {
 			t.Errorf("expected model 'llama3', got %v", reqBody["model"])
 		}
-		if reqBody["format"] != "json" {
-			t.Errorf("expected format 'json', got %v", reqBody["format"])
-		}
 		if reqBody["system"] != "system" {
 			t.Errorf("expected system 'system', got %v", reqBody["system"])
+		}
+		// Verify the format field is a JSON schema object, not the string "json".
+		fmtVal, ok := reqBody["format"]
+		if !ok {
+			t.Fatal("expected format field in request body")
+		}
+		fmtMap, ok := fmtVal.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected format to be a JSON object (schema), got %T", fmtVal)
+		}
+		if fmtMap["type"] != "object" {
+			t.Errorf("expected schema type 'object', got %v", fmtMap["type"])
 		}
 
 		w.Header().Set("Content-Type", "application/x-ndjson")
@@ -156,6 +165,44 @@ func TestQueryOpenAISuccess(t *testing.T) {
 
 		if reqBody["model"] != "gpt-4o-mini" {
 			t.Errorf("expected model 'gpt-4o-mini', got %v", reqBody["model"])
+		}
+
+		// Verify response_format uses json_schema with the schema object.
+		rfVal, ok := reqBody["response_format"]
+		if !ok {
+			t.Fatal("expected response_format field")
+		}
+		rfMap, ok := rfVal.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected response_format to be an object, got %T", rfVal)
+		}
+		if rfMap["type"] != "json_schema" {
+			t.Errorf("expected response_format type 'json_schema', got %v", rfMap["type"])
+		}
+		jsVal, ok := rfMap["json_schema"]
+		if !ok {
+			t.Fatal("expected json_schema field inside response_format")
+		}
+		jsMap, ok := jsVal.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected json_schema to be an object, got %T", jsVal)
+		}
+		if jsMap["name"] != "consolidation_result" {
+			t.Errorf("expected json_schema name 'consolidation_result', got %v", jsMap["name"])
+		}
+		if jsMap["strict"] != true {
+			t.Errorf("expected json_schema strict true, got %v", jsMap["strict"])
+		}
+		schemaVal, ok := jsMap["schema"]
+		if !ok {
+			t.Fatal("expected schema field inside json_schema")
+		}
+		schemaMap, ok := schemaVal.(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected schema to be an object, got %T", schemaVal)
+		}
+		if schemaMap["type"] != "object" {
+			t.Errorf("expected schema type 'object', got %v", schemaMap["type"])
 		}
 
 		messages := reqBody["messages"].([]interface{})
@@ -275,6 +322,62 @@ func TestQueryOllamaProvider(t *testing.T) {
 	}
 	if result != "ollama result" {
 		t.Errorf("expected 'ollama result', got %s", result)
+	}
+}
+
+func TestConsolidationResponseSchema(t *testing.T) {
+	schema := ConsolidationResponseSchema()
+
+	// Verify top-level structure
+	if schema["type"] != "object" {
+		t.Errorf("expected schema type 'object', got %v", schema["type"])
+	}
+
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("expected properties to be a map")
+	}
+
+	// Verify consolidated field
+	cons, ok := props["consolidated"].(map[string]any)
+	if !ok {
+		t.Fatal("expected consolidated to be a map")
+	}
+	if cons["type"] != "array" {
+		t.Errorf("expected consolidated type 'array', got %v", cons["type"])
+	}
+
+	// Verify discarded_ids field
+	disc, ok := props["discarded_ids"].(map[string]any)
+	if !ok {
+		t.Fatal("expected discarded_ids to be a map")
+	}
+	if disc["type"] != "array" {
+		t.Errorf("expected discarded_ids type 'array', got %v", disc["type"])
+	}
+
+	// Verify required fields
+	required, ok := schema["required"].([]any)
+	if !ok {
+		t.Fatal("expected required to be a slice")
+	}
+	if len(required) != 2 {
+		t.Errorf("expected 2 required fields, got %d", len(required))
+	}
+
+	// Verify schema serializes to valid JSON
+	data, err := json.Marshal(schema)
+	if err != nil {
+		t.Errorf("schema should serialize to valid JSON: %v", err)
+	}
+
+	// Verify the serialized schema is a JSON object (not a string)
+	var parsed any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Errorf("schema JSON should be valid: %v", err)
+	}
+	if _, ok := parsed.(map[string]any); !ok {
+		t.Error("expected schema JSON to be an object")
 	}
 }
 
