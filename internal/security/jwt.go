@@ -419,9 +419,9 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 
 	// Check in-memory revocation list
 	jp.mu.RLock()
-	revokedAt, isRevoked := jp.revoked[payload.JWTID]
+	_, isRevoked := jp.revoked[payload.JWTID]
 	jp.mu.RUnlock()
-	if isRevoked && time.Now().After(revokedAt) {
+	if isRevoked {
 		return nil, errors.New("token has been revoked")
 	}
 

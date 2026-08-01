@@ -11,14 +11,12 @@ import (
 )
 
 func TestSetCommandOutputsJSON(t *testing.T) {
-	oldHome := os.Getenv("HOME")
 	tempDir, err := os.MkdirTemp("", "symmemory-home-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	database := helperTestDB(t)
 	cfg := config.Defaults()
@@ -72,14 +70,12 @@ func TestSetCommandOutputsJSON(t *testing.T) {
 }
 
 func TestSetCommandOutputsHumanTextByDefault(t *testing.T) {
-	oldHome := os.Getenv("HOME")
 	tempDir, err := os.MkdirTemp("", "symmemory-home-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	database := helperTestDB(t)
 	cfg := config.Defaults()
@@ -115,14 +111,12 @@ func TestSetCommandOutputsHumanTextByDefault(t *testing.T) {
 }
 
 func TestSetCommandAcceptsPositionalArgument(t *testing.T) {
-	oldHome := os.Getenv("HOME")
 	tempDir, err := os.MkdirTemp("", "symmemory-home-test-positional-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	database := helperTestDB(t)
 	cfg := config.Defaults()

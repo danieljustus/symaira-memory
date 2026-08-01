@@ -41,13 +41,21 @@ func captureCmdOutput(fn func()) string {
 	old := os.Stdout
 	os.Stdout = w
 
+	// Read the pipe concurrently: on Windows the pipe buffer is ~4KB
+	// (vs 64KB on Unix), so a function writing more than that blocks
+	// forever if the reader only starts after fn() returns.
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	go func() {
+		buf.ReadFrom(r)
+		close(done)
+	}()
+
 	fn()
 
 	w.Close()
 	os.Stdout = old
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	<-done
 	return buf.String()
 }
 
@@ -56,13 +64,18 @@ func captureStderr(fn func()) string {
 	old := os.Stderr
 	os.Stderr = w
 
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	go func() {
+		buf.ReadFrom(r)
+		close(done)
+	}()
+
 	fn()
 
 	w.Close()
 	os.Stderr = old
-
-	var buf bytes.Buffer
-	buf.ReadFrom(r)
+	<-done
 	return buf.String()
 }
 

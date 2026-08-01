@@ -23,9 +23,7 @@ func helperTestDB(t *testing.T) *db.DB {
 	}
 	t.Cleanup(func() { os.RemoveAll(tempDir) })
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	t.Cleanup(func() { os.Setenv("HOME", oldHome) })
+	setTestHome(t, tempDir)
 
 	database, err := db.Open(config.Defaults())
 	if err != nil {

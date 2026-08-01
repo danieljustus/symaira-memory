@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -326,10 +327,8 @@ func openTestDB(t *testing.T) (*db.DB, string) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
+	setTestHome(t, tempDir)
 	t.Cleanup(func() {
-		os.Setenv("HOME", oldHome)
 		os.RemoveAll(tempDir)
 	})
 
@@ -814,11 +813,7 @@ func TestAddFallbackSecret(t *testing.T) {
 // TestLoadPersistedSecretDefaultPath verifies default path resolution
 func TestLoadPersistedSecretDefaultPath(t *testing.T) {
 	dir := t.TempDir()
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", dir)
-	t.Cleanup(func() {
-		os.Setenv("HOME", oldHome)
-	})
+	setTestHome(t, dir)
 
 	// Clear XDG_CONFIG_HOME to test default behavior
 	oldXDG := os.Getenv("XDG_CONFIG_HOME")
@@ -883,7 +878,7 @@ func TestGenerateAndPersistSecretCreatesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat directory: %v", err)
 	}
-	if info.Mode().Perm() != 0700 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0700 {
 		t.Errorf("expected directory permissions 0700, got %o", info.Mode().Perm())
 	}
 }

@@ -21,14 +21,12 @@ func resetImportFlags(t *testing.T) {
 
 func TestImportListOutputsJSON(t *testing.T) {
 	defer resetImportFlags(t)
-	oldHome := os.Getenv("HOME")
 	tempDir, err := os.MkdirTemp("", "symmemory-import-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	SetConfig(config.Defaults())
 
@@ -69,14 +67,12 @@ func TestImportListOutputsJSON(t *testing.T) {
 
 func TestImportListOutputsHumanTextByDefault(t *testing.T) {
 	defer resetImportFlags(t)
-	oldHome := os.Getenv("HOME")
 	tempDir, err := os.MkdirTemp("", "symmemory-import-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	SetConfig(config.Defaults())
 
@@ -105,14 +101,12 @@ func TestImportListOutputsHumanTextByDefault(t *testing.T) {
 
 func TestImportDryRunOutputsJSON(t *testing.T) {
 	defer resetImportFlags(t)
-	oldHome := os.Getenv("HOME")
 	tempDir, err := os.MkdirTemp("", "symmemory-import-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	exportPath := filepath.Join(tempDir, "openmemory-export.json")
 	data := []byte(`{"memories":[{"id":"mem-1","content":"hello from openmemory","created_at":"2026-06-22T12:00:00Z"}]}`)

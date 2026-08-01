@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -277,6 +278,13 @@ func checkConfig() checkResult {
 }
 
 func checkFilePermissions() checkResult {
+	if runtime.GOOS == "windows" {
+		// Windows does not implement Unix permission bits (0700/0600);
+		// os.Stat reports 0777/0666 regardless of intent. Skip the check
+		// instead of reporting a false positive for every install.
+		return checkResult{name: "File Permissions", passed: true, detail: "not enforced on Windows"}
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return checkResult{name: "File Permissions", passed: false, detail: fmt.Sprintf("cannot determine home dir: %v", err)}

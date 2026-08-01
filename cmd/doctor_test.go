@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -35,9 +36,7 @@ func TestCheckDatabase(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	cfg := config.Defaults()
 	database, err := config.Load()
@@ -60,9 +59,7 @@ func TestCheckConfig(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	SetConfig(config.Defaults())
 	result := checkConfig()
@@ -98,9 +95,7 @@ func TestCheckFilePermissions(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	result := checkFilePermissions()
 	if !result.passed {
@@ -348,9 +343,7 @@ func TestCheckDBSizeNotCreated(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	SetConfig(config.Defaults())
 	result := checkDBSize()
@@ -791,9 +784,7 @@ model = "nomic-embed-text"
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	SetConfig(config.Defaults())
 	result := checkConfig()
@@ -825,9 +816,7 @@ path = "/tmp/test.db"
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	SetConfig(config.Defaults())
 	result := checkConfig()
@@ -843,9 +832,7 @@ func TestCheckConfigNoConfigDir(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	SetConfig(config.Defaults())
 	result := checkConfig()
@@ -873,9 +860,7 @@ func TestCheckConfigEmptyFile(t *testing.T) {
 		t.Fatalf("failed to write config file: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	SetConfig(config.Defaults())
 	result := checkConfig()
@@ -887,6 +872,9 @@ func TestCheckConfigEmptyFile(t *testing.T) {
 // --- Tests for checkFilePermissions (coverage target: 41.9% → ≥70%) ---
 
 func TestCheckFilePermissionsWrongDirPerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
 	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -898,9 +886,7 @@ func TestCheckFilePermissionsWrongDirPerms(t *testing.T) {
 		t.Fatalf("failed to create db dir: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	result := checkFilePermissions()
 	if result.passed {
@@ -912,6 +898,9 @@ func TestCheckFilePermissionsWrongDirPerms(t *testing.T) {
 }
 
 func TestCheckFilePermissionsWrongDBPerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
 	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -927,9 +916,7 @@ func TestCheckFilePermissionsWrongDBPerms(t *testing.T) {
 		t.Fatalf("failed to write db file: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	result := checkFilePermissions()
 	if result.passed {
@@ -941,6 +928,9 @@ func TestCheckFilePermissionsWrongDBPerms(t *testing.T) {
 }
 
 func TestCheckFilePermissionsWrongSecretPerms(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
 	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -965,9 +955,7 @@ func TestCheckFilePermissionsWrongSecretPerms(t *testing.T) {
 		t.Fatalf("failed to write secret file: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	result := checkFilePermissions()
 	if result.passed {
@@ -990,9 +978,7 @@ func TestCheckFilePermissionsDBNotExist(t *testing.T) {
 		t.Fatalf("failed to create db dir: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	result := checkFilePermissions()
 	if !result.passed {
@@ -1019,9 +1005,7 @@ func TestCheckFilePermissionsSecretNotExist(t *testing.T) {
 		t.Fatalf("failed to write db file: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	result := checkFilePermissions()
 	if !result.passed {
@@ -1057,9 +1041,7 @@ func TestCheckFilePermissionsAllCorrect(t *testing.T) {
 		t.Fatalf("failed to write secret file: %v", err)
 	}
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	result := checkFilePermissions()
 	if !result.passed {
@@ -1077,9 +1059,7 @@ func TestCheckFilePermissionsDirNotExist(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	oldHome := os.Getenv("HOME")
-	os.Setenv("HOME", tempDir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, tempDir)
 
 	result := checkFilePermissions()
 	if !result.passed {

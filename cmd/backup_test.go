@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
@@ -227,7 +228,7 @@ func TestRoundTripBackupRestoreWithWALWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat restored: %v", err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Errorf("expected permissions 0600, got %o", info.Mode().Perm())
 	}
 
@@ -332,7 +333,7 @@ func TestStagingFilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat: %v", err)
 	}
-	if info.Mode().Perm() != 0600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Errorf("expected 0600, got %o", info.Mode().Perm())
 	}
 }
@@ -540,10 +541,8 @@ func TestResolveBackupPasswordErrorsWithoutSource(t *testing.T) {
 }
 
 func TestExportCreatesEncryptedArchive(t *testing.T) {
-	oldHome := os.Getenv("HOME")
 	dir := t.TempDir()
-	os.Setenv("HOME", dir)
-	defer os.Setenv("HOME", oldHome)
+	setTestHome(t, dir)
 
 	SetConfig(config.Defaults())
 
