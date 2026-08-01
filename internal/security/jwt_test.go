@@ -981,7 +981,7 @@ func TestPersistFallbackSecretsCreatesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to stat directory: %v", err)
 	}
-	if info.Mode().Perm() != 0700 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0700 {
 		t.Errorf("expected directory permissions 0700, got %o", info.Mode().Perm())
 	}
 }

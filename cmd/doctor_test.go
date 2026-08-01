@@ -967,6 +967,9 @@ func TestCheckFilePermissionsWrongSecretPerms(t *testing.T) {
 }
 
 func TestCheckFilePermissionsDBNotExist(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
 	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -990,6 +993,9 @@ func TestCheckFilePermissionsDBNotExist(t *testing.T) {
 }
 
 func TestCheckFilePermissionsSecretNotExist(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
 	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -1017,6 +1023,9 @@ func TestCheckFilePermissionsSecretNotExist(t *testing.T) {
 }
 
 func TestCheckFilePermissionsAllCorrect(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
 	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -1053,6 +1062,9 @@ func TestCheckFilePermissionsAllCorrect(t *testing.T) {
 }
 
 func TestCheckFilePermissionsDirNotExist(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permission bits are not enforced on Windows")
+	}
 	tempDir, err := os.MkdirTemp("", "symmemory-perm-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
