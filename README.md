@@ -99,6 +99,9 @@ symmemory console
 # Start the MCP server (for agent integration)
 symmemory serve
 
+# Discover available import sources as versioned JSON
+symmemory discover sources
+
 # Generate an API token for HTTP access
 symmemory token generate --subject "my-agent" --duration 720
 
