@@ -56,7 +56,7 @@ var rootCmd = &cobra.Command{
 built for AI-Agent workflows. It stores facts, summaries, and scopes offline utilizing 
 SQLite, and exposes them to agents through the Model Context Protocol (MCP).`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if cmd.Name() == "version" || cmd.Name() == "mcp-config" || cmd.Name() == "instructions" || cmd.Name() == "init" || cmd.Name() == "doctor" || cmd.Name() == "context" || cmd.Name() == "hook" || cmd.Name() == "observe" || (cmd.Parent() != nil && cmd.Parent().Name() == "mcp-config") || (cmd.Parent() != nil && cmd.Parent().Name() == "hook") || (cmd.Parent() != nil && cmd.Parent().Name() == "observe") {
+		if cmd.Name() == "version" || cmd.Name() == "mcp-config" || cmd.Name() == "instructions" || cmd.Name() == "init" || cmd.Name() == "doctor" || cmd.Name() == "context" || cmd.Name() == "hook" || cmd.Name() == "observe" || cmd.Name() == "discover" || (cmd.Parent() != nil && cmd.Parent().Name() == "mcp-config") || (cmd.Parent() != nil && cmd.Parent().Name() == "hook") || (cmd.Parent() != nil && cmd.Parent().Name() == "observe") || (cmd.Parent() != nil && cmd.Parent().Name() == "discover") {
 			return nil
 		}
 		cfg, err := config.Load()
