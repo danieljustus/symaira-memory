@@ -17,6 +17,7 @@ on:
       - '.github/ISSUE_TEMPLATE/**'
   schedule:
     - cron: '55 5 * * 1'  # weekly Monday 05:55 UTC — full suite incl. macOS + Windows
+  workflow_dispatch: {}  # manual trigger (e.g. to re-verify after path-filtered fixes)
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
