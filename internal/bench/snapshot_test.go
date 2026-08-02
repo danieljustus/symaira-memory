@@ -1,8 +1,10 @@
 package bench
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -328,5 +330,127 @@ func TestSnapshotFileName(t *testing.T) {
 	name2 := SnapshotFileName("longmemeval", "abc")
 	if name2 != "bench-snapshot-longmemeval-abc.json" {
 		t.Errorf("unexpected filename for short hash: %s", name2)
+	}
+}
+
+// comparisonFixture builds a comparison of a single bm25 snapshot between a
+// baseline and a current run, letting tests vary quality and latency.
+func comparisonFixture(baselineRecall, currentRecall, currentP50 float64) ComparisonReport {
+	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	const hash = "aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
+	mk := func(recall, p50 float64) BenchSnapshot {
+		return BenchSnapshot{
+			SchemaVersion: 1, Mode: "bm25",
+			RecallAt5: recall, RecallAt10: 0.90,
+			NDCGAt5: 0.82, NDCGAt10: 0.88, MRR: 0.92,
+			P50LatencyMs: p50, P95LatencyMs: 1.0,
+		}
+	}
+	baseline := SnapshotFile{
+		SchemaVersion: 1, CreatedAt: ts, CorpusHash: hash, CorpusName: "builtin",
+		CorpusSize: 50, QueryCount: 12,
+		Snapshots: []BenchSnapshot{mk(baselineRecall, 0.5)},
+	}
+	current := SnapshotFile{
+		SchemaVersion: 1, CreatedAt: ts.Add(time.Hour), CorpusHash: hash, CorpusName: "builtin",
+		CorpusSize: 50, QueryCount: 12,
+		Snapshots: []BenchSnapshot{mk(currentRecall, currentP50)},
+	}
+	return CompareSnapshots(baseline, current)
+}
+
+func TestWriteComparisonReport_Equal(t *testing.T) {
+	comp := comparisonFixture(0.85, 0.85, 0.5)
+	var buf bytes.Buffer
+	WriteComparisonReport(&buf, comp)
+	out := buf.String()
+
+	for _, want := range []string{
+		"=== Benchmark Comparison ===",
+		"Baseline: 2026-01-01T00:00:00Z (corpus: builtin, hash: aabbccddeeff)",
+		"Current:  2026-01-01T01:00:00Z (corpus: builtin, hash: aabbccddeeff)",
+		"ALL METRICS PASSED",
+		"[bm25]",
+		"Recall@5",
+		"Summary: All metrics passed",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in report, got:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteComparisonReport_Regressed(t *testing.T) {
+	comp := comparisonFixture(0.85, 0.70, 0.5)
+	var buf bytes.Buffer
+	WriteComparisonReport(&buf, comp)
+	out := buf.String()
+
+	for _, want := range []string{
+		"REGRESSIONS DETECTED",
+		"✗ REGRESSION",
+		"↓",
+		"Summary: REGRESSIONS FOUND",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in regressed report, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "ALL METRICS PASSED") {
+		t.Error("regressed report must not claim all metrics passed")
+	}
+}
+
+func TestWriteComparisonReport_Improved(t *testing.T) {
+	comp := comparisonFixture(0.85, 0.92, 0.3)
+	var buf bytes.Buffer
+	WriteComparisonReport(&buf, comp)
+	out := buf.String()
+
+	for _, want := range []string{
+		"ALL METRICS PASSED",
+		"↑",
+		"Summary: All metrics passed",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in improved report, got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "REGRESSION") {
+		t.Error("improved report must not mention regressions")
+	}
+}
+
+func TestWriteComparisonReport_NoComparableMetrics(t *testing.T) {
+	ts := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	report := ComparisonReport{
+		Baseline: SnapshotFile{SchemaVersion: 1, CreatedAt: ts, CorpusHash: "abc", CorpusName: "builtin"},
+		Current:  SnapshotFile{SchemaVersion: 1, CreatedAt: ts, CorpusHash: "abc", CorpusName: "builtin"},
+		Passed:   true,
+	}
+	var buf bytes.Buffer
+	WriteComparisonReport(&buf, report)
+	out := buf.String()
+
+	if n := strings.Count(out, "(no comparable metrics)"); n != 3 {
+		t.Errorf("expected 3 '(no comparable metrics)' placeholders (one per mode), got %d", n)
+	}
+}
+
+func TestShortHash(t *testing.T) {
+	long := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	if got := shortHash(long); got != long[:12] {
+		t.Errorf("expected first 12 chars, got %q", got)
+	}
+	exact := "0123456789ab"
+	if got := shortHash(exact); got != exact {
+		t.Errorf("expected 12-char hash unchanged, got %q", got)
+	}
+	short := "abc"
+	if got := shortHash(short); got != short {
+		t.Errorf("expected short hash unchanged, got %q", got)
+	}
+	if got := shortHash(""); got != "" {
+		t.Errorf("expected empty hash unchanged, got %q", got)
 	}
 }

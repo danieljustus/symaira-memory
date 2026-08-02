@@ -1081,3 +1081,273 @@ func TestCheckFilePermissionsDirNotExist(t *testing.T) {
 		t.Errorf("expected 'directory not yet created' in detail, got %q", result.detail)
 	}
 }
+
+// --- Tests for checkDuplicateCandidates / checkNeverRecalled / checkDurableRatio / printNextSteps (#451) ---
+
+func TestCheckDuplicateCandidatesNone(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	for i := 0; i < 3; i++ {
+		m := &db.Memory{
+			ID:      fmt.Sprintf("unique-mem-%d", i),
+			Content: fmt.Sprintf("unique content %d", i),
+			Scope:   "global",
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("cannot save memory: %v", err)
+		}
+	}
+
+	result := checkDuplicateCandidates()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if result.warning {
+		t.Error("expected no warning without duplicate candidates")
+	}
+	if !strings.Contains(result.detail, "no duplicate candidates found") {
+		t.Errorf("expected 'no duplicate candidates found' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckDuplicateCandidatesFound(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	for i := 0; i < 2; i++ {
+		m := &db.Memory{
+			ID:          fmt.Sprintf("dup-mem-%d", i),
+			Content:     fmt.Sprintf("duplicate content %d", i),
+			Scope:       "global",
+			ContentHash: "shared-content-hash",
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("cannot save memory: %v", err)
+		}
+	}
+
+	result := checkDuplicateCandidates()
+	if !result.passed {
+		t.Errorf("expected pass (warning only), got failed: %s", result.detail)
+	}
+	if !result.warning {
+		t.Error("expected warning when duplicate candidates exist")
+	}
+	if !strings.Contains(result.detail, "1 groups, 2 memories") {
+		t.Errorf("expected '1 groups, 2 memories' in detail, got %q", result.detail)
+	}
+	if result.remediation != "symmemory dream --dry-run" {
+		t.Errorf("expected dream remediation, got %q", result.remediation)
+	}
+}
+
+func TestCheckNeverRecalledNone(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	for i := 0; i < 3; i++ {
+		m := &db.Memory{
+			ID:      fmt.Sprintf("fresh-mem-%d", i),
+			Content: fmt.Sprintf("fresh content %d", i),
+			Scope:   "global",
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("cannot save memory: %v", err)
+		}
+	}
+
+	result := checkNeverRecalled()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if result.warning {
+		t.Error("expected no warning for fresh memories")
+	}
+	if !strings.Contains(result.detail, "no old unrecalled memories") {
+		t.Errorf("expected 'no old unrecalled memories' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckNeverRecalledFound(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	m := &db.Memory{ID: "old-never-recalled", Content: "stale memory", Scope: "global"}
+	if err := database.SaveMemory(m); err != nil {
+		t.Fatalf("cannot save memory: %v", err)
+	}
+
+	// SaveMemory stamps updated_at = now, so force both timestamps 45 days
+	// back to satisfy the updated_at = created_at proxy used by the check.
+	if _, err := database.Conn().Exec(
+		"UPDATE memories SET created_at = datetime('now', '-45 days'), updated_at = datetime('now', '-45 days') WHERE id = ?",
+		m.ID,
+	); err != nil {
+		t.Fatalf("cannot age memory: %v", err)
+	}
+
+	result := checkNeverRecalled()
+	if !result.passed {
+		t.Errorf("expected pass (warning only), got failed: %s", result.detail)
+	}
+	if !result.warning {
+		t.Error("expected warning for old unrecalled memories")
+	}
+	if !strings.Contains(result.detail, "never recalled") {
+		t.Errorf("expected 'never recalled' in detail, got %q", result.detail)
+	}
+	if !strings.Contains(result.remediation, "symmemory purge") {
+		t.Errorf("expected purge remediation, got %q", result.remediation)
+	}
+}
+
+func TestCheckDurableRatioEmpty(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	result := checkDurableRatio()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if result.warning {
+		t.Error("expected no warning for empty database")
+	}
+	if !strings.Contains(result.detail, "no memories stored") {
+		t.Errorf("expected 'no memories stored' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckDurableRatioHealthy(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	for i := 0; i < 10; i++ {
+		m := &db.Memory{
+			ID:         fmt.Sprintf("dur-healthy-%d", i),
+			Content:    fmt.Sprintf("durable content %d", i),
+			Scope:      "global",
+			Importance: 0.8,
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("cannot save memory: %v", err)
+		}
+	}
+
+	result := checkDurableRatio()
+	if !result.passed {
+		t.Errorf("expected pass, got failed: %s", result.detail)
+	}
+	if result.warning {
+		t.Error("expected no warning for high durable ratio")
+	}
+	if !strings.Contains(result.detail, "100% durable (10/10)") {
+		t.Errorf("expected '100%% durable (10/10)' in detail, got %q", result.detail)
+	}
+}
+
+func TestCheckDurableRatioLow(t *testing.T) {
+	_, cfg := newTestDB(t)
+	SetConfig(cfg)
+
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatalf("cannot open test db: %v", err)
+	}
+	defer database.Close()
+
+	for i := 0; i < 10; i++ {
+		importance := 0.1
+		if i < 2 {
+			importance = 0.9
+		}
+		m := &db.Memory{
+			ID:         fmt.Sprintf("dur-low-%d", i),
+			Content:    fmt.Sprintf("content %d", i),
+			Scope:      "global",
+			Importance: importance,
+		}
+		if err := database.SaveMemory(m); err != nil {
+			t.Fatalf("cannot save memory: %v", err)
+		}
+	}
+
+	result := checkDurableRatio()
+	if !result.passed {
+		t.Errorf("expected pass (warning only), got failed: %s", result.detail)
+	}
+	if !result.warning {
+		t.Error("expected warning for low durable ratio")
+	}
+	if !strings.Contains(result.detail, "20% durable (2/10)") {
+		t.Errorf("expected '20%% durable (2/10)' in detail, got %q", result.detail)
+	}
+	if result.remediation != "symmemory dream --dry-run" {
+		t.Errorf("expected dream remediation, got %q", result.remediation)
+	}
+}
+
+func TestPrintNextStepsWithRemediation(t *testing.T) {
+	results := []checkResult{
+		{name: "Duplicate Candidates", passed: true, warning: true, detail: "1 groups, 2 memories", remediation: "symmemory dream --dry-run"},
+		{name: "Never-Recalled (old)", passed: false, detail: "query failed", remediation: "symmemory purge --session-ttl 30d --dry-run"},
+		{name: "Database", passed: true, detail: "ok"},
+	}
+
+	out := captureCmdOutput(func() { printNextSteps(results) })
+
+	if !strings.Contains(out, "Next steps:") {
+		t.Errorf("expected 'Next steps:' heading, got %q", out)
+	}
+	if !strings.Contains(out, "⚠️ Duplicate Candidates: run `symmemory dream --dry-run`") {
+		t.Errorf("expected warning icon with dream remediation, got %q", out)
+	}
+	if !strings.Contains(out, "❌ Never-Recalled (old): run `symmemory purge --session-ttl 30d --dry-run`") {
+		t.Errorf("expected error icon with purge remediation, got %q", out)
+	}
+	if strings.Contains(out, "Database") {
+		t.Errorf("expected no entry for results without remediation, got %q", out)
+	}
+}
+
+func TestPrintNextStepsNoActionable(t *testing.T) {
+	results := []checkResult{
+		{name: "Database", passed: true, detail: "ok"},
+		{name: "Durable Ratio", passed: true, detail: "100% durable"},
+	}
+
+	out := captureCmdOutput(func() { printNextSteps(results) })
+	if out != "" {
+		t.Errorf("expected no output without remediation, got %q", out)
+	}
+}
