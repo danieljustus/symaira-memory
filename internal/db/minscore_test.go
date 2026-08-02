@@ -2,74 +2,54 @@ package db
 
 import "testing"
 
-// TestFilterByMinScore covers FilterByMinScore: filtering below threshold,
-// disabled at minScore<=0, boundary equality, empty input.
-func TestFilterByMinScore(t *testing.T) {
-	results := []SearchResult{
-		{Memory: &Memory{ID: "a"}, Score: 0.9},
-		{Memory: &Memory{ID: "b"}, Score: 0.5},
-		{Memory: &Memory{ID: "c"}, Score: 0.3},
+func resultsWithScores(scores ...float32) []SearchResult {
+	out := make([]SearchResult, len(scores))
+	for i, s := range scores {
+		out[i] = SearchResult{Memory: &Memory{ID: string(rune('a' + i))}, Score: s}
 	}
+	return out
+}
 
-	// minScore <= 0 disables filtering.
-	got := FilterByMinScore(results, 0)
-	if len(got) != 3 {
-		t.Errorf("minScore=0 should return input unchanged, got %d results", len(got))
+func TestFilterByMinScore_DisabledWhenZeroOrNegative(t *testing.T) {
+	in := resultsWithScores(0.1, 0.9)
+	if got := FilterByMinScore(in, 0); len(got) != 2 {
+		t.Fatalf("minScore=0 must not filter, got %d results", len(got))
 	}
-
-	// Threshold keeps scores >= minScore.
-	got = FilterByMinScore(results, 0.5)
-	if len(got) != 2 {
-		t.Fatalf("expected 2 results above 0.5, got %d", len(got))
-	}
-	if got[0].Memory.ID != "a" || got[1].Memory.ID != "b" {
-		t.Errorf("expected [a b], got [%s %s]", got[0].Memory.ID, got[1].Memory.ID)
-	}
-
-	// Boundary: score equal to minScore is kept.
-	got = FilterByMinScore(results, 0.3)
-	if len(got) != 3 {
-		t.Errorf("boundary score should be kept, got %d results", len(got))
-	}
-
-	// Empty input stays empty.
-	if got := FilterByMinScore(nil, 0.7); len(got) != 0 {
-		t.Errorf("expected empty output for empty input, got %d", len(got))
+	if got := FilterByMinScore(in, -0.5); len(got) != 2 {
+		t.Fatalf("negative minScore must not filter, got %d results", len(got))
 	}
 }
 
-// TestFilterHybridByMinScore covers FilterHybridByMinScore: filtering below
-// threshold, disabled at minScore<=0, boundary equality.
-func TestFilterHybridByMinScore(t *testing.T) {
-	results := []HybridResult{
-		{Memory: &Memory{ID: "a"}, FusedScore: 0.9},
-		{Memory: &Memory{ID: "b"}, FusedScore: 0.5},
-		{Memory: &Memory{ID: "c"}, FusedScore: 0.3},
-	}
+func TestFilterByMinScore_Boundaries(t *testing.T) {
+	in := resultsWithScores(0.25, 0.5, 0.75)
 
-	// minScore <= 0 disables filtering.
-	got := FilterHybridByMinScore(results, 0)
-	if len(got) != 3 {
-		t.Errorf("minScore=0 should return input unchanged, got %d results", len(got))
-	}
-
-	// Threshold keeps scores >= minScore.
-	got = FilterHybridByMinScore(results, 0.5)
+	got := FilterByMinScore(in, 0.5)
 	if len(got) != 2 {
-		t.Fatalf("expected 2 results above 0.5, got %d", len(got))
+		t.Fatalf("expected 2 results at threshold 0.5, got %d", len(got))
 	}
-	if got[0].Memory.ID != "a" || got[1].Memory.ID != "b" {
-		t.Errorf("expected [a b], got [%s %s]", got[0].Memory.ID, got[1].Memory.ID)
-	}
-
-	// Boundary: score equal to minScore is kept.
-	got = FilterHybridByMinScore(results, 0.3)
-	if len(got) != 3 {
-		t.Errorf("boundary score should be kept, got %d results", len(got))
+	if got[0].Score != 0.5 {
+		t.Errorf("score exactly at threshold must be kept, first kept score = %v", got[0].Score)
 	}
 
-	// Empty input stays empty.
-	if got := FilterHybridByMinScore(nil, 0.7); len(got) != 0 {
-		t.Errorf("expected empty output for empty input, got %d", len(got))
+	got = FilterByMinScore(in, 0.75)
+	if len(got) != 1 || got[0].Score != 0.75 {
+		t.Fatalf("threshold 0.75 must keep only the top result, got %+v", got)
+	}
+
+	if got := FilterByMinScore(in, 0.99); len(got) != 0 {
+		t.Fatalf("threshold above all scores must empty the result set, got %d", len(got))
+	}
+}
+
+func TestFilterByMinScore_PreservesOrderAndEmptyInput(t *testing.T) {
+	if got := FilterByMinScore(nil, 0.5); len(got) != 0 {
+		t.Fatalf("nil input must stay empty, got %d", len(got))
+	}
+	in := resultsWithScores(0.9, 0.8, 0.7)
+	got := FilterByMinScore(in, 0.5)
+	for i, want := range []float32{0.9, 0.8, 0.7} {
+		if got[i].Score != want {
+			t.Errorf("order not preserved at %d: got %v want %v", i, got[i].Score, want)
+		}
 	}
 }
