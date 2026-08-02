@@ -98,12 +98,12 @@ func (db *DB) ConsolidationPriority(m *Memory, threshold StalenessThreshold) flo
 
 	// Age decay: older memories slowly lose priority.
 	ageDays := time.Since(m.CreatedAt).Hours() / 24.0
-	if ageDays > 365 {
-		// More than a year old: slight decay.
-		priority *= 0.9
-	} else if ageDays > 730 {
+	if ageDays > 730 {
 		// More than 2 years: stronger decay.
 		priority *= 0.7
+	} else if ageDays > 365 {
+		// More than a year old: slight decay.
+		priority *= 0.9
 	}
 
 	// Clamp to [0, 1].

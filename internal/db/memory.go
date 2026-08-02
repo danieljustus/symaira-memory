@@ -198,7 +198,11 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	}
 	var expiresAt sql.NullTime
 	if m.ExpiresAt != nil {
-		expiresAt.Time = *m.ExpiresAt
+		// Normalize to UTC: the persistence layer stores expires_at as
+		// text and the working-memory queries compare it lexicographically
+		// against datetime('now') (UTC). Storing local time (+0200 etc.)
+		// made expired working memories compare as not-yet-expired.
+		expiresAt.Time = m.ExpiresAt.UTC()
 		expiresAt.Valid = true
 	}
 

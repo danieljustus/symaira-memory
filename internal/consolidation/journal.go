@@ -134,8 +134,9 @@ func (eng *Engine) UndoLastConsolidation(ctx context.Context) (string, error) {
 		}
 	}
 
-	// Step 4: Mark the journal entry as undone.
-	if err := eng.database.MarkRunUndone(run.ID); err != nil {
+	// Step 4: Mark the journal entry as undone — inside the transaction so
+	// the single-connection SQLite driver does not deadlock.
+	if err := eng.database.MarkRunUndoneTx(tx, run.ID); err != nil {
 		return "", fmt.Errorf("failed to mark run %s as undone: %w", run.ID, err)
 	}
 
