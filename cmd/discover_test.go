@@ -184,7 +184,7 @@ func TestDiscoverBuildProvidersConfiguredTools(t *testing.T) {
 				"obsidian":  toolConfig("/vault/notes", "", nil),
 				"git":       toolConfig("/repo", "", map[string]string{"author": "alice"}),
 				"paperless": toolConfig("http://paperless.local:8000", "tok-123", map[string]string{"tag": "mem", "correspondent": "corr", "max_content": "500"}),
-				"github":    toolConfig("octo/repo", "ghp_secret", nil),
+				"github":    toolConfig("octo/repo", "placeholder-token-not-a-real-ghp", nil),
 			},
 		},
 	}
