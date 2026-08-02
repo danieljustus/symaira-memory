@@ -34,6 +34,8 @@ targets:
         CFBundleShortVersionString: "1.0.0"
         CFBundleVersion: "1"
         NSPrincipalClass: NSApplication
+    entitlements:
+      path: SymairaMemory-release.entitlements
     settings:
       base:
         CODE_SIGNING_ALLOWED: "NO"
