@@ -5,10 +5,11 @@ options:
 packages:
   SymairaAppKit:
     url: https://github.com/danieljustus/symaira-appkit
-    # 0.1.0 → 0.6.2: brings SymairaTypography / SymairaTextRole /
+    # 0.1.0 → 0.7.0: brings SymairaTypography / SymairaTextRole /
     # SymairaTextFieldStyle / SymairaFormSection / SymairaStatusDot for #441.
-    # (The typography work landed in 0.6.2, not 0.6.1.)
-    exactVersion: 0.6.2
+    # (The typography work landed in 0.7.0 — tag 0.6.2 never existed, which
+    # broke every GUI release build with "no versions match 0.6.2".)
+    exactVersion: 0.7.0
 
 targets:
   SymairaMemory:
