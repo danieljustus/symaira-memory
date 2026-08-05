@@ -14,12 +14,14 @@ import (
 
 // DB wraps the SQL connection.
 type DB struct {
-	conn             *sql.DB
-	quantizeBinary   bool // store sign-bit binary vectors on save
-	prefilterEnabled bool // use Hamming prefilter before cosine scoring
-	sparsemaxEnabled bool // apply sparsemax (α=2) to fused hybrid scores
-	perArmMultiplier int  // per-arm result cap multiplier before fusion
-	retrievalStats   *RetrievalStats
+	conn               *sql.DB
+	quantizeBinary     bool // store sign-bit binary vectors on save
+	prefilterEnabled   bool // use Hamming prefilter before cosine scoring
+	sparsemaxEnabled   bool // apply sparsemax (α=2) to fused hybrid scores
+	perArmMultiplier   int  // per-arm result cap multiplier before fusion
+	retrievalStats     *RetrievalStats
+	queryLogMaxEntries int           // query_log row cap (default 1000)
+	queryLogMaxAge     time.Duration // query_log max entry age; 0 = disabled
 }
 
 // Open initializes the SQLite database at the standard XDG path,
@@ -51,13 +53,26 @@ func Open(cfg *config.Config) (*DB, error) {
 	conn.SetMaxIdleConns(1)
 	conn.SetConnMaxLifetime(0)
 
+	queryLogMaxEntries := cfg.QueryLog.MaxEntries
+	if queryLogMaxEntries <= 0 {
+		queryLogMaxEntries = maxQueryLogEntries
+	}
+	var queryLogMaxAge time.Duration
+	if cfg.QueryLog.MaxAge != "" {
+		if d, err := time.ParseDuration(cfg.QueryLog.MaxAge); err == nil {
+			queryLogMaxAge = d
+		}
+	}
+
 	db := &DB{
-		conn:             conn,
-		quantizeBinary:   cfg.HybridSearch.QuantizeToBinary,
-		prefilterEnabled: cfg.HybridSearch.PrefilterEnabled,
-		sparsemaxEnabled: cfg.HybridSearch.SparsemaxEnabled,
-		perArmMultiplier: cfg.HybridSearch.PerArmMultiplier,
-		retrievalStats:   &RetrievalStats{},
+		conn:               conn,
+		quantizeBinary:     cfg.HybridSearch.QuantizeToBinary,
+		prefilterEnabled:   cfg.HybridSearch.PrefilterEnabled,
+		sparsemaxEnabled:   cfg.HybridSearch.SparsemaxEnabled,
+		perArmMultiplier:   cfg.HybridSearch.PerArmMultiplier,
+		retrievalStats:     &RetrievalStats{},
+		queryLogMaxEntries: queryLogMaxEntries,
+		queryLogMaxAge:     queryLogMaxAge,
 	}
 	if err := db.runMigrations(); err != nil {
 		conn.Close()

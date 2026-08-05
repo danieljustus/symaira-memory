@@ -26,6 +26,12 @@ func TestDefaults(t *testing.T) {
 	if cfg.Security.PIIEnabled == nil || !*cfg.Security.PIIEnabled {
 		t.Error("expected PII enabled by default")
 	}
+	if cfg.QueryLog.MaxEntries != 1000 {
+		t.Errorf("expected default query log max_entries 1000, got %d", cfg.QueryLog.MaxEntries)
+	}
+	if cfg.QueryLog.MaxAge != "" {
+		t.Errorf("expected default query log max_age empty, got %q", cfg.QueryLog.MaxAge)
+	}
 }
 
 func TestMergeFileOverrides(t *testing.T) {
