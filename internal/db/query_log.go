@@ -7,9 +7,17 @@ import (
 	"github.com/google/uuid"
 )
 
+// maxQueryLogEntries is the default row cap for the query log, applied when
+// no [query_log] retention policy is configured. It preserves the historical
+// behavior (issue #457).
+const maxQueryLogEntries = 1000
+
 // QueryLogEntry represents a single query log row.
 type QueryLogEntry struct {
 	ID         string    `json:"id"`
+	Actor      string    `json:"actor,omitempty"`   // client identity that issued the query
+	Scope      string    `json:"scope,omitempty"`   // scope the query ran in
+	Session    string    `json:"session,omitempty"` // session id carried by the request
 	Tool       string    `json:"tool"`
 	QueryText  string    `json:"query_text,omitempty"`
 	Params     string    `json:"params,omitempty"`
@@ -19,24 +27,24 @@ type QueryLogEntry struct {
 
 // QueryLogSummary holds aggregated stats for the query-log summary CLI.
 type QueryLogSummary struct {
-	TotalQueries  int              `json:"total_queries"`
-	ToolBreakdown map[string]int   `json:"tool_breakdown"`
-	RecentEntries []*QueryLogEntry `json:"recent_entries"`
-	PrunedCount   int              `json:"pruned_count,omitempty"`
+	TotalQueries   int              `json:"total_queries"`
+	ToolBreakdown  map[string]int   `json:"tool_breakdown"`
+	ActorBreakdown map[string]int   `json:"actor_breakdown"`
+	RecentEntries  []*QueryLogEntry `json:"recent_entries"`
+	PrunedCount    int              `json:"pruned_count,omitempty"`
 }
 
-const maxQueryLogEntries = 1000
-
-// LogQuery inserts a new query log entry and prunes old entries
-// when the table exceeds maxQueryLogEntries.
-func (db *DB) LogQuery(tool, queryText, params string, durationMs int64) error {
+// LogQuery inserts a new query log entry attributed to the given actor
+// (the client identity that issued the query), scope and session, then
+// prunes entries that exceed the configured retention policy.
+func (db *DB) LogQuery(actor, scope, session, tool, queryText, params string, durationMs int64) error {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
 	if _, err := db.conn.Exec(
-		`INSERT INTO query_log (id, tool, query_text, params, duration_ms, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		id, tool, nullStr(queryText), nullStr(params), durationMs, now,
+		`INSERT INTO query_log (id, actor, scope, session, tool, query_text, params, duration_ms, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, nullStr(actor), nullStr(scope), nullStr(session), tool, nullStr(queryText), nullStr(params), durationMs, now,
 	); err != nil {
 		return err
 	}
@@ -44,37 +52,71 @@ func (db *DB) LogQuery(tool, queryText, params string, durationMs int64) error {
 	return db.pruneQueryLog()
 }
 
-// pruneQueryLog removes the oldest entries when the table exceeds maxQueryLogEntries.
+// pruneQueryLog removes entries that exceed the configured retention policy:
+// the row cap (oldest first) and, when configured, entries older than the
+// max age. The row cap defaults to maxQueryLogEntries.
 func (db *DB) pruneQueryLog() error {
+	limit := db.effectiveQueryLogMaxEntries()
+
 	var count int
 	if err := db.conn.QueryRow("SELECT COUNT(*) FROM query_log").Scan(&count); err != nil {
 		return err
 	}
-	if count <= maxQueryLogEntries {
-		return nil
+	if count > limit {
+		excess := count - limit
+		if _, err := db.conn.Exec(
+			`DELETE FROM query_log WHERE id IN (
+				SELECT id FROM query_log ORDER BY created_at ASC LIMIT ?
+			)`, excess,
+		); err != nil {
+			return err
+		}
 	}
-	excess := count - maxQueryLogEntries
-	_, err := db.conn.Exec(
-		`DELETE FROM query_log WHERE id IN (
-			SELECT id FROM query_log ORDER BY created_at ASC LIMIT ?
-		)`, excess,
-	)
-	return err
+
+	if db.queryLogMaxAge > 0 {
+		cutoff := time.Now().UTC().Add(-db.queryLogMaxAge)
+		if _, err := db.conn.Exec(`DELETE FROM query_log WHERE created_at < ?`, cutoff); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// effectiveQueryLogMaxEntries returns the configured query log row cap,
+// falling back to maxQueryLogEntries when unset or invalid.
+func (db *DB) effectiveQueryLogMaxEntries() int {
+	if db.queryLogMaxEntries > 0 {
+		return db.queryLogMaxEntries
+	}
+	return maxQueryLogEntries
 }
 
 // GetQueryLogEntries returns the most recent query log entries.
 func (db *DB) GetQueryLogEntries(limit int) ([]*QueryLogEntry, error) {
+	return db.getQueryLogEntries(limit, "")
+}
+
+// getQueryLogEntries returns the most recent query log entries, optionally
+// narrowed to a single actor (empty actor means no filter).
+func (db *DB) getQueryLogEntries(limit int, actor string) ([]*QueryLogEntry, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	if limit > maxQueryLogEntries {
-		limit = maxQueryLogEntries
+	if limit > db.effectiveQueryLogMaxEntries() {
+		limit = db.effectiveQueryLogMaxEntries()
 	}
 
-	rows, err := db.conn.Query(
-		`SELECT id, tool, query_text, params, duration_ms, created_at
-		 FROM query_log ORDER BY created_at DESC LIMIT ?`, limit,
-	)
+	query := `SELECT id, actor, scope, session, tool, query_text, params, duration_ms, created_at
+	 FROM query_log`
+	var args []any
+	if actor != "" {
+		query += ` WHERE actor = ?`
+		args = append(args, actor)
+	}
+	query += ` ORDER BY created_at DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.conn.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -83,9 +125,18 @@ func (db *DB) GetQueryLogEntries(limit int) ([]*QueryLogEntry, error) {
 	var entries []*QueryLogEntry
 	for rows.Next() {
 		var e QueryLogEntry
-		var qt, p sql.NullString
-		if err := rows.Scan(&e.ID, &e.Tool, &qt, &p, &e.DurationMs, &e.CreatedAt); err != nil {
+		var a, sc, sess, qt, p sql.NullString
+		if err := rows.Scan(&e.ID, &a, &sc, &sess, &e.Tool, &qt, &p, &e.DurationMs, &e.CreatedAt); err != nil {
 			return nil, err
+		}
+		if a.Valid {
+			e.Actor = a.String
+		}
+		if sc.Valid {
+			e.Scope = sc.String
+		}
+		if sess.Valid {
+			e.Session = sess.String
 		}
 		if qt.Valid {
 			e.QueryText = qt.String
@@ -98,35 +149,73 @@ func (db *DB) GetQueryLogEntries(limit int) ([]*QueryLogEntry, error) {
 	return entries, nil
 }
 
-// GetQueryLogSummary aggregates query log data for the CLI summary.
-func (db *DB) GetQueryLogSummary(limit int) (*QueryLogSummary, error) {
+// GetQueryLogSummary aggregates query log data for the CLI summary. When
+// actor is non-empty the summary (total, tool and actor breakdowns, recent
+// entries) is narrowed to rows recorded for that actor.
+func (db *DB) GetQueryLogSummary(limit int, actor string) (*QueryLogSummary, error) {
+	where := ""
+	var args []any
+	if actor != "" {
+		where = " WHERE actor = ?"
+		args = append(args, actor)
+	}
+
 	var total int
-	if err := db.conn.QueryRow("SELECT COUNT(*) FROM query_log").Scan(&total); err != nil {
+	if err := db.conn.QueryRow("SELECT COUNT(*) FROM query_log"+where, args...).Scan(&total); err != nil {
 		return nil, err
 	}
 
 	summary := &QueryLogSummary{
-		TotalQueries:  total,
-		ToolBreakdown: make(map[string]int),
+		TotalQueries:   total,
+		ToolBreakdown:  make(map[string]int),
+		ActorBreakdown: make(map[string]int),
 	}
 
 	// Tool breakdown
-	rows, err := db.conn.Query("SELECT tool, COUNT(*) as cnt FROM query_log GROUP BY tool ORDER BY cnt DESC")
+	rows, err := db.conn.Query("SELECT tool, COUNT(*) as cnt FROM query_log"+where+" GROUP BY tool ORDER BY cnt DESC", args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var tool string
 		var cnt int
 		if err := rows.Scan(&tool, &cnt); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		summary.ToolBreakdown[tool] = cnt
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Actor breakdown. Rows written before the attribution migration have a
+	// NULL actor; they surface under an explicit "(unknown)" bucket.
+	rows, err = db.conn.Query("SELECT actor, COUNT(*) as cnt FROM query_log"+where+" GROUP BY actor ORDER BY cnt DESC", args...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var a sql.NullString
+		var cnt int
+		if err := rows.Scan(&a, &cnt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		key := "(unknown)"
+		if a.Valid && a.String != "" {
+			key = a.String
+		}
+		summary.ActorBreakdown[key] = cnt
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	// Recent entries
-	recent, err := db.GetQueryLogEntries(limit)
+	recent, err := db.getQueryLogEntries(limit, actor)
 	if err != nil {
 		return nil, err
 	}
@@ -136,14 +225,15 @@ func (db *DB) GetQueryLogSummary(limit int) (*QueryLogSummary, error) {
 }
 
 // QueryLogPruneCount returns how many entries would be pruned if the table
-// exceeds maxQueryLogEntries. Used by diagnostics/CLI.
+// exceeds the configured query log row cap. Used by diagnostics/CLI.
 func (db *DB) QueryLogPruneCount() (int, error) {
 	var count int
 	if err := db.conn.QueryRow("SELECT COUNT(*) FROM query_log").Scan(&count); err != nil {
 		return 0, err
 	}
-	if count <= maxQueryLogEntries {
+	limit := db.effectiveQueryLogMaxEntries()
+	if count <= limit {
 		return 0, nil
 	}
-	return count - maxQueryLogEntries, nil
+	return count - limit, nil
 }
