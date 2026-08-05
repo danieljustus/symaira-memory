@@ -68,3 +68,18 @@ require_profile = false          # Deny write access to JWT subjects with no sto
 
 - `false` (default): the request keeps default access, but a warning is logged (`JWT subject has no matching profile`). This preserves the existing behavior for setups that generate ad hoc tokens without maintaining a profile per subject.
 - `true`: write endpoints (`memory_set`, `delete`, `sync/apply`) are denied with a 403 for subjects without a stored profile. Read access is unaffected. A profile lookup failure (a real database error, not merely "not found") is always denied regardless of this setting — role enforcement fails closed rather than silently granting full access.
+
+### MCP Settings
+
+Configure MCP stdio server attribution in `~/.config/symmemory/config.toml`:
+
+```toml
+[mcp]
+client_id = ""   # Fixed attribution identity for MCP writes (created_by/updated_by).
+                 # When set, it wins over the client identity captured from the
+                 # initialize handshake. When empty (default), writes are attributed
+                 # to the handshake clientInfo (name/version, plus a per-host instance
+                 # id when the client sends one), falling back to "mcp".
+```
+
+The same override is available per invocation via `symmemory serve --client-id <id>` (or `SYMMEMORY_MCP_CLIENT_ID`), which takes precedence over the config file value.

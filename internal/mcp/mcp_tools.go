@@ -242,7 +242,8 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 	}
 
 	ttl := s.workingMemoryTTL
-	id, err := s.service.Set(args.Content, args.Scope, meta, args.SessionID, "mcp", entityNames, "mcp", args.Working, ttl)
+	actor := s.attributionActor()
+	id, err := s.service.Set(args.Content, args.Scope, meta, args.SessionID, actor, entityNames, actor, args.Working, ttl)
 	if err != nil {
 		return nil, fmt.Errorf("%s", err.Error())
 	}
@@ -718,7 +719,7 @@ func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) 
 				SourceRef:    args.SourceRef,
 				Verification: args.Verification,
 				Evidence:     args.Evidence,
-				CreatedBy:    "mcp",
+				CreatedBy:    s.attributionActor(),
 				ValidFrom:    validFrom,
 				ValidUntil:   validUntil,
 			}
@@ -738,7 +739,7 @@ func (s *Server) handleEntityRelate(ctx context.Context, input json.RawMessage) 
 			FromEntityID: fromEntity.ID,
 			ToEntityID:   toEntity.ID,
 			RelationType: args.Relation,
-			CreatedBy:    "mcp",
+			CreatedBy:    s.attributionActor(),
 			CreatedAt:    time.Now().UTC(),
 			ValidFrom:    validFrom,
 			ValidUntil:   validUntil,
