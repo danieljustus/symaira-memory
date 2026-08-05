@@ -26,12 +26,14 @@ var (
 	servePort     int
 	serveProfile  string
 	serveLogLevel string
+	serveClientID string
 )
 
 func init() {
 	serveCmd.Flags().IntVarP(&servePort, "port", "p", 0, "Port to listen on for HTTP REST API mode (default stdio)")
 	serveCmd.Flags().StringVar(&serveProfile, "profile", "", "Agent profile name to enforce (env: SYMMEMORY_PROFILE)")
 	serveCmd.Flags().StringVar(&serveLogLevel, "log-level", "", "Log level override: debug, info, warn, error (default from SYMMEMORY_LOG_LEVEL env)")
+	serveCmd.Flags().StringVar(&serveClientID, "client-id", "", "Fixed attribution identity for MCP writes (created_by/updated_by); overrides the client identity from the initialize handshake (env: SYMMEMORY_MCP_CLIENT_ID)")
 	rootCmd.AddCommand(serveCmd)
 }
 
@@ -78,6 +80,9 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 		}
 		server := mcp.NewServer(GetDB(), jwtProvider, Version, cfg)
 		server.SetProfile(profile)
+		if serveClientID != "" {
+			server.SetClientIDOverride(serveClientID)
+		}
 
 		if cfg != nil && cfg.Security.PIIEnabled != nil {
 			server.SetPIIEnabled(*cfg.Security.PIIEnabled)
@@ -98,10 +103,9 @@ server if a port is provided. This HTTP API daemon powers the browser extension.
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 
-			mcpSrv := server.MCPServer()
 			errCh := make(chan error, 1)
 			go func() {
-				errCh <- mcpSrv.ServeStdio(ctx)
+				errCh <- server.ServeStdio(ctx)
 			}()
 
 			select {
