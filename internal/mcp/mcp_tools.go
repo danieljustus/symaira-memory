@@ -106,7 +106,7 @@ func (s *Server) MCPServer() *mcpserver.Server {
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_search",
 		Description: "Perform a semantic vector similarity search on stored memories. Always use this tool at the start of a session or task to retrieve relevant past design decisions, user preferences, and project guidelines.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"profile":{"type":"string","description":"Optional context profile name for inherited scope resolution. When provided, searches across scopes defined by the profile in precedence order."},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"},"min_score":{"type":"number","description":"Optional minimum similarity score (0-1). Results below the threshold are dropped and the tool returns an explicit 'no confident match' marker instead of weak matches. Defaults to the search.min_score config value; 0 disables filtering."},"max_payload_bytes":{"type":"integer","description":"Optional maximum payload size in bytes for the search response. When exceeded, results are truncated to fit."},"cursor":{"type":"string","description":"Optional pagination cursor returned by a previous search/list response."},"from":{"type":"string","description":"Optional RFC3339 or YYYY-MM-DD timestamp: only return memories valid at or after this time (filters against valid_to column)"},"to":{"type":"string","description":"Optional RFC3339 or YYYY-MM-DD timestamp: only return memories valid at or before this time (filters against valid_from column)"}},"required":["query"]}`),
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"query":{"type":"string","description":"The natural language query or semantic term (e.g., 'database port' or 'language preference')"},"scope":{"type":"string","description":"Optional scope level filter ('global', 'project', 'agent', 'user', 'session')"},"session_id":{"type":"string","description":"Optional session ID recorded in the query log for attribution (e.g. the current chat/conversation session identifier)"},"profile":{"type":"string","description":"Optional context profile name for inherited scope resolution. When provided, searches across scopes defined by the profile in precedence order."},"limit":{"type":"integer","description":"Optional maximum number of search results to return (default 5)"},"entity":{"type":"string","description":"Optional entity name filter — only returns memories linked to this entity"},"min_confidence":{"type":"string","description":"Optional minimum confidence level filter ('low', 'medium', 'high')"},"verification":{"type":"string","description":"Optional verification status filter ('verified', 'unverified', 'stale')"},"exclude_superseded":{"type":"boolean","description":"Optional exclude memories that have been superseded (default false)"},"max_age":{"type":"string","description":"Optional maximum memory age (e.g. '7d', '30d', '1y')"},"max_sensitivity":{"type":"string","description":"Optional maximum sensitivity level ('public', 'internal', 'confidential', 'secret')"},"min_sharing_level":{"type":"string","description":"Optional minimum sharing level ('private', 'team', 'org', 'public')"},"client_id":{"type":"string","description":"Optional client ID for access control filtering"},"with_evidence":{"type":"boolean","description":"Optional: include grounded evidence spans for each result, if any (default false)"},"min_score":{"type":"number","description":"Optional minimum similarity score (0-1). Results below the threshold are dropped and the tool returns an explicit 'no confident match' marker instead of weak matches. Defaults to the search.min_score config value; 0 disables filtering."},"max_payload_bytes":{"type":"integer","description":"Optional maximum payload size in bytes for the search response. When exceeded, results are truncated to fit."},"cursor":{"type":"string","description":"Optional pagination cursor returned by a previous search/list response."},"from":{"type":"string","description":"Optional RFC3339 or YYYY-MM-DD timestamp: only return memories valid at or after this time (filters against valid_to column)"},"to":{"type":"string","description":"Optional RFC3339 or YYYY-MM-DD timestamp: only return memories valid at or before this time (filters against valid_from column)"}},"required":["query"]}`),
 
 		Handler: s.handleMemorySearch,
 	},
@@ -154,8 +154,8 @@ func (s *Server) MCPServer() *mcpserver.Server {
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "query_log",
-		Description: "Return a summary of recent MCP tool calls (query log). Shows tool breakdown and recent entries. Read-only, no side effects.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","description":"Optional maximum number of recent entries to return (default 20)"}}}`),
+		Description: "Return a summary of recent MCP tool calls (query log). Shows tool, actor and per-actor breakdown plus recent entries. Read-only, no side effects.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","description":"Optional maximum number of recent entries to return (default 20)"},"actor":{"type":"string","description":"Optional actor (client identity) filter — narrows the summary and recent entries to queries recorded for this actor"}}}`),
 		Handler:     s.handleQueryLog,
 	},
 	)
@@ -255,6 +255,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 	var args struct {
 		Query             string  `json:"query"`
 		Scope             string  `json:"scope"`
+		SessionID         string  `json:"session_id"`
 		Profile           string  `json:"profile"`
 		Limit             int     `json:"limit"`
 		Entity            string  `json:"entity"`
@@ -406,14 +407,14 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 			before := len(searchResults)
 			searchResults = db.FilterByMinScore(searchResults, minScore)
 			if len(searchResults) == 0 && before > 0 {
-				s.service.LogQuery("memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
+				s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
 				return fmt.Sprintf("No confident match: all %d result(s) scored below the min_score threshold %.3f.", before, minScore), nil
 			}
 		}
 	}
 
 	if len(searchResults) == 0 {
-		s.service.LogQuery("memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
+		s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
 		return "No relevant memories found.", nil
 	}
 
@@ -448,7 +449,7 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		pageInfo.Truncated = len(compact) < len(searchResults) || (args.MaxPayloadBytes > 0 && len(compact) != len(searchResults))
 	}
 
-	s.service.LogQuery("memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
+	s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
 
 	data, _ := json.MarshalIndent(pageInfo, "", "  ")
 	return string(data), nil
@@ -489,7 +490,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 			return mcpError("Failed to list memories as of the given time", err)
 		}
 		if len(memories) == 0 {
-			s.service.LogQuery("memory_list", "as_of", args.AsOf, time.Since(startTime).Milliseconds())
+			s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", "as_of", args.AsOf, time.Since(startTime).Milliseconds())
 			return "No memories were valid at that point in time.", nil
 		}
 
@@ -514,7 +515,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 		}
 
 		pageInfo := buildMemoryListPage(memories, len(memories) < limit)
-		s.service.LogQuery("memory_list", "as_of", args.AsOf, time.Since(startTime).Milliseconds())
+		s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", "as_of", args.AsOf, time.Since(startTime).Milliseconds())
 		data, _ := json.MarshalIndent(pageInfo, "", "  ")
 		return string(data), nil
 	}
@@ -546,7 +547,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 	}
 
 	if len(memories) == 0 {
-		s.service.LogQuery("memory_list", queryText, args.Scope, time.Since(startTime).Milliseconds())
+		s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", queryText, args.Scope, time.Since(startTime).Milliseconds())
 		return "Memory store is empty.", nil
 	}
 
@@ -556,7 +557,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 	}
 
 	pageInfo := buildMemoryListPage(memories, len(memories) < limit)
-	s.service.LogQuery("memory_list", queryText, args.Scope, time.Since(startTime).Milliseconds())
+	s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", queryText, args.Scope, time.Since(startTime).Milliseconds())
 
 	data, _ := json.MarshalIndent(pageInfo, "", "  ")
 	return string(data), nil
@@ -835,10 +836,12 @@ func parseDuration(s string) (time.Duration, error) {
 	}
 }
 
-// handleQueryLog returns the query log summary with tool breakdown and recent entries.
+// handleQueryLog returns the query log summary with tool and actor
+// breakdowns and recent entries, optionally narrowed to one actor.
 func (s *Server) handleQueryLog(ctx context.Context, input json.RawMessage) (any, error) {
 	var args struct {
-		Limit int `json:"limit"`
+		Limit int    `json:"limit"`
+		Actor string `json:"actor"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'query_log': failed to parse arguments: %w", err)
@@ -850,7 +853,7 @@ func (s *Server) handleQueryLog(ctx context.Context, input json.RawMessage) (any
 		args.Limit = 100
 	}
 
-	summary, err := s.service.GetQueryLogSummary(args.Limit)
+	summary, err := s.service.GetQueryLogSummary(args.Limit, args.Actor)
 	if err != nil {
 		return mcpError("Failed to retrieve query log", err)
 	}
