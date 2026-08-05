@@ -13,24 +13,32 @@ import (
 var (
 	queryLogLimit int
 	queryLogJSON  bool
+	queryLogActor string
 )
 
 func init() {
 	queryLogCmd.Flags().IntVarP(&queryLogLimit, "limit", "n", 20, "Number of recent entries to show")
 	queryLogCmd.Flags().BoolVar(&queryLogJSON, "json", false, "Output raw JSON instead of table")
+	queryLogCmd.Flags().StringVar(&queryLogActor, "actor", "", "Only show entries recorded for this actor (client identity)")
 	rootCmd.AddCommand(queryLogCmd)
 }
 
 var queryLogCmd = &cobra.Command{
 	Use:   "query-log",
 	Short: "Show a summary of recent MCP tool calls (query log)",
-	Long: `Display the query log summary — tool call breakdown and recent entries.
-The log is bounded at 1000 entries; oldest entries are pruned automatically.`,
+	Long: `Display the query log summary — tool and actor breakdowns and recent entries.
+Each entry records which client asked (actor), in which scope and session.
+The log is bounded; the cap (default 1000 entries) and an optional max age
+are configured under the [query_log] section. Oldest entries are pruned
+automatically on write.`,
 	Example: `  # Show query log summary
   symmemory query-log
 
   # Show more recent entries
   symmemory query-log --limit 50
+
+  # Only show entries recorded for a specific client
+  symmemory query-log --actor "claude/1.0"
 
   # Output as JSON
   symmemory query-log --json`,
@@ -40,7 +48,7 @@ The log is bounded at 1000 entries; oldest entries are pruned automatically.`,
 			return exitcodes.Wrapf(nil, exitcodes.ExitSoftware, exitcodes.KindInternal, "database not initialized")
 		}
 
-		summary, err := db.GetQueryLogSummary(queryLogLimit)
+		summary, err := db.GetQueryLogSummary(queryLogLimit, queryLogActor)
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to get query log summary")
 		}
@@ -59,10 +67,22 @@ The log is bounded at 1000 entries; oldest entries are pruned automatically.`,
 		if len(summary.ToolBreakdown) > 0 {
 			fmt.Println("Tool Breakdown:")
 			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "  Tool\tCount")
-			fmt.Fprintln(tw, "  ----\t-----")
+			fmt.Fprintln(tw, "  Tool	Count")
+			fmt.Fprintln(tw, "  ----	-----")
 			for _, tool := range sortedKeys(summary.ToolBreakdown) {
-				fmt.Fprintf(tw, "  %s\t%d\n", tool, summary.ToolBreakdown[tool])
+				fmt.Fprintf(tw, "  %s	%d\n", tool, summary.ToolBreakdown[tool])
+			}
+			_ = tw.Flush()
+			fmt.Println()
+		}
+
+		if len(summary.ActorBreakdown) > 0 {
+			fmt.Println("Actor Breakdown:")
+			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+			fmt.Fprintln(tw, "  Actor	Count")
+			fmt.Fprintln(tw, "  -----	-----")
+			for _, actor := range sortedKeys(summary.ActorBreakdown) {
+				fmt.Fprintf(tw, "  %s	%d\n", actor, summary.ActorBreakdown[actor])
 			}
 			_ = tw.Flush()
 			fmt.Println()
@@ -71,15 +91,15 @@ The log is bounded at 1000 entries; oldest entries are pruned automatically.`,
 		if len(summary.RecentEntries) > 0 {
 			fmt.Printf("Recent Entries (last %d):\n", len(summary.RecentEntries))
 			tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-			fmt.Fprintln(tw, "  Tool\tQuery\tDuration\tTimestamp")
-			fmt.Fprintln(tw, "  ----\t-----\t--------\t---------")
+			fmt.Fprintln(tw, "  Actor	Tool	Query	Duration	Timestamp")
+			fmt.Fprintln(tw, "  -----	----	-----	--------	---------")
 			for _, e := range summary.RecentEntries {
 				query := e.QueryText
 				if len(query) > 60 {
 					query = query[:60] + "..."
 				}
 				ts := e.CreatedAt.Format("15:04:05")
-				fmt.Fprintf(tw, "  %s\t%s\t%vms\t%s\n", e.Tool, query, e.DurationMs, ts)
+				fmt.Fprintf(tw, "  %s	%s	%s	%vms	%s\n", e.Actor, e.Tool, query, e.DurationMs, ts)
 			}
 			_ = tw.Flush()
 		}

@@ -37,10 +37,10 @@ func TestQueryLogCmdJSONOutput(t *testing.T) {
 	SetDB(database)
 	t.Cleanup(func() { SetDB(nil) })
 
-	if err := database.LogQuery("memory_search", "hello world", "scope-a", 12); err != nil {
+	if err := database.LogQuery("mcp", "", "", "memory_search", "hello world", "scope-a", 12); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("entity_resolve", "alice", "scope-b", 5); err != nil {
+	if err := database.LogQuery("mcp", "", "", "entity_resolve", "alice", "scope-b", 5); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -77,10 +77,10 @@ func TestQueryLogCmdTableOutput(t *testing.T) {
 	SetDB(database)
 	t.Cleanup(func() { SetDB(nil) })
 
-	if err := database.LogQuery("zeta_tool", "q", "s", 1); err != nil {
+	if err := database.LogQuery("mcp", "", "", "zeta_tool", "q", "s", 1); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("alpha_tool", "q", "s", 2); err != nil {
+	if err := database.LogQuery("mcp", "", "", "alpha_tool", "q", "s", 2); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -100,5 +100,102 @@ func TestQueryLogCmdTableOutput(t *testing.T) {
 	}
 	if strings.Index(out, "alpha_tool") > strings.Index(out, "zeta_tool") {
 		t.Errorf("expected alpha_tool before zeta_tool (sorted), got:\n%s", out)
+	}
+}
+
+// TestQueryLogCmdActorFilter verifies the --actor flag narrows the summary
+// (total, breakdowns, recent entries) to one client identity.
+func TestQueryLogCmdActorFilter(t *testing.T) {
+	database := helperTestDB(t)
+	SetConfig(config.Defaults())
+	SetDB(database)
+	t.Cleanup(func() { SetDB(nil) })
+
+	if err := database.LogQuery("alice", "project", "s1", "memory_search", "q1", "{}", 1); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+	if err := database.LogQuery("alice", "project", "s2", "memory_search", "q2", "{}", 2); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+	if err := database.LogQuery("bob", "global", "", "memory_get", "", "", 3); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+
+	queryLogJSON = true
+	queryLogLimit = 10
+	queryLogActor = "alice"
+	t.Cleanup(func() { queryLogJSON = false; queryLogActor = "" })
+
+	out := captureCmdOutput(func() {
+		if err := queryLogCmd.RunE(queryLogCmd, nil); err != nil {
+			t.Fatalf("RunE: %v", err)
+		}
+	})
+
+	var summary db.QueryLogSummary
+	if err := json.Unmarshal([]byte(out), &summary); err != nil {
+		t.Fatalf("invalid JSON output %q: %v", out, err)
+	}
+	if summary.TotalQueries != 2 {
+		t.Errorf("TotalQueries = %d, want 2 (filtered)", summary.TotalQueries)
+	}
+	if summary.ToolBreakdown["memory_search"] != 2 || len(summary.ToolBreakdown) != 1 {
+		t.Errorf("ToolBreakdown = %v, want {memory_search:2} (filtered)", summary.ToolBreakdown)
+	}
+	if summary.ActorBreakdown["alice"] != 2 || len(summary.ActorBreakdown) != 1 {
+		t.Errorf("ActorBreakdown = %v, want {alice:2} (filtered)", summary.ActorBreakdown)
+	}
+	if len(summary.RecentEntries) != 2 {
+		t.Fatalf("RecentEntries len = %d, want 2 (filtered)", len(summary.RecentEntries))
+	}
+	for _, e := range summary.RecentEntries {
+		if e.Actor != "alice" {
+			t.Errorf("recent entry actor = %q, want alice", e.Actor)
+		}
+	}
+}
+
+// TestQueryLogCmdActorBreakdownInTable verifies the table output includes the
+// per-actor breakdown section and actor column in recent entries.
+func TestQueryLogCmdActorBreakdownInTable(t *testing.T) {
+	database := helperTestDB(t)
+	SetConfig(config.Defaults())
+	SetDB(database)
+	t.Cleanup(func() { SetDB(nil) })
+
+	if err := database.LogQuery("alice", "", "", "memory_search", "q1", "", 1); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+	if err := database.LogQuery("bob", "", "", "memory_get", "", "", 2); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+
+	queryLogJSON = false
+	queryLogLimit = 10
+	queryLogActor = ""
+	t.Cleanup(func() { queryLogActor = "" })
+
+	out := captureCmdOutput(func() {
+		if err := queryLogCmd.RunE(queryLogCmd, nil); err != nil {
+			t.Fatalf("RunE: %v", err)
+		}
+	})
+
+	for _, want := range []string{"Actor Breakdown:", "alice", "bob"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in table output, got:\n%s", want, out)
+		}
+	}
+	// Recent entries rows carry the actor in the leading column (tabwriter
+	// pads columns with spaces, so match actor + tool on the same line).
+	foundRow := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "alice") && strings.Contains(line, "memory_search") {
+			foundRow = true
+			break
+		}
+	}
+	if !foundRow {
+		t.Errorf("expected recent entry row with actor and tool, got:\n%s", out)
 	}
 }
