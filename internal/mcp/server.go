@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
@@ -40,6 +41,14 @@ type Server struct {
 	rateLimiter      *RateLimiter
 	workingMemoryTTL time.Duration
 	bindAddr         string
+
+	// clientMu guards the MCP client attribution state below.
+	clientMu sync.Mutex
+	// clientIdentity is captured from the initialize handshake clientInfo.
+	clientIdentity ClientIdentity
+	// overrideClientID, when non-empty, pins attribution and wins over the
+	// handshake identity (serve --client-id / [mcp] client_id config).
+	overrideClientID string
 }
 
 func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version string, cfg *config.Config) *Server {
@@ -68,6 +77,7 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version strin
 		rateLimiter:      NewRateLimiter(DefaultRateLimitConfig(), cfg.Security.TrustedProxies...),
 		workingMemoryTTL: workingTTL,
 		bindAddr:         "127.0.0.1:8787",
+		overrideClientID: cfg.MCP.ClientID,
 	}
 }
 
