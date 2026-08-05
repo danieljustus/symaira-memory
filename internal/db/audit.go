@@ -2,7 +2,9 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +14,22 @@ import (
 const (
 	EventRedaction = "redaction"
 )
+
+// auditLogEnabled gates all audit writes. It defaults to enabled and is
+// mirrored from the audit_log_enabled config value by the CLI and MCP entry
+// points. When disabled, audit writes are skipped without error so that no
+// operation ever fails because of audit logging.
+var auditLogEnabled atomic.Bool
+
+func init() {
+	auditLogEnabled.Store(true)
+}
+
+// SetAuditLogEnabled toggles whether audit events are persisted. A disabled
+// audit log never fails an operation: LogAudit and its callers return nil.
+func (db *DB) SetAuditLogEnabled(enabled bool) {
+	auditLogEnabled.Store(enabled)
+}
 
 type AuditEvent struct {
 	ID        string    `json:"id"`
@@ -25,6 +43,9 @@ type AuditEvent struct {
 }
 
 func (db *DB) LogAudit(action, memoryID, scope, session, actor, detail string) error {
+	if !auditLogEnabled.Load() {
+		return nil
+	}
 	if _, err := db.conn.Exec(
 		`INSERT INTO audit_log (id, action, memory_id, scope, session, actor, detail, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -83,7 +104,10 @@ func (db *DB) GetAuditLogs(action string, limit int) ([]*AuditEvent, error) {
 	return events, nil
 }
 
-func (db *DB) PurgeExpiredMemories(ttl time.Duration) (int64, error) {
+// PurgeExpiredMemories removes session-scoped memories older than the TTL
+// and records a "purge" audit event for the batch. actor identifies the
+// operator that requested the purge.
+func (db *DB) PurgeExpiredMemories(ttl time.Duration, actor string) (int64, error) {
 	cutoff := time.Now().UTC().Add(-ttl)
 	result, err := db.conn.Exec(
 		"DELETE FROM memories WHERE scope = 'session' AND created_at < ? AND consolidation_status != 'archived'",
@@ -92,7 +116,14 @@ func (db *DB) PurgeExpiredMemories(ttl time.Duration) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	n, err := result.RowsAffected()
+	if err != nil {
+		return n, err
+	}
+	if n > 0 {
+		_ = db.LogAudit("purge", "", "session", "", actor, fmt.Sprintf("purged=%d", n))
+	}
+	return n, nil
 }
 
 func (db *DB) PurgeExpiredSessions(ttl time.Duration) (int64, error) {
@@ -107,7 +138,10 @@ func (db *DB) PurgeExpiredSessions(ttl time.Duration) (int64, error) {
 	return result.RowsAffected()
 }
 
-func (db *DB) PurgeByScope(scope string) (int64, error) {
+// PurgeByScope removes all non-archived memories in a scope and records a
+// "purge" audit event for the batch. actor identifies the operator that
+// requested the purge.
+func (db *DB) PurgeByScope(scope, actor string) (int64, error) {
 	result, err := db.conn.Exec(
 		"DELETE FROM memories WHERE scope = ? AND consolidation_status != 'archived'",
 		scope,
@@ -115,16 +149,46 @@ func (db *DB) PurgeByScope(scope string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return result.RowsAffected()
+	n, _ := result.RowsAffected()
+	if n > 0 {
+		_ = db.LogAudit("purge", "", scope, "", actor, fmt.Sprintf("purged=%d", n))
+	}
+	return n, nil
 }
 
-func (db *DB) PurgeByID(id string) (bool, error) {
+// PurgeByID removes a single memory by ID and records a "purge" audit event
+// carrying the memory's scope and session at the time of the purge. actor
+// identifies the operator that requested the purge.
+func (db *DB) PurgeByID(id, actor string) (bool, error) {
+	var scope, createdSession sql.NullString
+	err := db.conn.QueryRow("SELECT scope, created_session FROM memories WHERE id = ?", id).Scan(&scope, &createdSession)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
 	result, err := db.conn.Exec("DELETE FROM memories WHERE id = ?", id)
 	if err != nil {
 		return false, err
 	}
 	n, _ := result.RowsAffected()
+	if n > 0 {
+		_ = db.LogAudit("purge", id, scope.String, createdSession.String, actor, "")
+	}
 	return n > 0, nil
+}
+
+// PurgeExpiredAuditLogs deletes audit events older than the retention
+// window. It is the audit-side counterpart of the memory purge operations
+// and honors the audit_retention config value.
+func (db *DB) PurgeExpiredAuditLogs(retention time.Duration) (int64, error) {
+	cutoff := time.Now().UTC().Add(-retention)
+	result, err := db.conn.Exec("DELETE FROM audit_log WHERE created_at < ?", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func nullStr(s string) interface{} {

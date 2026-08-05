@@ -92,6 +92,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
+	s.ensureAuditLogConfig()
 	payload := payloadFromContext(r.Context())
 	if r.Method != "POST" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
@@ -256,6 +257,7 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
+	s.ensureAuditLogConfig()
 	payload := payloadFromContext(r.Context())
 	if r.Method != "POST" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
@@ -319,7 +321,7 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_ = s.service.LogAudit("sync.apply", "", "", "", actor,
+	_ = s.service.LogAudit("sync", "", "", "", actor,
 		fmt.Sprintf("applied=%d skipped=%d deleted=%d invalidScope=%d invalidID=%d", applied, skipped, deleted, skippedInvalidScope, skippedInvalidID))
 
 	w.Header().Set("Content-Type", "application/json")
@@ -431,6 +433,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
+	s.ensureAuditLogConfig()
 	if r.Method != "DELETE" && r.Method != "POST" {
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 		return
@@ -487,6 +490,15 @@ func (s *Server) handleEntities(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{"entities": entities})
+}
+
+// ensureAuditLogConfig mirrors the audit_log_enabled config value onto the
+// database audit gate so every MCP/HTTP mutation path honors it. It is
+// idempotent and safe to call on each mutation request.
+func (s *Server) ensureAuditLogConfig() {
+	if s.cfg != nil {
+		s.service.db.SetAuditLogEnabled(s.cfg.Retention.AuditLogEnabled)
+	}
 }
 
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {

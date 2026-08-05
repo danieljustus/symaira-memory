@@ -23,6 +23,19 @@ var (
 	setWorking  bool
 )
 
+// applyAuditConfig mirrors the audit_log_enabled setting from the loaded
+// configuration onto the database audit gate so CLI mutations honor it. A
+// nil config (tests, unusual entry points) leaves the default (enabled).
+func applyAuditConfig() {
+	cfg := GetConfig()
+	if cfg == nil {
+		return
+	}
+	if database := GetDB(); database != nil {
+		database.SetAuditLogEnabled(cfg.Retention.AuditLogEnabled)
+	}
+}
+
 func init() {
 	setCmd.Flags().StringVarP(&setValue, "value", "v", "", "Content/fact text of the memory to save")
 	setCmd.Flags().StringVarP(&setScope, "scope", "s", "global", "Scope level: global, project, agent, user, session")
@@ -51,6 +64,8 @@ Automatically triggers embedding generation, PII redaction, and project scope de
   symmemory set --value "Alice prefers dark mode in all applications."`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyAuditConfig()
+
 		content := setValue
 		if len(args) > 0 {
 			if setValue != "" {
