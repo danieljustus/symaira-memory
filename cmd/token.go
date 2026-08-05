@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-corekit/exitcodes"
@@ -18,6 +19,7 @@ var (
 func init() {
 	tokenCmd.AddCommand(tokenGenCmd)
 	tokenCmd.AddCommand(tokenVerifyCmd)
+	tokenCmd.AddCommand(tokenRevokeCmd)
 
 	tokenGenCmd.Flags().StringVarP(&tokenSubject, "subject", "s", "extension", "Subject/client identity for this token")
 	tokenGenCmd.Flags().IntVarP(&tokenDuration, "duration", "d", 72, "Token validity duration in hours (default 72h)")
@@ -89,6 +91,42 @@ var tokenVerifyCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "  ⚠ No profile found for subject %q — default role applies\n", payload.Subject)
 			}
 		}
+		return nil
+	},
+}
+
+var tokenRevokeCmd = &cobra.Command{
+	Use:   "revoke [token-or-jti]",
+	Short: "Revoke a JWT token so it can no longer be used",
+	Long:  `Revoke a JWT token by passing either the full token value or its jti. The revocation takes effect immediately in memory and is persisted to the revocation store when a database is available.`,
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		arg := strings.TrimSpace(args[0])
+		if arg == "" {
+			return exitcodes.Wrapf(fmt.Errorf("token or jti is required"), exitcodes.ExitData, exitcodes.KindValidation, "invalid argument")
+		}
+
+		provider, err := security.NewJWTProvider(GetConfig(), GetDB())
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to initialize JWT provider")
+		}
+
+		jti := arg
+		if strings.Contains(arg, ".") {
+			// A full JWT was passed — extract its jti claim without requiring
+			// signature verification, so expired or invalid tokens can still
+			// be revoked by value.
+			jti, err = security.ExtractJTI(arg)
+			if err != nil {
+				return exitcodes.Wrapf(err, exitcodes.ExitData, exitcodes.KindValidation, "failed to parse token")
+			}
+		}
+
+		if err := provider.RevokeToken(jti); err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "token revoked in memory but persistence failed")
+		}
+
+		fmt.Printf("✅ Token revoked (jti: %s). It can no longer be used to authenticate.\n", jti)
 		return nil
 	},
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -27,6 +28,57 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.Stats())
+}
+
+// handleTokenRevoke revokes a JWT token by its jti (or by full token value)
+// so it can no longer be used to authenticate. The revocation is applied in
+// memory immediately; a persistence failure is reported as a 500 with a clear
+// message rather than silently swallowed, since the in-memory fallback alone
+// does not survive a daemon restart.
+func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
+		return
+	}
+
+	var args struct {
+		Token string `json:"token"`
+		JTI   string `json:"jti"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&args); err != nil {
+		writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "Bad request body", err)
+		return
+	}
+
+	jti := strings.TrimSpace(args.JTI)
+	if jti == "" && strings.TrimSpace(args.Token) != "" {
+		extracted, err := security.ExtractJTI(strings.TrimSpace(args.Token))
+		if err != nil {
+			writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "Invalid token value", err)
+			return
+		}
+		jti = extracted
+	}
+	if jti == "" {
+		writeJSONError(w, http.StatusBadRequest, CodeInvalidRequest, "either 'token' or 'jti' is required", nil)
+		return
+	}
+
+	if s.jwts == nil {
+		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "token revocation unavailable: no JWT provider configured", nil)
+		return
+	}
+
+	if err := s.jwts.RevokeToken(jti); err != nil {
+		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "token revoked in memory but persistence failed", err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "revoked",
+		"jti":    jti,
+	})
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {

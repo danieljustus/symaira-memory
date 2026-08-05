@@ -1,6 +1,7 @@
 package security
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -114,13 +115,110 @@ func TestJWTRevocation(t *testing.T) {
 		t.Fatalf("token should be valid before revocation: %v", err)
 	}
 
-	provider.RevokeToken(payload.JWTID)
+	if err := provider.RevokeToken(payload.JWTID); err != nil {
+		t.Fatalf("RevokeToken should succeed with in-memory store: %v", err)
+	}
 
 	_, err = provider.VerifyToken(token)
 	if err == nil {
 		t.Errorf("verification should fail after revocation")
 	} else if !strings.Contains(err.Error(), "revoked") {
 		t.Errorf("expected revocation error, got: %v", err)
+	}
+}
+
+// failingRevocationStore is a RevocationStore whose persistence always fails,
+// used to prove RevokeToken propagates the store error instead of silently
+// swallowing it while still applying the in-memory revocation.
+type failingRevocationStore struct{}
+
+func (failingRevocationStore) RevokeToken(jti string) error {
+	return errors.New("test store failure: disk full")
+}
+
+func (failingRevocationStore) IsTokenRevoked(jti string) (bool, error) {
+	return false, nil
+}
+
+func TestJWTRevocationStoreErrorPropagates(t *testing.T) {
+	provider := jwtProviderWithStore(t, failingRevocationStore{}, t.TempDir())
+
+	token, err := provider.GenerateToken("agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+	payload, err := provider.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("token should be valid before revocation: %v", err)
+	}
+
+	err = provider.RevokeToken(payload.JWTID)
+	if err == nil {
+		t.Fatal("expected RevokeToken to propagate the persistence error")
+	}
+	if !strings.Contains(err.Error(), "failed to persist token revocation") {
+		t.Errorf("expected persistence failure error, got: %v", err)
+	}
+
+	// The in-memory fallback must still have taken effect.
+	_, err = provider.VerifyToken(token)
+	if err == nil {
+		t.Errorf("verification should fail after revocation even when persistence fails")
+	} else if !strings.Contains(err.Error(), "revoked") {
+		t.Errorf("expected revocation error, got: %v", err)
+	}
+}
+
+func TestJWTRevocationPersistsAcrossProviders(t *testing.T) {
+	database, dir := openTestDB(t)
+
+	providerA := jwtProviderWithStore(t, database, dir)
+	token, err := providerA.GenerateToken("agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+	payload, err := providerA.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("token should be valid before revocation: %v", err)
+	}
+
+	if err := providerA.RevokeToken(payload.JWTID); err != nil {
+		t.Fatalf("RevokeToken with persistent store failed: %v", err)
+	}
+
+	// A fresh provider backed by the same database must reject the token.
+	providerB := jwtProviderWithStore(t, database, dir)
+	_, err = providerB.VerifyToken(token)
+	if err == nil {
+		t.Errorf("verification should fail after persistent revocation")
+	} else if !strings.Contains(err.Error(), "revoked") {
+		t.Errorf("expected revocation error, got: %v", err)
+	}
+}
+
+func TestExtractJTI(t *testing.T) {
+	provider := jwtProviderWithSecret(t, "extract-jti-test-secret")
+	token, err := provider.GenerateToken("agent", 10*time.Minute)
+	if err != nil {
+		t.Fatalf("failed to generate token: %v", err)
+	}
+	payload, err := provider.VerifyToken(token)
+	if err != nil {
+		t.Fatalf("failed to verify token: %v", err)
+	}
+
+	jti, err := ExtractJTI(token)
+	if err != nil {
+		t.Fatalf("ExtractJTI failed on a valid token: %v", err)
+	}
+	if jti != payload.JWTID {
+		t.Errorf("expected jti %q, got %q", payload.JWTID, jti)
+	}
+
+	for _, bad := range []string{"", "not-a-jwt", "only.two.parts", "a.b.c.d", "abc..def"} {
+		if _, err := ExtractJTI(bad); err == nil {
+			t.Errorf("expected ExtractJTI to reject %q", bad)
+		}
 	}
 }
 
