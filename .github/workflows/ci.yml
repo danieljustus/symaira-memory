@@ -96,8 +96,6 @@ jobs:
       #     test helpers or init-only paths that deadcode cannot trace
       #   - cmd/norace.go: raceEnabled — purpose-built stub for non-race
       #     builds
-      #   - internal/consolidation/linker.go — whole file is pre-allocated
-      #     API surface not yet consumed by cmd/
       #
       # The `unused` linter in golangci-lint (run in the Lint job) provides
       # stricter, more reliable coverage. This step catches cases the linter
