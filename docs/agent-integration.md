@@ -24,6 +24,21 @@ Running the following command displays a ready-to-use configuration block custom
 symmemory mcp-config
 ```
 
+### One-command wiring (`symmemory hook`)
+
+The `hook` command family generates and optionally installs the MCP server registration for the supported host clients. The config block is always printed to stdout; `--merge` writes it into the client's config file idempotently (unrelated keys are never touched):
+
+```bash
+symmemory hook --list                    # list supported clients
+symmemory hook codex --merge             # ~/.codex/config.toml ([mcp_servers] section)
+symmemory hook opencode --merge          # opencode.json in the project root (mcp section)
+symmemory hook cursor --merge            # ~/.cursor/mcp.json (mcpServers)
+symmemory hook claude-desktop --merge    # claude_desktop_config.json (mcpServers)
+symmemory hook vscode --merge            # .vscode/mcp.json in the project root (mcpServers)
+```
+
+Every client is wired to the same server invocation (`<binary> serve`, with `--profile <name>` if `--profile` is passed), so all hosts talk to the same memory database. Use `--config-path` to override the target file.
+
 ---
 
 ## 📂 Claude Desktop Integration

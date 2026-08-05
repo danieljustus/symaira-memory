@@ -136,6 +136,27 @@ cp skills/symmemory/SKILL.md ~/.claude/skills/
 
 Run `symmemory mcp-config` to print ready-to-paste configuration blocks for Claude Desktop, Cursor, and VS Code. Run `symmemory instructions` to print the full agent integration guide. For detailed setup guides covering each host, browser extension installation, and optimal agent system prompts, see [docs/agent-integration.md](docs/agent-integration.md).
 
+### One-command MCP wiring
+
+`symmemory hook` generates and optionally installs the MCP server registration for your host client. The config block is always printed to stdout; `--merge` writes it into the client's config file idempotently (unrelated keys are never touched).
+
+```bash
+# List supported clients and their config file locations
+symmemory hook --list
+
+# Print the registration block for a client
+symmemory hook codex
+
+# Print and install it into the client's config file
+symmemory hook codex --merge
+symmemory hook opencode --merge
+symmemory hook cursor --merge
+symmemory hook claude-desktop --merge
+symmemory hook vscode --merge
+```
+
+Supported clients: `codex` (`~/.codex/config.toml`), `opencode` (`opencode.json` in the project root), `cursor` (`~/.cursor/mcp.json`), `claude-desktop` (`~/Library/Application Support/Claude/claude_desktop_config.json`), and `vscode` (`.vscode/mcp.json` in the project root). Each host is wired to the same server invocation — `<binary> serve` — so every client talks to the same memory database.
+
 ---
 
 ## Web Console
