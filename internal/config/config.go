@@ -52,6 +52,7 @@ type Config struct {
 	ProfileLayer  ProfileLayerConfig   `json:"profile_layer"`
 	SessionCtx    SessionContextConfig `json:"session_context"`
 	Retention     RetentionConfig      `json:"retention"`
+	QueryLog      QueryLogConfig       `json:"query_log"`
 	HybridSearch  HybridSearchConfig   `json:"hybrid_search"`
 	Search        SearchConfig         `json:"search"`
 	Import        ImportConfig         `json:"import"`
@@ -119,6 +120,21 @@ type RetentionConfig struct {
 	AutoPurgeEnabled bool   `json:"auto_purge_enabled"` // enable background purge (default false)
 	AuditLogEnabled  bool   `json:"audit_log_enabled"`  // enable audit logging (default true)
 	AuditRetention   string `json:"audit_retention"`    // how long to keep audit logs (default "720h")
+}
+
+// QueryLogConfig controls query log retention policy (issue #457).
+// The query log is bounded so it cannot grow without limit; the bounds are
+// deliberate and configurable here.
+type QueryLogConfig struct {
+	// MaxEntries is the row cap for the query log. When the table exceeds
+	// it, the oldest entries are pruned on write. 0 or a negative value
+	// means "use the default" (1000), which preserves the historical
+	// behavior when no [query_log] section is present.
+	MaxEntries int `json:"max_entries"`
+	// MaxAge optionally caps how long entries are kept (e.g. "720h", "7d").
+	// Entries older than this are pruned on write. Empty disables age-based
+	// pruning.
+	MaxAge string `json:"max_age"`
 }
 
 // HybridSearchConfig controls hybrid vector + BM25 retrieval.
@@ -236,6 +252,10 @@ func Defaults() *Config {
 			AutoPurgeEnabled: false,
 			AuditLogEnabled:  true,
 			AuditRetention:   "720h",
+		},
+		QueryLog: QueryLogConfig{
+			MaxEntries: 1000,
+			MaxAge:     "",
 		},
 		HybridSearch: HybridSearchConfig{
 			Enabled:          true,
