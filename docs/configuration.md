@@ -83,3 +83,29 @@ client_id = ""   # Fixed attribution identity for MCP writes (created_by/updated
 ```
 
 The same override is available per invocation via `symmemory serve --client-id <id>` (or `SYMMEMORY_MCP_CLIENT_ID`), which takes precedence over the config file value.
+
+### Query Log Settings
+
+Configure query log retention in `~/.config/symmemory/config.toml`:
+
+```toml
+[query_log]
+max_entries = 1000   # Row cap for the query log; when exceeded, the oldest
+                     # entries are pruned on write (default: 1000)
+max_age = ""         # Optional maximum age of query log entries (e.g. "720h"
+                     # = 30 days, "7d"). Empty disables age-based pruning.
+```
+
+The query log records every MCP search/list call together with the calling
+client's identity (`actor`, resolved from the MCP attribution chain — the
+`serve --client-id` override, the `[mcp] client_id` config, the initialize
+handshake `clientInfo`, or the literal `"mcp"` fallback), the request's
+`scope`, and the optional `session_id` carried by the request. The bounds
+above keep the log deliberate instead of letting it grow without limit; when
+no `[query_log]` section is present the historical behavior is preserved
+(1000-row cap, no age pruning).
+
+Inspect the log with `symmemory query-log` — the summary shows tool and
+per-actor breakdowns; `--actor <id>` narrows the summary and recent entries
+to one client. The MCP `query_log` tool exposes the same summary with an
+optional `actor` filter argument.

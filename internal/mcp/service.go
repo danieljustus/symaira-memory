@@ -250,16 +250,16 @@ func (s *MemoryService) LogAudit(action, entityID, memoryID, diff, actor, detail
 	return s.db.LogAudit(action, entityID, memoryID, diff, actor, detail)
 }
 
-func (s *MemoryService) LogQuery(tool, queryText, params string, durationMs int64) error {
-	return s.db.LogQuery(tool, queryText, params, durationMs)
+func (s *MemoryService) LogQuery(actor, scope, session, tool, queryText, params string, durationMs int64) error {
+	return s.db.LogQuery(actor, scope, session, tool, queryText, params, durationMs)
 }
 
 func (s *MemoryService) GetQueryLogEntries(limit int) ([]*db.QueryLogEntry, error) {
 	return s.db.GetQueryLogEntries(limit)
 }
 
-func (s *MemoryService) GetQueryLogSummary(limit int) (*db.QueryLogSummary, error) {
-	return s.db.GetQueryLogSummary(limit)
+func (s *MemoryService) GetQueryLogSummary(limit int, actor string) (*db.QueryLogSummary, error) {
+	return s.db.GetQueryLogSummary(limit, actor)
 }
 
 // NotFoundError indicates a requested resource does not exist.
