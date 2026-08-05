@@ -228,4 +228,12 @@ For a deep dive into the data pipeline, component design, and scope isolation mo
 
 ---
 
+## Roadmap & Status
+
+Symaira Memory is in **active pre-1.0 development**. The current release line is `v0.16.x`; configuration and storage formats are stable within a minor version but may evolve between minor releases until the 1.0 stabilization milestone.
+
+Planned and upcoming work is tracked in the [Symaira Memory Roadmap](https://github.com/users/danieljustus/projects/6) project, with priorities (urgent / high / medium / low) and release milestones applied to every issue. The [issues list](https://github.com/danieljustus/symaira-memory/issues) is the source of truth for the current backlog; version history is published with each [release](https://github.com/danieljustus/symaira-memory/releases).
+
+---
+
 Copyright &copy; 2026 Daniel Justus. All rights reserved. Licensed under the Apache-2.0 License.
