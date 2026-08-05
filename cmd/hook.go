@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/spf13/cobra"
 )
 
@@ -19,8 +21,21 @@ var hookCmd = &cobra.Command{
 	Use:   "hook",
 	Short: "Generate agent integration hooks",
 	Long: `Generate and optionally install agent hook configurations for tools like
-Claude Code. The hook JSON block is always printed to stdout; use --merge
-to write it into the settings file idempotently.`,
+Claude Code, and one-command MCP server wiring for MCP host clients (Codex,
+OpenCode, Cursor, Claude Desktop, VS Code). The generated block is always
+printed to stdout; use --merge to write it into the client's config file
+idempotently. Run 'symmemory hook --list' to see supported clients.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		if hookList {
+			printSupportedClients()
+			return nil
+		}
+		if len(args) > 0 {
+			return exitcodes.Wrapf(nil, exitcodes.ExitNoInput, exitcodes.KindValidation,
+				"unknown client %q; supported clients: %s", args[0], strings.Join(hookMCPClientNames(), ", "))
+		}
+		return cmd.Help()
+	},
 }
 
 // hookClaudeCodeCmd generates a Claude Code SessionStart hook.
