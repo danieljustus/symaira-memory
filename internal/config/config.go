@@ -56,6 +56,7 @@ type Config struct {
 	Search        SearchConfig         `json:"search"`
 	Import        ImportConfig         `json:"import"`
 	WorkingMemory WorkingMemoryConfig  `json:"working_memory"`
+	MCP           MCPConfig            `json:"mcp"`
 }
 
 type DatabaseConfig struct {
@@ -157,6 +158,15 @@ type WorkingMemoryConfig struct {
 	TTL              string `json:"ttl"`                // expiration duration for working memories (default "24h")
 	MaxItems         int    `json:"max_items"`          // max working memories in context assembly (default 50)
 	IncludeInContext bool   `json:"include_in_context"` // include working memories in assembled context (default true)
+}
+
+// MCPConfig controls the MCP stdio server behavior.
+type MCPConfig struct {
+	// ClientID pins the attribution identity (created_by/updated_by) for all
+	// MCP writes, winning over the client identity captured from the
+	// initialize handshake. Empty means "derive from the handshake, fall
+	// back to 'mcp' when nothing is resolvable".
+	ClientID string `json:"client_id"`
 }
 
 // Defaults returns a Config with sensible default values.
