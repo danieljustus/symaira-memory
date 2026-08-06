@@ -2,12 +2,38 @@ package db
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
+
+	"github.com/danieljustus/symaira-memory/internal/config"
 )
+
+// openTestDBWithConfig opens a test database with a custom configuration,
+// mirroring openTestDB (token_test.go).
+func openTestDBWithConfig(t *testing.T, cfg *config.Config) *DB {
+	t.Helper()
+	tempDir, err := os.MkdirTemp("", "symmemory-querylog-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(tempDir) })
+
+	oldHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	t.Cleanup(func() { os.Setenv("HOME", oldHome) })
+
+	database, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	return database
+}
 
 // insertQueryLogRows seeds query_log rows directly with controllable
 // created_at values (increasing by one minute per row, starting at base).
+// The rows use the pre-attribution column set, so identity columns stay NULL.
 func insertQueryLogRows(t *testing.T, database *DB, n int, base time.Time, prefix string) {
 	t.Helper()
 	tx, err := database.conn.Begin()
@@ -33,10 +59,10 @@ func insertQueryLogRows(t *testing.T, database *DB, n int, base time.Time, prefi
 func TestLogQueryInsertsEntryWithToolAttribution(t *testing.T) {
 	database := openTestDB(t)
 
-	if err := database.LogQuery("memory_search", "what is symmemory", `{"limit":5}`, 42); err != nil {
+	if err := database.LogQuery("mcp", "", "", "memory_search", "what is symmemory", `{"limit":5}`, 42); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("memory_get", "", "", 7); err != nil {
+	if err := database.LogQuery("mcp", "", "", "memory_get", "", "", 7); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -194,7 +220,7 @@ func TestGetQueryLogSummaryAggregation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	summary, err := database.GetQueryLogSummary(10)
+	summary, err := database.GetQueryLogSummary(10, "")
 	if err != nil {
 		t.Fatalf("GetQueryLogSummary: %v", err)
 	}
@@ -212,7 +238,7 @@ func TestGetQueryLogSummaryAggregation(t *testing.T) {
 	}
 
 	// Limit applies to recent entries only.
-	limited, err := database.GetQueryLogSummary(2)
+	limited, err := database.GetQueryLogSummary(2, "")
 	if err != nil {
 		t.Fatalf("GetQueryLogSummary(2): %v", err)
 	}
@@ -255,5 +281,235 @@ func TestQueryLogPruneCount(t *testing.T) {
 	}
 	if n != 5 {
 		t.Errorf("over-cap prune count = %d, want 5", n)
+	}
+}
+
+func TestLogQueryRecordsActorScopeSession(t *testing.T) {
+	database := openTestDB(t)
+
+	if err := database.LogQuery("claude/1.0", "project", "sess-abc", "memory_search", "what is symmemory", "{}", 42); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+	if err := database.LogQuery("", "", "", "memory_get", "", "", 7); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+
+	entries, err := database.GetQueryLogEntries(10)
+	if err != nil {
+		t.Fatalf("GetQueryLogEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(entries))
+	}
+
+	byTool := map[string]*QueryLogEntry{}
+	for _, e := range entries {
+		byTool[e.Tool] = e
+	}
+
+	search := byTool["memory_search"]
+	if search == nil {
+		t.Fatalf("expected memory_search entry, got %v", byTool)
+	}
+	if search.Actor != "claude/1.0" || search.Scope != "project" || search.Session != "sess-abc" {
+		t.Errorf("expected attributed entry, got %+v", search)
+	}
+
+	// Empty identity fields are stored as NULL and read back as "".
+	get := byTool["memory_get"]
+	if get == nil {
+		t.Fatalf("expected memory_get entry, got %v", byTool)
+	}
+	if get.Actor != "" || get.Scope != "" || get.Session != "" {
+		t.Errorf("expected empty identity for NULL columns, got %+v", get)
+	}
+}
+
+func TestGetQueryLogSummaryActorBreakdownAndFilter(t *testing.T) {
+	database := openTestDB(t)
+
+	// 2 searches by alice, 1 get by bob, 1 legacy row with NULL actor.
+	if err := database.LogQuery("alice", "project", "s1", "memory_search", "q1", "{}", 1); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+	if err := database.LogQuery("alice", "project", "s2", "memory_search", "q2", "{}", 2); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+	if err := database.LogQuery("bob", "global", "s3", "memory_get", "", "", 3); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+	if _, err := database.conn.Exec(
+		`INSERT INTO query_log (id, tool, query_text, duration_ms, created_at) VALUES (?, 'memory_list', 'legacy', 1, ?)`,
+		"legacy-1", time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	); err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+
+	summary, err := database.GetQueryLogSummary(10, "")
+	if err != nil {
+		t.Fatalf("GetQueryLogSummary: %v", err)
+	}
+	if summary.TotalQueries != 4 {
+		t.Errorf("TotalQueries = %d, want 4", summary.TotalQueries)
+	}
+	if summary.ActorBreakdown["alice"] != 2 || summary.ActorBreakdown["bob"] != 1 || summary.ActorBreakdown["(unknown)"] != 1 {
+		t.Errorf("ActorBreakdown = %v, want {alice:2 bob:1 (unknown):1}", summary.ActorBreakdown)
+	}
+
+	// Actor filter narrows total, tool breakdown and recent entries.
+	filtered, err := database.GetQueryLogSummary(10, "alice")
+	if err != nil {
+		t.Fatalf("GetQueryLogSummary(10, alice): %v", err)
+	}
+	if filtered.TotalQueries != 2 {
+		t.Errorf("filtered TotalQueries = %d, want 2", filtered.TotalQueries)
+	}
+	if filtered.ToolBreakdown["memory_search"] != 2 || len(filtered.ToolBreakdown) != 1 {
+		t.Errorf("filtered ToolBreakdown = %v, want {memory_search:2}", filtered.ToolBreakdown)
+	}
+	if len(filtered.RecentEntries) != 2 {
+		t.Fatalf("filtered RecentEntries len = %d, want 2", len(filtered.RecentEntries))
+	}
+	for _, e := range filtered.RecentEntries {
+		if e.Actor != "alice" {
+			t.Errorf("filtered recent entry actor = %q, want alice", e.Actor)
+		}
+	}
+}
+
+func TestPruneQueryLogConfiguredCap(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.QueryLog.MaxEntries = 5
+	database := openTestDBWithConfig(t, cfg)
+
+	for i := 0; i < 10; i++ {
+		if err := database.LogQuery("alice", "", "", "memory_search", fmt.Sprintf("q%d", i), "", int64(i)); err != nil {
+			t.Fatalf("LogQuery %d: %v", i, err)
+		}
+	}
+
+	var count int
+	if err := database.conn.QueryRow(`SELECT COUNT(*) FROM query_log`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 5 {
+		t.Fatalf("expected 5 rows after prune at configured cap, got %d", count)
+	}
+
+	// The 5 oldest entries (q0..q4) must be gone.
+	var firstQ string
+	if err := database.conn.QueryRow(`SELECT query_text FROM query_log ORDER BY created_at ASC LIMIT 1`).Scan(&firstQ); err != nil {
+		t.Fatal(err)
+	}
+	if firstQ != "q5" {
+		t.Errorf("expected q5 as oldest survivor, got %s", firstQ)
+	}
+
+	n, err := database.QueryLogPruneCount()
+	if err != nil {
+		t.Fatalf("QueryLogPruneCount: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("QueryLogPruneCount = %d, want 0", n)
+	}
+}
+
+func TestPruneQueryLogMaxAge(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.QueryLog.MaxAge = "1h"
+	database := openTestDBWithConfig(t, cfg)
+
+	// One row older than the max age, one fresh row written via LogQuery
+	// (which prunes on insert).
+	old := time.Now().UTC().Add(-2 * time.Hour)
+	if _, err := database.conn.Exec(
+		`INSERT INTO query_log (id, tool, query_text, duration_ms, created_at) VALUES ('old-1', 'memory_search', 'stale', 1, ?)`,
+		old,
+	); err != nil {
+		t.Fatalf("insert old row: %v", err)
+	}
+	if err := database.LogQuery("alice", "", "", "memory_search", "fresh", "", 1); err != nil {
+		t.Fatalf("LogQuery: %v", err)
+	}
+
+	entries, err := database.GetQueryLogEntries(10)
+	if err != nil {
+		t.Fatalf("GetQueryLogEntries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry after age prune, got %d", len(entries))
+	}
+	if entries[0].QueryText != "fresh" {
+		t.Errorf("expected fresh entry to survive, got %+v", entries[0])
+	}
+}
+
+func TestQueryLogMigrationAdditiveUpgrade(t *testing.T) {
+	database := openTestDB(t)
+
+	// Rebuild query_log in its pre-029 (original 027) shape.
+	for _, stmt := range []string{
+		`DROP INDEX IF EXISTS idx_query_log_actor`,
+		`DROP INDEX IF EXISTS idx_query_log_tool`,
+		`DROP INDEX IF EXISTS idx_query_log_created_at`,
+		`DROP TABLE IF EXISTS query_log`,
+		`CREATE TABLE query_log (
+			id          TEXT PRIMARY KEY,
+			tool        TEXT NOT NULL,
+			query_text  TEXT,
+			params      TEXT,
+			duration_ms INTEGER NOT NULL DEFAULT 0,
+			created_at  DATETIME NOT NULL DEFAULT (datetime('now'))
+		)`,
+	} {
+		if _, err := database.conn.Exec(stmt); err != nil {
+			t.Fatalf("rebuild schema (%q): %v", stmt, err)
+		}
+	}
+
+	// Seed a legacy row exactly as the old schema would store it.
+	legacyTime := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if _, err := database.conn.Exec(
+		`INSERT INTO query_log (id, tool, query_text, params, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		"legacy-1", "memory_search", "old query", `{"k":"v"}`, 12, legacyTime,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// Apply the actual 029 migration file on top of the old schema.
+	migration, err := migrationFS.ReadFile("migrations/029_query_log_attribution.sql")
+	if err != nil {
+		t.Fatalf("read migration: %v", err)
+	}
+	if _, err := database.conn.Exec(string(migration)); err != nil {
+		t.Fatalf("apply 029 migration: %v", err)
+	}
+
+	// The legacy row survives with NULL identity columns read back as "".
+	entries, err := database.GetQueryLogEntries(10)
+	if err != nil {
+		t.Fatalf("GetQueryLogEntries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected legacy row to survive, got %d entries", len(entries))
+	}
+	e := entries[0]
+	if e.ID != "legacy-1" || e.QueryText != "old query" || e.DurationMs != 12 {
+		t.Errorf("legacy row content mismatch: %+v", e)
+	}
+	if e.Actor != "" || e.Scope != "" || e.Session != "" {
+		t.Errorf("expected NULL identity columns on legacy row, got %+v", e)
+	}
+
+	// New writes with identity land in the upgraded schema.
+	if err := database.LogQuery("alice", "project", "s1", "memory_search", "new query", "", 3); err != nil {
+		t.Fatalf("LogQuery after upgrade: %v", err)
+	}
+	entries, err = database.GetQueryLogEntries(10)
+	if err != nil {
+		t.Fatalf("GetQueryLogEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 entries after upgrade write, got %d", len(entries))
 	}
 }
