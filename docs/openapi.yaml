@@ -302,6 +302,60 @@ paths:
         '401':
           description: Unauthorized
 
+  /api/token/revoke:
+    post:
+      summary: Revoke a JWT token
+      description: |
+        Revokes a JWT token by its jti (or full token value) so it can no
+        longer be used to authenticate. Requires a valid bearer token.
+        The revocation takes effect in memory immediately and is persisted
+        when a revocation store is available; a persistence failure is
+        reported as a 500 while the in-memory revocation still applies.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: Full JWT token value to revoke; its jti claim is extracted automatically.
+                jti:
+                  type: string
+                  description: Raw JWT ID (jti claim) to revoke.
+              oneOf:
+                - required:
+                    - token
+                - required:
+                    - jti
+      responses:
+        '200':
+          description: Token revoked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: revoked
+                  jti:
+                    type: string
+                    example: 9f2c4e8a1b3d5c7e9a0b1c2d3e4f5a6b
+        '400':
+          description: Bad request - missing or invalid token/jti
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (unauthenticated state-changing request blocked by CSRF protection)
+        '405':
+          description: Method not allowed
+        '500':
+          description: Token revoked in memory but persistence failed
+
   /api/sync/changes:
     get:
       summary: Pull memories changed since a timestamp

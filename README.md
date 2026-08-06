@@ -105,6 +105,9 @@ symmemory discover sources
 # Generate an API token for HTTP access
 symmemory token generate --subject "my-agent" --duration 720
 
+# Revoke an API token (pass the full token value or its jti) so it can no longer be used
+symmemory token revoke <token-or-jti>
+
 # Create a context profile that chains scopes
 symmemory context-profile add "dev-agent" --base-scope project --description "Project + global fallback"
 symmemory context-profile link "dev-agent" project --order 1
@@ -236,7 +239,7 @@ secret = "vault://symaira/memory/jwt"
 ## Security & Privacy
 
 - **PII Guard**: All memory content passes through a regex filter that redacts credit cards, email addresses, API tokens, URL credentials (`https://user:pass@host`), vendor tokens (GitHub, GitLab, npm, Slack, Stripe, AWS, Firebase, HTTP Basic Auth, Docker config), and high-entropy secret assignments before storage.
-- **JWT Auth**: REST API endpoints require signed bearer tokens. Tokens are scoped to named subjects with configurable expiration.
+- **JWT Auth**: REST API endpoints require signed bearer tokens. Tokens are scoped to named subjects with configurable expiration. Tokens can be revoked at any time via `symmemory token revoke <token-or-jti>` or the authenticated `POST /api/token/revoke` endpoint — revoked tokens are rejected immediately and the revocation is persisted across restarts.
 - **Encrypted backups**: Backup archives can be encrypted with AES-256-GCM using a password you provide. Decryption requires the same password.
 - **Local-first**: The database stays on your machine under `~/.local/share/symmemory/`. No telemetry, no external calls (Ollama is optional and local).
 - **Scope isolation**: Memories are isolated by project, agent, user, and session boundaries. Agents only see what their scope permits.

@@ -79,6 +79,7 @@ func (s *Server) httpMux() http.Handler {
 		{"/api/delete", s.handleDelete, authReadWrite},
 		{"/api/rules", s.handleRules, authRequired},
 		{"/api/entities", s.handleEntities, authRequired},
+		{"/api/token/revoke", s.handleTokenRevoke, authRequired},
 	}
 	for _, rt := range routes {
 		var h http.Handler = rt.handler

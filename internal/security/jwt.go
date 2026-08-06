@@ -441,15 +441,46 @@ func (jp *JWTProvider) VerifyToken(token string) (*JWTPayload, error) {
 }
 
 // RevokeToken invalidates a token by its JWT ID so it can no longer be used.
-// When a persistent store is available, the revocation is also persisted for
-// cross-process consistency.
-func (jp *JWTProvider) RevokeToken(jti string) {
+// The in-memory revocation map is always updated first so the token fails
+// verification immediately; when a persistent store is available the
+// revocation is also persisted for cross-process consistency. A persistence
+// failure is NOT silently swallowed — it is returned to the caller so the
+// CLI can exit non-zero and the HTTP API can surface a 500, even though the
+// in-memory fallback already took effect.
+func (jp *JWTProvider) RevokeToken(jti string) error {
 	jp.mu.Lock()
 	jp.revoked[jti] = time.Now()
 	jp.mu.Unlock()
 	if jp.revStore != nil {
-		_ = jp.revStore.RevokeToken(jti)
+		if err := jp.revStore.RevokeToken(jti); err != nil {
+			return fmt.Errorf("failed to persist token revocation: %w", err)
+		}
 	}
+	return nil
+}
+
+// ExtractJTI returns the jti claim of a JWT token without validating its
+// signature. It is used by revoke paths that accept a full token value, so a
+// token can be revoked by value even after its signature or expiration would
+// no longer verify. Callers that already hold the raw jti can pass it
+// directly to RevokeToken instead.
+func ExtractJTI(token string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", errors.New("invalid token structure")
+	}
+	payloadBytes, err := base64URLDecode(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("invalid token payload: %w", err)
+	}
+	var payload JWTPayload
+	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
+		return "", fmt.Errorf("invalid token payload: %w", err)
+	}
+	if payload.JWTID == "" {
+		return "", errors.New("token has no jti claim")
+	}
+	return payload.JWTID, nil
 }
 
 // AddFallbackSecret registers an additional signing key for rotation.
