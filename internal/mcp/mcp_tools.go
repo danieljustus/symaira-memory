@@ -205,6 +205,7 @@ func (s *Server) handleMemoryGet(ctx context.Context, input json.RawMessage) (an
 }
 
 func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (any, error) {
+	s.ensureAuditLogConfig()
 	if s.profile != nil && !security.ParseRole(s.profile.Role).CanWrite() {
 		return nil, fmt.Errorf("permission denied: profile role is read-only")
 	}

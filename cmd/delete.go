@@ -16,6 +16,8 @@ var deleteCmd = &cobra.Command{
 	Short: "Permanently remove a stored memory by ID",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		applyAuditConfig()
+
 		id := args[0]
 
 		m, err := GetDB().GetMemory(id)

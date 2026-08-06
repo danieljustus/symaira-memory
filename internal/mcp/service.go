@@ -246,8 +246,12 @@ func (s *MemoryService) GetRelayBlobsSince(since time.Time, limit int) ([]db.Rel
 	return s.db.GetRelayBlobsSince(since, limit)
 }
 
-func (s *MemoryService) LogAudit(action, entityID, memoryID, diff, actor, detail string) error {
-	return s.db.LogAudit(action, entityID, memoryID, diff, actor, detail)
+// LogAudit records an audit event. The parameter names and order match
+// db.LogAudit exactly: (action, memoryID, scope, session, actor, detail).
+// The detail field must never carry memory content or matched PII values —
+// only pattern labels or non-sensitive summaries.
+func (s *MemoryService) LogAudit(action, memoryID, scope, session, actor, detail string) error {
+	return s.db.LogAudit(action, memoryID, scope, session, actor, detail)
 }
 
 func (s *MemoryService) LogQuery(actor, scope, session, tool, queryText, params string, durationMs int64) error {

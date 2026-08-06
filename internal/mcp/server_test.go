@@ -1293,15 +1293,15 @@ func TestSyncApplyAuditLogCreated(t *testing.T) {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
-	events, err := s.DB().GetAuditLogs("sync.apply", 10)
+	events, err := s.DB().GetAuditLogs("sync", 10)
 	if err != nil {
 		t.Fatalf("failed to fetch audit logs: %v", err)
 	}
 	if len(events) == 0 {
-		t.Fatal("expected at least 1 audit event for sync.apply")
+		t.Fatal("expected at least 1 audit event for sync")
 	}
-	if events[0].Action != "sync.apply" {
-		t.Errorf("expected action 'sync.apply', got %q", events[0].Action)
+	if events[0].Action != "sync" {
+		t.Errorf("expected action 'sync', got %q", events[0].Action)
 	}
 }
 
