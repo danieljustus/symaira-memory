@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/danieljustus/symaira-corekit v0.7.0
+	github.com/danieljustus/symaira-corekit v0.8.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/spf13/cobra v1.10.2
@@ -16,6 +16,7 @@ require (
 	golang.org/x/text v0.40.0
 	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.55.0
+	pgregory.net/rapid v1.3.0
 )
 
 require (
@@ -43,5 +44,4 @@ require (
 	modernc.org/libc v1.74.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	pgregory.net/rapid v1.3.0 // indirect
 )
