@@ -249,9 +249,15 @@ func saveMemoryExec(execer SQLExecer, m *Memory, quantizeBinary bool) error {
 	return err
 }
 
-// SaveMemory inserts or updates a memory.
+// SaveMemory inserts or updates a memory. Every successful write records a
+// "set" audit event so mutations leave a trace regardless of the entry point
+// (CLI, MCP, HTTP, importers).
 func (db *DB) SaveMemory(m *Memory) error {
-	return saveMemoryExec(db.conn, m, db.quantizeBinary)
+	if err := saveMemoryExec(db.conn, m, db.quantizeBinary); err != nil {
+		return err
+	}
+	_ = db.LogAudit("set", m.ID, m.Scope, m.CreatedSession, m.CreatedBy, "")
+	return nil
 }
 
 // SaveMemoryTx inserts or updates a memory within a transaction.
@@ -271,10 +277,23 @@ func (db *DB) UpdateMemoryStatusTx(tx *sql.Tx, id string, status string, parentI
 	return err
 }
 
-// DeleteMemory removes a memory by ID.
+// DeleteMemory removes a memory by ID. A "delete" audit event is recorded
+// with the memory's scope, session and recorded creator as the best identity
+// available at the storage layer.
 func (db *DB) DeleteMemory(id string) error {
-	_, err := db.conn.Exec("DELETE FROM memories WHERE id = ?", id)
-	return err
+	var scope, createdBy, createdSession sql.NullString
+	err := db.conn.QueryRow("SELECT scope, created_by, created_session FROM memories WHERE id = ?", id).Scan(&scope, &createdBy, &createdSession)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := db.conn.Exec("DELETE FROM memories WHERE id = ?", id); err != nil {
+		return err
+	}
+	_ = db.LogAudit("delete", id, scope.String, createdSession.String, createdBy.String, "")
+	return nil
 }
 
 // GetMemory retrieves a single memory by its ID using a direct index lookup.
@@ -682,6 +701,7 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 		if err != nil {
 			return false, err
 		}
+		_ = db.LogAudit("set", m.ID, m.Scope, m.CreatedSession, m.CreatedBy, "")
 		return true, nil
 	}
 
@@ -696,6 +716,7 @@ func (db *DB) UpsertMemoryIfNewer(m *Memory) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	_ = db.LogAudit("update", m.ID, m.Scope, m.UpdatedSession, m.UpdatedBy, "")
 	return true, nil
 }
 
