@@ -116,7 +116,15 @@ symmemory context-profile show "dev-agent"
 
 # Run the retrieval benchmark (BM25, vector, hybrid search quality)
 symmemory bench
+# Pool per-query samples over 5 repeat runs and use a deterministic seed
+symmemory bench --repeat-runs 5 --seed 42
 ```
+
+Comparisons against a stored baseline use a seeded bootstrap confidence
+interval: a metric counts as a regression only when its 95% CI excludes the
+baseline value, so run noise no longer trips the gate. An optional external
+baseline arm (Recall@5 against a hosted retriever) activates when
+`SYMMEMORY_BENCH_BASELINE_URL` is set; unset, the arm is skipped in CI.
 
 For a full reference of all commands and flags, run `symmemory --help`.
 

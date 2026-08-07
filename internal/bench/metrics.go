@@ -20,6 +20,25 @@ type RetrievalMetrics struct {
 	QueryCount    int     `json:"query_count"`
 	ValidFraction float64 `json:"valid_fraction,omitempty"` // temporal validity slice
 	ScopeFraction float64 `json:"scope_fraction,omitempty"` // scope isolation slice
+	// Samples holds the per-query metric values (one entry per answerable
+	// query, pooled across repeat runs) that back the aggregate metrics.
+	// They enable bootstrap CIs, Mann-Whitney U and Cliff's delta in
+	// CompareSnapshots (issue #490). Omitted for legacy snapshots.
+	Samples QuerySamples `json:"samples,omitempty"`
+}
+
+// QuerySamples holds the per-query values behind each aggregate metric.
+type QuerySamples struct {
+	RecallAt5  []float64 `json:"recall_at_5,omitempty"`
+	RecallAt10 []float64 `json:"recall_at_10,omitempty"`
+	NDCGAt5    []float64 `json:"ndcg_at_5,omitempty"`
+	NDCGAt10   []float64 `json:"ndcg_at_10,omitempty"`
+	MRR        []float64 `json:"mrr,omitempty"`
+}
+
+// Empty reports whether no query samples were recorded.
+func (s QuerySamples) Empty() bool {
+	return len(s.RecallAt5) == 0 && len(s.RecallAt10) == 0 && len(s.NDCGAt5) == 0 && len(s.NDCGAt10) == 0 && len(s.MRR) == 0
 }
 
 // RecallAtK computes the fraction of relevant documents that appear in the top-k results.
@@ -151,31 +170,55 @@ func LatencyPercentiles(durations []time.Duration) (p50, p95 time.Duration) {
 // queryResults maps query index to ordered list of retrieved memory IDs.
 // groundTruth is the ordered slice of queries with their relevant ID sets.
 func ComputeMetrics(mode string, queryResults map[int][]string, groundTruth []GroundTruth, latencies []time.Duration) RetrievalMetrics {
+	return ComputeMetricsPooled(mode, []map[int][]string{queryResults}, groundTruth, [][]time.Duration{latencies})
+}
+
+// ComputeMetricsPooled computes aggregate retrieval metrics across one or
+// more runs of the same queries (issue #490). Per-query metric values are
+// pooled across runs into Samples so bootstrap CIs and significance tests
+// can be computed against the stored baseline; latency samples are pooled
+// the same way.
+func ComputeMetricsPooled(mode string, runResults []map[int][]string, groundTruth []GroundTruth, runLatencies [][]time.Duration) RetrievalMetrics {
 	var recall5Sum, recall10Sum, ndcg5Sum, ndcg10Sum, mrrSum float64
 	validCount := 0
+	var samples QuerySamples
 
-	for i, gt := range groundTruth {
-		if len(gt.RelevantIDs) == 0 {
-			continue // unanswerable abstention queries carry no retrieval ground truth
-		}
-		retrieved := queryResults[i]
-		relevant := make(map[string]bool)
-		for _, id := range gt.RelevantIDs {
-			relevant[id] = true
-		}
+	for _, queryResults := range runResults {
+		for i, gt := range groundTruth {
+			if len(gt.RelevantIDs) == 0 {
+				continue // unanswerable abstention queries carry no retrieval ground truth
+			}
+			retrieved := queryResults[i]
+			relevant := make(map[string]bool)
+			for _, id := range gt.RelevantIDs {
+				relevant[id] = true
+			}
 
-		// Binary relevance for NDCG
-		relevanceScores := make(map[string]int)
-		for _, id := range gt.RelevantIDs {
-			relevanceScores[id] = 1
-		}
+			// Binary relevance for NDCG
+			relevanceScores := make(map[string]int)
+			for _, id := range gt.RelevantIDs {
+				relevanceScores[id] = 1
+			}
 
-		recall5Sum += RecallAtK(retrieved, relevant, 5)
-		recall10Sum += RecallAtK(retrieved, relevant, 10)
-		ndcg5Sum += NDCGAtK(retrieved, relevanceScores, 5)
-		ndcg10Sum += NDCGAtK(retrieved, relevanceScores, 10)
-		mrrSum += MRR(retrieved, relevant)
-		validCount++
+			r5 := RecallAtK(retrieved, relevant, 5)
+			r10 := RecallAtK(retrieved, relevant, 10)
+			ndcg5 := NDCGAtK(retrieved, relevanceScores, 5)
+			ndcg10 := NDCGAtK(retrieved, relevanceScores, 10)
+			mrr := MRR(retrieved, relevant)
+
+			recall5Sum += r5
+			recall10Sum += r10
+			ndcg5Sum += ndcg5
+			ndcg10Sum += ndcg10
+			mrrSum += mrr
+			validCount++
+
+			samples.RecallAt5 = append(samples.RecallAt5, r5)
+			samples.RecallAt10 = append(samples.RecallAt10, r10)
+			samples.NDCGAt5 = append(samples.NDCGAt5, ndcg5)
+			samples.NDCGAt10 = append(samples.NDCGAt10, ndcg10)
+			samples.MRR = append(samples.MRR, mrr)
+		}
 	}
 
 	n := float64(validCount)
@@ -183,16 +226,21 @@ func ComputeMetrics(mode string, queryResults map[int][]string, groundTruth []Gr
 		n = 1
 	}
 
+	var allLatencies []time.Duration
+	for _, run := range runLatencies {
+		allLatencies = append(allLatencies, run...)
+	}
+
 	var meanLat, p50, p95 float64
-	if len(latencies) > 0 {
-		p50d, p95d := LatencyPercentiles(latencies)
+	if len(allLatencies) > 0 {
+		p50d, p95d := LatencyPercentiles(allLatencies)
 		p50 = float64(p50d.Microseconds()) / 1000.0
 		p95 = float64(p95d.Microseconds()) / 1000.0
 		var total time.Duration
-		for _, d := range latencies {
+		for _, d := range allLatencies {
 			total += d
 		}
-		meanLat = float64(total.Microseconds()) / float64(len(latencies)) / 1000.0
+		meanLat = float64(total.Microseconds()) / float64(len(allLatencies)) / 1000.0
 	}
 
 	return RetrievalMetrics{
@@ -206,5 +254,6 @@ func ComputeMetrics(mode string, queryResults map[int][]string, groundTruth []Gr
 		P50LatencyMs:  p50,
 		P95LatencyMs:  p95,
 		QueryCount:    validCount,
+		Samples:       samples,
 	}
 }
