@@ -5,7 +5,6 @@ description: >-
   (memory_search, memory_set, memory_get, memory_list, entity_*,
   graph_neighbors) for Symaira Memory.
 ---
-
 # Symaira Memory — Agent Integration Guide
 
 Symaira Memory (`symmemory`) is a persistent semantic database for developer preferences, codebase guidelines, and session context. It exposes four MCP tools over stdio JSON-RPC 2.0.
@@ -24,6 +23,14 @@ Symaira Memory (`symmemory`) is a persistent semantic database for developer pre
 - **Session start**: At the beginning of every session or task, search for relevant context using key terms (e.g., "code style", "database settings", "language preference").
 - **Before decisions**: When about to make an architectural or design choice, search for prior decisions to avoid contradicting established patterns.
 - **Fact lookup**: When the user references something that may have been discussed before, search to retrieve the original context.
+
+## Search Budget
+
+Retrieval is bounded: `memory_search`, `memory_get`, and `memory_list` combined may be called **at most three times per turn**.
+
+- After a miss, retry **once** with different keywords or a different tool — still inside the budget.
+- Once the budget is spent, **stop searching** and answer from the context you already have; do not rephrase the same query repeatedly.
+- A store that does not contain a fact will not yield it no matter how the question is phrased.
 
 ## When to Use `memory_set`
 
