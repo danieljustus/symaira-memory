@@ -156,7 +156,7 @@ func (db *DB) ListStagedMemories(limit int) ([]*Memory, error) {
 	if limit <= 0 {
 		limit = 100
 	}
-	query := `SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access, review_status, kind, decay_factor, retired_at
+	query := `SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access, prev_access, review_status, kind, decay_factor, retired_at
 		FROM memories WHERE review_status = 'staged' AND retired_at IS NULL ORDER BY created_at DESC LIMIT ?`
 	rows, err := db.conn.Query(query, limit)
 	if err != nil {
@@ -223,7 +223,7 @@ func (db *DB) UnretireMemory(id string) error {
 // Staged memories age like any other row; retirement is orthogonal to
 // review state.
 func (db *DB) AgingCandidates() ([]*Memory, error) {
-	rows, err := db.conn.Query(`SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access, review_status, kind, decay_factor, retired_at
+	rows, err := db.conn.Query(`SELECT id, content, scope, metadata, created_at, updated_at, created_by, updated_by, created_session, updated_session, consolidation_status, consolidated_into_id, importance, valid_from, valid_to, superseded_by, tier, expires_at, access_count, last_access, prev_access, review_status, kind, decay_factor, retired_at
 		FROM memories WHERE retired_at IS NULL`)
 	if err != nil {
 		return nil, err

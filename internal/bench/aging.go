@@ -108,7 +108,7 @@ func RunAgingAssessment(seed int64) (AgingReport, error) {
 	}
 
 	score := func(f agingScenarioFact, withDecay bool) float64 {
-		composite := db.CompositeScore(float32(f.relevance), f.createdAt, f.importance, f.access, f.lastAccess, weights)
+		composite := db.CompositeScore(float32(f.relevance), f.createdAt, f.importance, f.access, f.lastAccess, nil, weights)
 		if !withDecay {
 			return composite
 		}

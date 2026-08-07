@@ -167,7 +167,7 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 		        m.created_by, m.updated_by, m.created_session, m.updated_session,
 		        m.consolidation_status, m.consolidated_into_id, m.importance,
 		        m.valid_from, m.valid_to, m.superseded_by,
-		        m.access_count, m.last_access, m.review_status, m.kind, m.decay_factor, m.retired_at,
+		        m.access_count, m.last_access, m.prev_access, m.review_status, m.kind, m.decay_factor, m.retired_at,
 		        rank
 		 FROM memories_fts fts
 		 JOIN memories m ON fts.id = m.id
@@ -198,13 +198,14 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 		var rank float64
 		var accessCount sql.NullInt64
 		var lastAccess sql.NullTime
+		var prevAccess sql.NullTime
 		var reviewStatus, kind string
 		var decayFactor float64
 		var retiredAt sql.NullTime
 		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt,
 			&m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession,
 			&m.ConsolidationStatus, &consolidatedInto, &m.Importance,
-			&validFrom, &validTo, &supersededBy, &accessCount, &lastAccess,
+			&validFrom, &validTo, &supersededBy, &accessCount, &lastAccess, &prevAccess,
 			&reviewStatus, &kind, &decayFactor, &retiredAt, &rank); err != nil {
 			return nil, err
 		}
@@ -213,6 +214,9 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 		m.DecayFactor = decayFactor
 		if retiredAt.Valid {
 			m.RetiredAt = &retiredAt.Time
+		}
+		if prevAccess.Valid {
+			m.PrevAccess = &prevAccess.Time
 		}
 		if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
 			return nil, err
@@ -247,6 +251,13 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 // time window on the BM25 arm. Returns results ranked by fused score,
 // trimmed to the hard bound of limit.
 func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, vectorWeight, bm25Weight float64, timeWindow ...TimeWindow) ([]HybridResult, error) {
+	return db.HybridSearchWithWeights(queryVec, querySource, queryText, scope, limit, entityID, trustFilter, policyFilter, vectorWeight, bm25Weight, RankingWeights{}, timeWindow...)
+}
+
+// HybridSearchWithWeights is HybridSearch with explicit ranking weights
+// (spreading bonus #488, spacing-aware reinforcement #489). An empty
+// RankingWeights keeps the defaults.
+func (db *DB) HybridSearchWithWeights(queryVec []float32, querySource string, queryText string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, vectorWeight, bm25Weight float64, weights RankingWeights, timeWindow ...TimeWindow) ([]HybridResult, error) {
 	pam := db.perArmMultiplier
 	if pam <= 0 {
 		pam = 3
@@ -262,7 +273,7 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 	}
 
 	// Vector arm with full filtering (entity, trust, policy)
-	vectorResults, err := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, candidateLimit, entityID, trustFilter, policyFilter, tw, "")
+	vectorResults, err := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, scope, candidateLimit, entityID, trustFilter, policyFilter, tw, "", weights)
 	if err != nil {
 		return nil, err
 	}

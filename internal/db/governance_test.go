@@ -206,7 +206,7 @@ func TestDecayFactorRoundTripAndSearchMultiplier(t *testing.T) {
 	}
 	// Decay multiplies the composite score: same relevance/recency as a
 	// fresh memory, but 0.2× on top.
-	plain := CompositeScore(1.0, got.CreatedAt, 0.05, 1, got.LastAccess, DefaultRankingWeights())
+	plain := CompositeScore(1.0, got.CreatedAt, 0.05, 1, got.LastAccess, nil, DefaultRankingWeights())
 	if results[0].Score > float32(plain*0.2+1e-6) {
 		t.Fatalf("decayed score %v not multiplied by decay factor (plain %v)", results[0].Score, plain*0.2)
 	}

@@ -19,9 +19,9 @@ func TestCompositeScore_EqualRelevance_RecentHigher(t *testing.T) {
 		AccessHalfLife:            14,
 	}
 
-	recent := CompositeScore(0.8, now, 0.5, 0, nil, weights)
-	yesterdayScore := CompositeScore(0.8, yesterday, 0.5, 0, nil, weights)
-	weekScore := CompositeScore(0.8, weekAgo, 0.5, 0, nil, weights)
+	recent := CompositeScore(0.8, now, 0.5, 0, nil, nil, weights)
+	yesterdayScore := CompositeScore(0.8, yesterday, 0.5, 0, nil, nil, weights)
+	weekScore := CompositeScore(0.8, weekAgo, 0.5, 0, nil, nil, weights)
 
 	if recent <= yesterdayScore {
 		t.Errorf("expected recent (%f) > yesterday (%f)", recent, yesterdayScore)
@@ -42,8 +42,8 @@ func TestCompositeScore_HighImportanceRanks(t *testing.T) {
 		AccessHalfLife:            14,
 	}
 
-	low := CompositeScore(0.8, now, 0.1, 0, nil, weights)
-	high := CompositeScore(0.8, now, 0.9, 0, nil, weights)
+	low := CompositeScore(0.8, now, 0.1, 0, nil, nil, weights)
+	high := CompositeScore(0.8, now, 0.9, 0, nil, nil, weights)
 
 	if high <= low {
 		t.Errorf("expected high importance (%f) > low importance (%f)", high, low)
@@ -61,8 +61,8 @@ func TestCompositeScore_RelevanceDominatesWhenWeightsFavor(t *testing.T) {
 		AccessHalfLife:            14,
 	}
 
-	highRel := CompositeScore(0.95, now, 0.1, 0, nil, weights)
-	lowRel := CompositeScore(0.3, now, 0.9, 0, nil, weights)
+	highRel := CompositeScore(0.95, now, 0.1, 0, nil, nil, weights)
+	lowRel := CompositeScore(0.3, now, 0.9, 0, nil, nil, weights)
 
 	if highRel <= lowRel {
 		t.Errorf("expected high relevance (%f) > low relevance (%f)", highRel, lowRel)

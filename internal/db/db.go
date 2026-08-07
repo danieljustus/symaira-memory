@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +25,10 @@ type DB struct {
 	queryLogMaxEntries    int           // query_log row cap (default 1000)
 	queryLogMaxAge        time.Duration // query_log max entry age; 0 = disabled
 	queryLogRecordResults atomic.Bool   // record returned memory ids per query (issue #460)
+
+	// spreadSeedOnce guards the one-time auto-seeding of association edges
+	// when the spreading term is enabled (#488).
+	spreadSeedOnce sync.Once
 }
 
 // Open initializes the SQLite database at the standard XDG path,
