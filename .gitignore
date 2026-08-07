@@ -74,3 +74,6 @@ CLAUDE.md
 *.xcworkspace/
 .xcuserdata/
 DerivedData/
+
+# Local adoption reports (gh-adopt)
+docs/adopt/

@@ -21,7 +21,7 @@ This repository is the public Apache-2.0 licensed Symaira Memory self-hosted fou
 - The private `danieljustus/symaira-memory-pro` repository consumes this public core through versioned runtime artifacts such as containers and binaries.
 - Pro must not copy this repository's source code or import `internal/` packages.
 - If Pro needs a general core/runtime capability, implement it publicly here, release/tag it, then update the Pro runtime pin.
-- The current public core release is `v0.15.2`.
+- The current public core release is `v0.17.0`.
 
 ## Architecture & Code Style Guidelines
 
@@ -39,7 +39,7 @@ This repository is the public Apache-2.0 licensed Symaira Memory self-hosted fou
 
 - SwiftUI app (XcodeGen: `cd gui && xcodegen generate`, scheme
   `SymairaMemory`; local builds need `DEVELOPER_DIR` pointing at Xcode).
-- Depends on the shared **symaira-appkit** package, pinned exact (`0.1.0`)
+- Depends on the shared **symaira-appkit** package, pinned exact (`0.7.0`)
   in `gui/project.yml`: SymairaTheme (this app's unprefixed `Color.*` tokens
   are mapped in `Sources/ThemeBridge.swift`; borderGlass values stay local)
   and SymairaKeychain (wrapped in `KeychainHelper` with the LEGACY service
