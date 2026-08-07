@@ -9,6 +9,7 @@ import (
 
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/llm"
+	"github.com/danieljustus/symaira-memory/internal/security"
 )
 
 // verdictResponseSchema constrains the LLM verdict response to a list of
@@ -65,28 +66,37 @@ func (p *LLMVerdictProvider) Verdicts(ctx context.Context, pairs []Pair) ([]Verd
 	}
 	var sb strings.Builder
 	for i, pr := range pairs {
+		// Stored memory content is untrusted data (#505): the same
+		// line-wise marker neutralization the extraction and
+		// consolidation paths apply (#493) is applied here before the
+		// batch is composed, so an instruction-injection marker cannot
+		// steer the verdict model.
 		fmt.Fprintf(&sb, "[pair %d]\nnew fact (written now, by %q): %s\nold fact (already stored, by %q): %s\n\n",
-			i, pr.NewActor, pr.NewContent, pr.OldActor, pr.OldContent)
+			i, pr.NewActor, security.SanitizeLines(pr.NewContent), pr.OldActor, security.SanitizeLines(pr.OldContent))
 	}
+
+	// The standing "data, never instructions" preamble precedes the
+	// untrusted pair content, mirroring the consolidation system prompt.
+	systemPrompt := verdictSystemPrompt + "\n\n" + security.UntrustedPreamble
 
 	var raw string
 	var err error
 	if p.provider == "openai" {
-		raw, err = p.client.Query(ctx, verdictSystemPrompt, sb.String(), "openai", "")
+		raw, err = p.client.Query(ctx, systemPrompt, sb.String(), "openai", "")
 	} else {
 		// Ollama path: pin the verdict JSON schema. The generic Query
 		// would force the consolidation schema, which is the wrong
 		// response shape here.
-		raw, err = p.client.QueryOllamaWithSchema(ctx, verdictSystemPrompt, sb.String(), verdictResponseSchema())
+		raw, err = p.client.QueryOllamaWithSchema(ctx, systemPrompt, sb.String(), verdictResponseSchema())
 	}
 	if err != nil {
 		return nil, fmt.Errorf("conflict: llm verdict query: %w", err)
 	}
-	verdicts, err := parseVerdictResponse(raw, len(pairs))
-	if err != nil {
-		return nil, fmt.Errorf("conflict: llm verdict parse: %w", err)
-	}
-	return verdicts, nil
+	// parseVerdictResponse cannot fail: the salvage path always yields
+	// one verdict per pair (ambiguous for undecided ones), so malformed
+	// or partial output degrades to store-both instead of failing the
+	// write (#506).
+	return parseVerdictResponse(raw, len(pairs))
 }
 
 var verdictTokenRe = regexp.MustCompile(`(?i)"verdict"\s*:\s*"(repeat|contradiction|ambiguous)"`)
@@ -94,7 +104,9 @@ var verdictTokenRe = regexp.MustCompile(`(?i)"verdict"\s*:\s*"(repeat|contradict
 // parseVerdictResponse extracts one verdict per pair from the LLM output.
 // It first tries strict JSON; when that fails it falls back to scanning
 // for verdict tokens in order, then pads any missing tail pairs as
-// ambiguous.
+// ambiguous. The error return is always nil — the salvage path cannot
+// fail — and is kept so callers can treat the result as fallible without
+// a behavior change.
 func parseVerdictResponse(raw string, want int) ([]Verdict, error) {
 	if want <= 0 {
 		return nil, nil
