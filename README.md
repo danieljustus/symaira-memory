@@ -243,6 +243,7 @@ secret = "vault://symaira/memory/jwt"
 - **Encrypted backups**: Backup archives can be encrypted with AES-256-GCM using a password you provide. Decryption requires the same password.
 - **Local-first**: The database stays on your machine under `~/.local/share/symmemory/`. No telemetry, no external calls (Ollama is optional and local).
 - **Scope isolation**: Memories are isolated by project, agent, user, and session boundaries. Agents only see what their scope permits.
+- **Read tracing (opt-out)**: `memory_search` records which memories each query returned — ids and scores only, never content — so reads can be traced back to the facts an agent relied on. Disable with `[query_log] record_results = false` (see [docs/configuration.md](docs/configuration.md)).
 
 ---
 

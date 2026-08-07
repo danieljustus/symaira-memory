@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/danieljustus/symaira-corekit/sqlitekit"
@@ -14,14 +15,15 @@ import (
 
 // DB wraps the SQL connection.
 type DB struct {
-	conn               *sql.DB
-	quantizeBinary     bool // store sign-bit binary vectors on save
-	prefilterEnabled   bool // use Hamming prefilter before cosine scoring
-	sparsemaxEnabled   bool // apply sparsemax (α=2) to fused hybrid scores
-	perArmMultiplier   int  // per-arm result cap multiplier before fusion
-	retrievalStats     *RetrievalStats
-	queryLogMaxEntries int           // query_log row cap (default 1000)
-	queryLogMaxAge     time.Duration // query_log max entry age; 0 = disabled
+	conn                  *sql.DB
+	quantizeBinary        bool // store sign-bit binary vectors on save
+	prefilterEnabled      bool // use Hamming prefilter before cosine scoring
+	sparsemaxEnabled      bool // apply sparsemax (α=2) to fused hybrid scores
+	perArmMultiplier      int  // per-arm result cap multiplier before fusion
+	retrievalStats        *RetrievalStats
+	queryLogMaxEntries    int           // query_log row cap (default 1000)
+	queryLogMaxAge        time.Duration // query_log max entry age; 0 = disabled
+	queryLogRecordResults atomic.Bool   // record returned memory ids per query (issue #460)
 }
 
 // Open initializes the SQLite database at the standard XDG path,
@@ -74,6 +76,7 @@ func Open(cfg *config.Config) (*DB, error) {
 		queryLogMaxEntries: queryLogMaxEntries,
 		queryLogMaxAge:     queryLogMaxAge,
 	}
+	db.queryLogRecordResults.Store(cfg.QueryLog.RecordResults)
 	if err := db.runMigrations(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)

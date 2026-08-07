@@ -408,14 +408,14 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 			before := len(searchResults)
 			searchResults = db.FilterByMinScore(searchResults, minScore)
 			if len(searchResults) == 0 && before > 0 {
-				s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
+				_, _ = s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
 				return fmt.Sprintf("No confident match: all %d result(s) scored below the min_score threshold %.3f.", before, minScore), nil
 			}
 		}
 	}
 
 	if len(searchResults) == 0 {
-		s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
+		_, _ = s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
 		return "No relevant memories found.", nil
 	}
 
@@ -450,7 +450,15 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 		pageInfo.Truncated = len(compact) < len(searchResults) || (args.MaxPayloadBytes > 0 && len(compact) != len(searchResults))
 	}
 
-	s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
+	queryID, err := s.service.LogQuery(s.attributionActor(), args.Scope, args.SessionID, "memory_search", args.Query, truncatedParams, time.Since(startTime).Milliseconds())
+	if err == nil && queryID != "" {
+		refs := make([]db.QueryResultRef, len(searchResults))
+		for i, r := range searchResults {
+			refs[i] = db.QueryResultRef{MemoryID: r.Memory.ID, Rank: i, Score: float64(r.Score)}
+		}
+		// Best-effort telemetry: a recording failure never fails the search.
+		_ = s.service.RecordQueryResults(queryID, refs)
+	}
 
 	data, _ := json.MarshalIndent(pageInfo, "", "  ")
 	return string(data), nil

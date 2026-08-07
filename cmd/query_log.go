@@ -20,7 +20,53 @@ func init() {
 	queryLogCmd.Flags().IntVarP(&queryLogLimit, "limit", "n", 20, "Number of recent entries to show")
 	queryLogCmd.Flags().BoolVar(&queryLogJSON, "json", false, "Output raw JSON instead of table")
 	queryLogCmd.Flags().StringVar(&queryLogActor, "actor", "", "Only show entries recorded for this actor (client identity)")
+	queryLogCmd.AddCommand(queryLogResultsCmd)
 	rootCmd.AddCommand(queryLogCmd)
+}
+
+// queryLogResultsCmd resolves a logged query to the memories it returned.
+// This is the read side of query_log_results (issue #460): every recorded
+// row is a reference (memory id + rank + score), never a content copy.
+var queryLogResultsCmd = &cobra.Command{
+	Use:   "results [query-id]",
+	Short: "Show the memories a logged query returned",
+	Long: `Show which memories a logged query returned, one row per memory with
+its retrieval rank and score. The query id is the id column of
+'symmemory query-log' (JSON output shows it per entry). Recording is
+governed by [query_log] record_results (default true).`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		database := GetDB()
+		if database == nil {
+			return exitcodes.Wrapf(nil, exitcodes.ExitSoftware, exitcodes.KindInternal, "database not initialized")
+		}
+
+		results, err := database.GetQueryLogResults(args[0])
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to read query log results")
+		}
+
+		if queryLogJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(results)
+			return nil
+		}
+
+		if len(results) == 0 {
+			fmt.Printf("No recorded results for query %s (recording off, query pruned, or the search returned nothing).\n", args[0])
+			return nil
+		}
+		fmt.Printf("Query %s returned %d memory reference(s):\n", args[0], len(results))
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "  Rank	Score	Memory ID")
+		fmt.Fprintln(tw, "  ----	-----	---------")
+		for _, r := range results {
+			fmt.Fprintf(tw, "  %d	%.4f	%s\n", r.Rank, r.Score, r.MemoryID)
+		}
+		_ = tw.Flush()
+		return nil
+	},
 }
 
 var queryLogCmd = &cobra.Command{

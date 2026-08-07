@@ -122,7 +122,8 @@ type RetentionConfig struct {
 	AuditRetention   string `json:"audit_retention"`    // how long to keep audit logs (default "720h")
 }
 
-// QueryLogConfig controls query log retention policy (issue #457).
+// QueryLogConfig controls query log retention policy (issue #457) and the
+// result-set recording switch (issue #460).
 // The query log is bounded so it cannot grow without limit; the bounds are
 // deliberate and configurable here.
 type QueryLogConfig struct {
@@ -135,6 +136,10 @@ type QueryLogConfig struct {
 	// Entries older than this are pruned on write. Empty disables age-based
 	// pruning.
 	MaxAge string `json:"max_age"`
+	// RecordResults controls whether each retrieval records the memories it
+	// returned (ids and scores only — references, never content) in
+	// query_log_results. Defaults to true; set to false to opt out.
+	RecordResults bool `json:"record_results"`
 }
 
 // HybridSearchConfig controls hybrid vector + BM25 retrieval.
@@ -254,8 +259,9 @@ func Defaults() *Config {
 			AuditRetention:   "720h",
 		},
 		QueryLog: QueryLogConfig{
-			MaxEntries: 1000,
-			MaxAge:     "",
+			MaxEntries:    1000,
+			MaxAge:        "",
+			RecordResults: true,
 		},
 		HybridSearch: HybridSearchConfig{
 			Enabled:          true,

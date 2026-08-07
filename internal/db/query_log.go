@@ -25,6 +25,16 @@ type QueryLogEntry struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+// QueryLogResult records one memory that a retrieval returned, linked to
+// the query-log row that caused it (issue #460). It stores a reference —
+// the memory id and its rank/score — never a copy of the memory content.
+type QueryLogResult struct {
+	QueryID  string  `json:"query_id"`
+	MemoryID string  `json:"memory_id"`
+	Rank     int     `json:"rank"`
+	Score    float64 `json:"score"`
+}
+
 // QueryLogSummary holds aggregated stats for the query-log summary CLI.
 type QueryLogSummary struct {
 	TotalQueries   int              `json:"total_queries"`
@@ -36,8 +46,9 @@ type QueryLogSummary struct {
 
 // LogQuery inserts a new query log entry attributed to the given actor
 // (the client identity that issued the query), scope and session, then
-// prunes entries that exceed the configured retention policy.
-func (db *DB) LogQuery(actor, scope, session, tool, queryText, params string, durationMs int64) error {
+// prunes entries that exceed the configured retention policy. It returns
+// the inserted query id so callers can attach result-set records.
+func (db *DB) LogQuery(actor, scope, session, tool, queryText, params string, durationMs int64) (string, error) {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 
@@ -46,10 +57,69 @@ func (db *DB) LogQuery(actor, scope, session, tool, queryText, params string, du
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, nullStr(actor), nullStr(scope), nullStr(session), tool, nullStr(queryText), nullStr(params), durationMs, now,
 	); err != nil {
-		return err
+		return "", err
 	}
 
-	return db.pruneQueryLog()
+	if err := db.pruneQueryLog(); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// RecordQueryResults links a logged query to the memories its retrieval
+// returned, one row per memory with rank and score. It is a no-op when
+// result recording is disabled or the result list is empty. Recording
+// errors are returned to the caller, which treats them as non-fatal
+// telemetry failures.
+func (db *DB) RecordQueryResults(queryID string, results []QueryResultRef) error {
+	if !db.queryLogRecordResults.Load() {
+		return nil
+	}
+	if len(results) == 0 {
+		return nil
+	}
+	for _, r := range results {
+		if _, err := db.conn.Exec(
+			`INSERT OR IGNORE INTO query_log_results (query_id, memory_id, rank, score) VALUES (?, ?, ?, ?)`,
+			queryID, r.MemoryID, r.Rank, r.Score,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetQueryLogResults resolves a logged query to the memories it returned,
+// ordered by retrieval rank.
+func (db *DB) GetQueryLogResults(queryID string) ([]*QueryLogResult, error) {
+	rows, err := db.conn.Query(
+		`SELECT query_id, memory_id, rank, score FROM query_log_results WHERE query_id = ? ORDER BY rank ASC`,
+		queryID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*QueryLogResult
+	for rows.Next() {
+		var r QueryLogResult
+		if err := rows.Scan(&r.QueryID, &r.MemoryID, &r.Rank, &r.Score); err != nil {
+			return nil, err
+		}
+		out = append(out, &r)
+	}
+	if out == nil {
+		out = []*QueryLogResult{}
+	}
+	return out, nil
+}
+
+// QueryResultRef is one returned memory reference for RecordQueryResults.
+type QueryResultRef struct {
+	MemoryID string
+	Rank     int
+	Score    float64
 }
 
 // pruneQueryLog removes entries that exceed the configured retention policy:

@@ -59,10 +59,10 @@ func insertQueryLogRows(t *testing.T, database *DB, n int, base time.Time, prefi
 func TestLogQueryInsertsEntryWithToolAttribution(t *testing.T) {
 	database := openTestDB(t)
 
-	if err := database.LogQuery("mcp", "", "", "memory_search", "what is symmemory", `{"limit":5}`, 42); err != nil {
+	if _, err := database.LogQuery("mcp", "", "", "memory_search", "what is symmemory", `{"limit":5}`, 42); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("mcp", "", "", "memory_get", "", "", 7); err != nil {
+	if _, err := database.LogQuery("mcp", "", "", "memory_get", "", "", 7); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -287,10 +287,10 @@ func TestQueryLogPruneCount(t *testing.T) {
 func TestLogQueryRecordsActorScopeSession(t *testing.T) {
 	database := openTestDB(t)
 
-	if err := database.LogQuery("claude/1.0", "project", "sess-abc", "memory_search", "what is symmemory", "{}", 42); err != nil {
+	if _, err := database.LogQuery("claude/1.0", "project", "sess-abc", "memory_search", "what is symmemory", "{}", 42); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("", "", "", "memory_get", "", "", 7); err != nil {
+	if _, err := database.LogQuery("", "", "", "memory_get", "", "", 7); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -329,13 +329,13 @@ func TestGetQueryLogSummaryActorBreakdownAndFilter(t *testing.T) {
 	database := openTestDB(t)
 
 	// 2 searches by alice, 1 get by bob, 1 legacy row with NULL actor.
-	if err := database.LogQuery("alice", "project", "s1", "memory_search", "q1", "{}", 1); err != nil {
+	if _, err := database.LogQuery("alice", "project", "s1", "memory_search", "q1", "{}", 1); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("alice", "project", "s2", "memory_search", "q2", "{}", 2); err != nil {
+	if _, err := database.LogQuery("alice", "project", "s2", "memory_search", "q2", "{}", 2); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("bob", "global", "s3", "memory_get", "", "", 3); err != nil {
+	if _, err := database.LogQuery("bob", "global", "s3", "memory_get", "", "", 3); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 	if _, err := database.conn.Exec(
@@ -383,7 +383,7 @@ func TestPruneQueryLogConfiguredCap(t *testing.T) {
 	database := openTestDBWithConfig(t, cfg)
 
 	for i := 0; i < 10; i++ {
-		if err := database.LogQuery("alice", "", "", "memory_search", fmt.Sprintf("q%d", i), "", int64(i)); err != nil {
+		if _, err := database.LogQuery("alice", "", "", "memory_search", fmt.Sprintf("q%d", i), "", int64(i)); err != nil {
 			t.Fatalf("LogQuery %d: %v", i, err)
 		}
 	}
@@ -428,7 +428,7 @@ func TestPruneQueryLogMaxAge(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert old row: %v", err)
 	}
-	if err := database.LogQuery("alice", "", "", "memory_search", "fresh", "", 1); err != nil {
+	if _, err := database.LogQuery("alice", "", "", "memory_search", "fresh", "", 1); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -502,7 +502,7 @@ func TestQueryLogMigrationAdditiveUpgrade(t *testing.T) {
 	}
 
 	// New writes with identity land in the upgraded schema.
-	if err := database.LogQuery("alice", "project", "s1", "memory_search", "new query", "", 3); err != nil {
+	if _, err := database.LogQuery("alice", "project", "s1", "memory_search", "new query", "", 3); err != nil {
 		t.Fatalf("LogQuery after upgrade: %v", err)
 	}
 	entries, err = database.GetQueryLogEntries(10)
