@@ -1,12 +1,14 @@
 package memory
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-corekit/evidencekit"
+	"github.com/danieljustus/symaira-memory/internal/conflict"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/security"
@@ -290,11 +292,24 @@ func Prepare(content, scope string, meta map[string]string, piiEnabled bool, att
 	}, &security.RedactionResult{Matches: allMatches}, nil
 }
 
+// StoreOptions tunes the write pipeline. The zero value reproduces the
+// legacy behavior exactly.
+type StoreOptions struct {
+	// ConflictChecker enables write-path contradiction detection (#462).
+	// nil (or a checker with Enabled=false) keeps the legacy behavior:
+	// unconditional inserts, no dedup, no supersession.
+	ConflictChecker *conflict.Checker
+}
+
 // Store wraps the full prepare → redact → embed → save → extract-facts pipeline.
 // Returns the saved memory and any extracted secondary fact descriptions.
 // The entities parameter contains entity names to link to the saved memory.
 // sourceTool identifies the client (e.g. "cli", "mcp", "http").
-func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string, sourceTool string, working bool, ttl time.Duration) (*db.Memory, []string, error) {
+func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string, sourceTool string, working bool, ttl time.Duration, opts ...StoreOptions) (*db.Memory, []string, error) {
+	var checker *conflict.Checker
+	if len(opts) > 0 {
+		checker = opts[0].ConflictChecker
+	}
 	m, prepareResult, err := Prepare(content, scope, meta, piiEnabled, attr, sourceTool)
 	if err != nil {
 		return nil, nil, err
@@ -315,7 +330,23 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 	m.EmbeddingModel = emb.Model
 	m.EmbeddingQuantization = emb.Quantization
 
-	if err := database.SaveMemory(m); err != nil {
+	// Write-path contradiction detection (#462): dedup repeats, resolve
+	// contradictions, surface undecided pairs. Working memories (TTL
+	// ephemera) and disabled checkers bypass the check entirely. A check
+	// failure degrades to the legacy store-both behavior, never to a
+	// failed write.
+	if !working && checker != nil {
+		stored, deduped, err := storeWithConflictCheck(database, checker, m, attr)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to save memory: %w", err)
+		}
+		m = stored
+		if deduped {
+			// The fact already exists: keep the existing row, link any
+			// entities onto it, and report it as the stored memory.
+			slog.Info("conflict: duplicate write deduplicated", "id", m.ID)
+		}
+	} else if err := database.SaveMemory(m); err != nil {
 		return nil, nil, fmt.Errorf("failed to save memory: %w", err)
 	}
 
@@ -423,7 +454,7 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 			CreatedSession:  attr.SessionID,
 			UpdatedSession:  attr.SessionID,
 		}
-		if err := database.SaveMemory(subMem); err == nil {
+		if err := saveSubMemory(database, checker, subMem, attr); err == nil {
 			extractedStr = append(extractedStr, fmt.Sprintf("  - [Fact Extracted] %s (ID: %s)", cleanFactContent, subID))
 
 			if len(f.Evidence) > 0 {
@@ -467,6 +498,88 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 	}
 
 	return m, extractedStr, nil
+}
+
+// storeWithConflictCheck persists a memory through the write-path
+// contradiction check (#462). It returns the stored memory (which is the
+// existing row when the write was deduplicated) and whether the write was
+// deduplicated. A repeat keeps the existing row and writes nothing; a
+// contradiction marks the loser superseded and closes its valid_to; an
+// undecided pair is stored unchanged and surfaced via a conflict_pending
+// audit event. Check failures degrade to the legacy store-both behavior
+// and never fail the write.
+func storeWithConflictCheck(database *db.DB, checker *conflict.Checker, m *db.Memory, attr Attribution) (*db.Memory, bool, error) {
+	res, err := checker.Check(context.Background(), m)
+	if err != nil {
+		slog.Warn("conflict check degraded; storing memory unchanged", "error", err)
+		res = nil
+	}
+	if len(res) == 1 && res[0].Verdict == conflict.VerdictRepeat {
+		return res[0].Candidate, true, nil
+	}
+
+	var contradictions []*conflict.Resolution
+	for i := range res {
+		r := &res[i]
+		switch r.Verdict {
+		case conflict.VerdictContradiction:
+			contradictions = append(contradictions, r)
+			if r.WinnerID != m.ID {
+				// The existing fact wins: the new memory is saved with
+				// the supersession pre-marked.
+				m.SupersededBy = r.WinnerID
+			}
+		case conflict.VerdictAmbiguous:
+			// Conservative default: store both and surface the
+			// disagreement in the audit log.
+			if err := database.LogAudit(conflict.ActionConflictPending, m.ID, m.Scope, attr.SessionID, attr.Author,
+				conflict.ConflictPendingDetail(r.Candidate.ID, r.Candidate.CreatedBy, r.Similarity)); err != nil {
+				slog.Warn("failed to write conflict_pending audit event", "error", err)
+			}
+		}
+	}
+
+	if err := database.SaveMemory(m); err != nil {
+		return nil, false, err
+	}
+
+	for _, r := range contradictions {
+		if r.WinnerID == m.ID {
+			// New fact wins: mark the loser superseded and close its
+			// validity window at the winner's creation time.
+			if err := database.SupersedeMemory(r.LoserID, m.ID, m.CreatedAt, attr.Author, attr.SessionID); err != nil {
+				slog.Warn("failed to mark memory superseded", "loser", r.LoserID, "error", err)
+				continue
+			}
+		}
+		// Record the resolution: both memory IDs, both actors, the
+		// deciding rule — reviewable and reversible by hand.
+		detail := conflict.SupersedeDetail(r.WinnerID, r.WinnerActor, r.LoserActor, r.Rule, r.Similarity)
+		if err := database.LogAudit(conflict.ActionSupersede, r.LoserID, m.Scope, attr.SessionID, attr.Author, detail); err != nil {
+			slog.Warn("failed to write supersede audit event", "error", err)
+		}
+	}
+	return m, false, nil
+}
+
+// saveSubMemory persists a secondary extracted fact, running it through
+// the same write-path conflict check as the primary when a checker is
+// configured. Deduplicated sub-facts are skipped silently (the fact is
+// already stored). Errors are returned so the caller can skip reporting
+// the extraction, mirroring the legacy SaveMemory contract.
+func saveSubMemory(database *db.DB, checker *conflict.Checker, subMem *db.Memory, attr Attribution) error {
+	if checker == nil {
+		return database.SaveMemory(subMem)
+	}
+	stored, deduped, err := storeWithConflictCheck(database, checker, subMem, attr)
+	if err != nil {
+		return err
+	}
+	if deduped {
+		slog.Info("conflict: extracted fact deduplicated", "id", stored.ID)
+		return nil
+	}
+	return nil
 }
 
 // FormatStoreSuccess builds a human-readable success message for a stored memory.

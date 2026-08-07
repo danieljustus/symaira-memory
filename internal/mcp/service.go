@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-memory/internal/conflict"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
@@ -19,6 +20,10 @@ type MemoryService struct {
 	embeddings *extractor.EmbeddingsGenerator
 	piiEnabled bool
 	weights    db.RankingWeights // retrieval ranking weights (#488/#489 config)
+
+	// conflictChecker runs write-path contradiction detection (#462).
+	// nil keeps the legacy write behavior (unconditional inserts).
+	conflictChecker *conflict.Checker
 }
 
 // NewMemoryService creates a service with the given dependencies.
@@ -35,6 +40,23 @@ func NewMemoryService(database *db.DB, embeddings *extractor.EmbeddingsGenerator
 // SetRankingWeights applies the configured retrieval weights.
 func (s *MemoryService) SetRankingWeights(w db.RankingWeights) {
 	s.weights = w
+}
+
+// SetConflictChecker enables write-path contradiction detection (#462).
+// A nil checker restores the legacy write behavior (unconditional
+// inserts, no dedup, no supersession).
+func (s *MemoryService) SetConflictChecker(cc *conflict.Checker) {
+	s.conflictChecker = cc
+}
+
+// checkerForStaged returns the conflict checker to use for a write that
+// will land as a staged candidate. Staged writes bypass the check: a
+// candidate awaiting review must never supersede a live fact.
+func (s *MemoryService) checkerForStaged(staged bool) *conflict.Checker {
+	if staged {
+		return nil
+	}
+	return s.conflictChecker
 }
 
 func (s *MemoryService) SetPIIEnabled(enabled bool) {
@@ -119,11 +141,17 @@ func (s *MemoryService) SearchWithProfile(query, profileName string, limit int, 
 }
 
 func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string, working bool, ttl time.Duration) (string, error) {
+	return s.set(content, scope, metadata, sessionID, author, entities, sourceTool, working, ttl, s.conflictChecker)
+}
+
+func (s *MemoryService) set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string, working bool, ttl time.Duration, checker *conflict.Checker) (string, error) {
 	attr := memory.Attribution{
 		Author:    author,
 		SessionID: sessionID,
 	}
-	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, content, scope, metadata, s.piiEnabled, attr, entities, sourceTool, working, ttl)
+	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, content, scope, metadata, s.piiEnabled, attr, entities, sourceTool, working, ttl, memory.StoreOptions{
+		ConflictChecker: checker,
+	})
 	if err != nil {
 		return "", err
 	}
@@ -139,7 +167,7 @@ func (s *MemoryService) SetGoverned(content, scope string, metadata map[string]s
 	if !ok {
 		return "", fmt.Errorf("invalid kind %q (valid: %s)", kind, strings.Join(db.ValidKinds(), ", "))
 	}
-	id, err := s.Set(content, scope, metadata, sessionID, author, entities, sourceTool, working, ttl)
+	id, err := s.set(content, scope, metadata, sessionID, author, entities, sourceTool, working, ttl, s.checkerForStaged(staged))
 	if err != nil {
 		return "", err
 	}

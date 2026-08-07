@@ -148,6 +148,10 @@ func handleObserveEvent(eventType, data string) {
 		"hook:claude-code",
 		true,         // Working memory (TTL-based eviction)
 		24*time.Hour, // Default TTL for hook events
+		memory.StoreOptions{
+			// Hook events are working memories; the write-path conflict
+			// check (#462) skips them by design, so no checker is built.
+		},
 	)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "observe %s: store failed: %v\n", eventType, err)
