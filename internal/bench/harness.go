@@ -20,6 +20,11 @@ type Options struct {
 	Dataset          string  // External dataset name for opt-in datasets (optional; alias for Corpus)
 	Corpus           string  // Corpus to evaluate: "builtin" (default) or "longmemeval"
 	AbstainThreshold float64 // Score threshold for abstention evaluation (default 0)
+	// RepeatRuns reruns the whole query evaluation this many times and
+	// pools the per-query samples (issue #490). Default 1 = single run.
+	RepeatRuns int
+	// Seed makes the bootstrap resampling in CI comparisons deterministic.
+	Seed int64
 }
 
 // Report holds the complete benchmark results.
@@ -39,6 +44,9 @@ type Report struct {
 	// #402: Context-pressure and recovery canary benchmarks
 	ContextPressure []ContextPressureReport `json:"context_pressure,omitempty"`
 	RecoveryCanary  []RecoveryCanaryReport  `json:"recovery_canary,omitempty"`
+
+	// #490: external baseline arm (skipped unless configured)
+	Baseline BaselineArmReport `json:"baseline,omitempty"`
 }
 
 // TemporalReport holds temporal-validity evaluation results for a single mode.
@@ -140,16 +148,16 @@ func Run(w io.Writer, opts Options) error {
 	}
 
 	// --- Run BM25 evaluation ---
-	bm25Results, bm25Latencies := runMode(database, corpus, "bm25", opts.Repetitions)
-	report.BM25 = ComputeMetrics("bm25", bm25Results, corpus.Queries, bm25Latencies)
+	bm25Runs, bm25LatencyRuns := runModeRuns(database, corpus, "bm25", opts.Repetitions, opts.RepeatRuns)
+	report.BM25 = ComputeMetricsPooled("bm25", bm25Runs, corpus.Queries, bm25LatencyRuns)
 
 	// --- Run Vector evaluation ---
-	vectorResults, vectorLatencies := runMode(database, corpus, "vector", opts.Repetitions)
-	report.Vector = ComputeMetrics("vector", vectorResults, corpus.Queries, vectorLatencies)
+	vectorRuns, vectorLatencyRuns := runModeRuns(database, corpus, "vector", opts.Repetitions, opts.RepeatRuns)
+	report.Vector = ComputeMetricsPooled("vector", vectorRuns, corpus.Queries, vectorLatencyRuns)
 
 	// --- Run Hybrid evaluation ---
-	hybridResults, hybridLatencies := runMode(database, corpus, "hybrid", opts.Repetitions)
-	report.Hybrid = ComputeMetrics("hybrid", hybridResults, corpus.Queries, hybridLatencies)
+	hybridRuns, hybridLatencyRuns := runModeRuns(database, corpus, "hybrid", opts.Repetitions, opts.RepeatRuns)
+	report.Hybrid = ComputeMetricsPooled("hybrid", hybridRuns, corpus.Queries, hybridLatencyRuns)
 
 	// --- Temporal validity evaluation ---
 	report.Temporal = evaluateTemporal(database, corpus, embeddings)
@@ -162,6 +170,13 @@ func Run(w io.Writer, opts Options) error {
 		report.Abstention = evaluateAbstention(database, corpus, embeddings, opts.AbstainThreshold)
 	}
 
+	// --- External baseline arm (env-gated, skipped unless configured) ---
+	baseline, err := RunExternalBaseline(corpus)
+	if err != nil {
+		return err // configured but failing: fail loudly, never fake the arm
+	}
+	report.Baseline = baseline
+
 	// --- Output ---
 	switch opts.Output {
 	case "json":
@@ -173,60 +188,73 @@ func Run(w io.Writer, opts Options) error {
 	}
 }
 
-// runMode executes all queries for a given retrieval mode and returns
-// per-query result IDs and per-query latencies.
-func runMode(database *db.DB, corpus *Corpus, mode string, repetitions int) (map[int][]string, []time.Duration) {
-	queryResults := make(map[int][]string)
-	var allLatencies []time.Duration
+// runModeRuns executes all queries for a mode, repeatRuns times, and
+// returns the per-query results and latencies of every run. With
+// repeatRuns <= 1 it behaves like runMode with a single run. The
+// repetitions parameter stays the per-query latency measurement count.
+func runModeRuns(database *db.DB, corpus *Corpus, mode string, repetitions, repeatRuns int) ([]map[int][]string, [][]time.Duration) {
+	if repeatRuns <= 0 {
+		repeatRuns = 1
+	}
+	allRuns := make([]map[int][]string, 0, repeatRuns)
+	allLatencyRuns := make([][]time.Duration, 0, repeatRuns)
 
-	for i, gt := range corpus.Queries {
-		var bestResults []string
-		var latencies []time.Duration
+	for run := 0; run < repeatRuns; run++ {
+		queryResults := make(map[int][]string)
+		var allLatencies []time.Duration
 
-		for rep := 0; rep < repetitions; rep++ {
-			start := time.Now()
-			var ids []string
+		for i, gt := range corpus.Queries {
+			var bestResults []string
+			var latencies []time.Duration
 
-			switch mode {
-			case "bm25":
-				results, err := database.SearchMemoriesBM25(gt.Query, "", 10)
-				if err == nil {
-					for _, r := range results {
-						ids = append(ids, r.Memory.ID)
+			for rep := 0; rep < repetitions; rep++ {
+				start := time.Now()
+				var ids []string
+
+				switch mode {
+				case "bm25":
+					results, err := database.SearchMemoriesBM25(gt.Query, "", 10)
+					if err == nil {
+						for _, r := range results {
+							ids = append(ids, r.Memory.ID)
+						}
+					}
+				case "vector":
+					vec := extractor.GenerateLocalHashVector(gt.Query, extractor.DefaultDimensions)
+					results, err := database.SearchMemories(vec, "hash-fallback", "", 10)
+					if err == nil {
+						for _, r := range results {
+							ids = append(ids, r.Memory.ID)
+						}
+					}
+				case "hybrid":
+					vec := extractor.GenerateLocalHashVector(gt.Query, extractor.DefaultDimensions)
+					results, err := database.HybridSearch(vec, "hash-fallback", gt.Query, "", 10, "", db.TrustFilter{}, db.PolicyFilter{}, 0.7, 0.3)
+					if err == nil {
+						for _, r := range results {
+							ids = append(ids, r.Memory.ID)
+						}
 					}
 				}
-			case "vector":
-				vec := extractor.GenerateLocalHashVector(gt.Query, extractor.DefaultDimensions)
-				results, err := database.SearchMemories(vec, "hash-fallback", "", 10)
-				if err == nil {
-					for _, r := range results {
-						ids = append(ids, r.Memory.ID)
-					}
-				}
-			case "hybrid":
-				vec := extractor.GenerateLocalHashVector(gt.Query, extractor.DefaultDimensions)
-				results, err := database.HybridSearch(vec, "hash-fallback", gt.Query, "", 10, "", db.TrustFilter{}, db.PolicyFilter{}, 0.7, 0.3)
-				if err == nil {
-					for _, r := range results {
-						ids = append(ids, r.Memory.ID)
-					}
+
+				elapsed := time.Since(start)
+				latencies = append(latencies, elapsed)
+
+				// Use the result from the first repetition (deterministic corpus)
+				if rep == 0 {
+					bestResults = ids
 				}
 			}
 
-			elapsed := time.Since(start)
-			latencies = append(latencies, elapsed)
-
-			// Use the result from the first repetition (deterministic corpus)
-			if rep == 0 {
-				bestResults = ids
-			}
+			queryResults[i] = bestResults
+			allLatencies = append(allLatencies, latencies...)
 		}
 
-		queryResults[i] = bestResults
-		allLatencies = append(allLatencies, latencies...)
+		allRuns = append(allRuns, queryResults)
+		allLatencyRuns = append(allLatencyRuns, allLatencies)
 	}
 
-	return queryResults, allLatencies
+	return allRuns, allLatencyRuns
 }
 
 // evaluateTemporal checks what fraction of top-5 results for temporal queries

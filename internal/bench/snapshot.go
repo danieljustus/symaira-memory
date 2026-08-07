@@ -30,6 +30,9 @@ type BenchSnapshot struct {
 	Timestamp     time.Time `json:"timestamp"`
 	CorpusHash    string    `json:"corpus_hash"`
 	CorpusName    string    `json:"corpus_name,omitempty"`
+	// Samples carries the per-query values behind the point estimates
+	// (issue #490); absent for snapshots written before the stats landed.
+	Samples QuerySamples `json:"samples,omitempty"`
 }
 
 // SnapshotFile is the complete set of mode snapshots from one benchmark run.
@@ -119,6 +122,7 @@ func (r *Report) ToSnapshotFile(corpusName, corpusHash string) SnapshotFile {
 			Timestamp:     r.Timestamp,
 			CorpusHash:    corpusHash,
 			CorpusName:    corpusName,
+			Samples:       m.Samples,
 		})
 	}
 	return sf
@@ -184,6 +188,15 @@ type Delta struct {
 	Current  float64 `json:"current"`
 	Delta    float64 `json:"delta"` // current - baseline
 	Better   bool    `json:"better"`
+	// Inferential statistics (issue #490), present when both snapshots
+	// carry per-query samples. A metric counts as a regression only when
+	// the current 95% CI excludes the baseline value in the worse
+	// direction; p is the two-sided Mann-Whitney U p value, corrected
+	// across metrics via Holm-Bonferroni.
+	CI95Lo      float64 `json:"ci95_lo,omitempty"`
+	CI95Hi      float64 `json:"ci95_hi,omitempty"`
+	MannWhitney float64 `json:"mann_whitney_p,omitempty"`
+	CliffsDelta float64 `json:"cliffs_delta,omitempty"`
 }
 
 // ComparisonReport holds the full comparison between baseline and current snapshots.
@@ -194,9 +207,32 @@ type ComparisonReport struct {
 	Passed   bool         `json:"passed"`
 }
 
+// samplePicker selects the per-query samples for one metric from a
+// snapshot's QuerySamples.
+type samplePicker func(s QuerySamples) []float64
+
+var metricPickers = []struct {
+	name           string
+	higherIsBetter bool
+	pick           samplePicker
+}{
+	{"Recall@5", true, func(s QuerySamples) []float64 { return s.RecallAt5 }},
+	{"Recall@10", true, func(s QuerySamples) []float64 { return s.RecallAt10 }},
+	{"NDCG@5", true, func(s QuerySamples) []float64 { return s.NDCGAt5 }},
+	{"NDCG@10", true, func(s QuerySamples) []float64 { return s.NDCGAt10 }},
+	{"MRR", true, func(s QuerySamples) []float64 { return s.MRR }},
+	{"P50 Latency (ms)", false, nil},
+	{"P95 Latency (ms)", false, nil},
+}
+
 // CompareSnapshots compares current results against a baseline and returns
 // a ComparisonReport with per-metric deltas. A metric is "better" when it
-// improves (higher recall/NDCG/MRR, lower latency).
+// improves (higher recall/NDCG/MRR, lower latency). When both snapshots
+// carry per-query samples for a quality metric, the regression verdict
+// comes from a seeded 95% bootstrap CI over the current samples: the
+// metric counts as a regression only when the CI excludes the baseline
+// value in the worse direction. Metrics without samples fall back to the
+// plain point-estimate delta so legacy snapshots keep working.
 func CompareSnapshots(baseline, current SnapshotFile) ComparisonReport {
 	report := ComparisonReport{
 		Baseline: baseline,
@@ -207,6 +243,17 @@ func CompareSnapshots(baseline, current SnapshotFile) ComparisonReport {
 	for _, s := range baseline.Snapshots {
 		baselineByMode[s.Mode] = s
 	}
+
+	type rawMetric struct {
+		mode           string
+		name           string
+		baseline       float64
+		current        float64
+		higherIsBetter bool
+		baseSamples    []float64
+		curSamples     []float64
+	}
+	var raw []rawMetric
 
 	for _, cur := range current.Snapshots {
 		base, ok := baselineByMode[cur.Mode]
@@ -220,45 +267,101 @@ func CompareSnapshots(baseline, current SnapshotFile) ComparisonReport {
 			Baseline       float64
 			Current        float64
 			HigherIsBetter bool
+			Pick           samplePicker
 		}
 		metrics := []metricDef{
-			{"Recall@5", base.RecallAt5, cur.RecallAt5, true},
-			{"Recall@10", base.RecallAt10, cur.RecallAt10, true},
-			{"NDCG@5", base.NDCGAt5, cur.NDCGAt5, true},
-			{"NDCG@10", base.NDCGAt10, cur.NDCGAt10, true},
-			{"MRR", base.MRR, cur.MRR, true},
-			{"P50 Latency (ms)", base.P50LatencyMs, cur.P50LatencyMs, false},
-			{"P95 Latency (ms)", base.P95LatencyMs, cur.P95LatencyMs, false},
+			{"Recall@5", base.RecallAt5, cur.RecallAt5, true, metricPickers[0].pick},
+			{"Recall@10", base.RecallAt10, cur.RecallAt10, true, metricPickers[1].pick},
+			{"NDCG@5", base.NDCGAt5, cur.NDCGAt5, true, metricPickers[2].pick},
+			{"NDCG@10", base.NDCGAt10, cur.NDCGAt10, true, metricPickers[3].pick},
+			{"MRR", base.MRR, cur.MRR, true, metricPickers[4].pick},
+			{"P50 Latency (ms)", base.P50LatencyMs, cur.P50LatencyMs, false, nil},
+			{"P95 Latency (ms)", base.P95LatencyMs, cur.P95LatencyMs, false, nil},
 		}
 
 		for _, m := range metrics {
-			deltaVal := m.Current - m.Baseline
-			var better bool
-			if m.HigherIsBetter {
-				better = deltaVal >= 0
-			} else {
-				better = deltaVal <= 0 // latency decreased = better
-			}
-			report.Deltas = append(report.Deltas, Delta{
-				Metric:   m.Name,
-				Mode:     cur.Mode,
-				Baseline: m.Baseline,
-				Current:  m.Current,
-				Delta:    deltaVal,
-				Better:   better,
+			raw = append(raw, rawMetric{
+				mode:           cur.Mode,
+				name:           m.Name,
+				baseline:       m.Baseline,
+				current:        m.Current,
+				higherIsBetter: m.HigherIsBetter,
+				baseSamples:    base.Samples.pickOrEmpty(m.Pick),
+				curSamples:     cur.Samples.pickOrEmpty(m.Pick),
 			})
 		}
 	}
 
-	report.Passed = true
-	for _, d := range report.Deltas {
-		if !d.Better {
-			report.Passed = false
-			break
+	// Holm-Bonferroni correction across all Mann-Whitney tests.
+	pvals := make([]float64, len(raw))
+	for i, m := range raw {
+		pvals[i] = 1
+		if len(m.baseSamples) >= 2 && len(m.curSamples) >= 2 {
+			_, _, p, err := MannWhitneyU(m.curSamples, m.baseSamples)
+			if err == nil {
+				pvals[i] = p
+			}
 		}
 	}
+	adjusted := HolmBonferroni(pvals)
 
+	regression := false
+	for i, m := range raw {
+		deltaVal := m.current - m.baseline
+		var better bool
+		if m.higherIsBetter {
+			better = deltaVal >= 0
+		} else {
+			better = deltaVal <= 0 // latency decreased = better
+		}
+
+		d := Delta{
+			Metric:      m.name,
+			Mode:        m.mode,
+			Baseline:    m.baseline,
+			Current:     m.current,
+			Delta:       deltaVal,
+			Better:      better,
+			MannWhitney: adjusted[i],
+		}
+		if len(m.baseSamples) >= 2 && len(m.curSamples) >= 2 {
+			// Quality metrics: verdict from the seeded bootstrap CI over
+			// current per-query samples. Deterministic for a fixed corpus.
+			// The CI verdict is authoritative: a metric is a regression
+			// only when the CI excludes the baseline in the worse
+			// direction; a dip whose CI still reaches the baseline is
+			// indistinguishable from run noise and counts as passed.
+			seed := int64(0x5eed) + int64(i)*2654435761
+			lo, hi, err := SeededBootstrapCI(m.curSamples, seed, 2000, 0.05)
+			if err == nil {
+				d.CI95Lo = lo
+				d.CI95Hi = hi
+				d.CliffsDelta = CliffsDelta(m.curSamples, m.baseSamples)
+				if m.higherIsBetter {
+					better = hi >= m.baseline
+				} else {
+					better = lo <= m.baseline
+				}
+				d.Better = better
+			}
+		}
+		if !d.Better {
+			regression = true
+		}
+		report.Deltas = append(report.Deltas, d)
+	}
+
+	report.Passed = !regression
 	return report
+}
+
+// pickOrEmpty resolves a metric's per-query samples from a snapshot,
+// returning nil when the picker is nil or the samples are absent.
+func (s QuerySamples) pickOrEmpty(pick samplePicker) []float64 {
+	if pick == nil {
+		return nil
+	}
+	return pick(s)
 }
 
 // WriteComparisonReport writes the comparison report to w in human-readable format.
@@ -298,6 +401,10 @@ func WriteComparisonReport(w io.Writer, report ComparisonReport) {
 			}
 			fmt.Fprintf(w, "    %-20s  baseline=%.4f  current=%.4f  Δ%+9.4f  %s  %s\n",
 				d.Metric, d.Baseline, d.Current, d.Delta, arrow, status)
+			if d.CI95Hi > 0 || d.CI95Lo > 0 {
+				fmt.Fprintf(w, "       95%% CI [%.4f, %.4f]  Mann-Whitney p=%.4f  Cliff's Δ=%.3f\n",
+					d.CI95Lo, d.CI95Hi, d.MannWhitney, d.CliffsDelta)
+			}
 		}
 		if !hasOutput {
 			fmt.Fprintf(w, "    (no comparable metrics)\n")

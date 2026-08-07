@@ -19,6 +19,8 @@ var (
 	benchAbstainThreshold float64
 	benchSnapshot         bool
 	benchCompare          bool
+	benchRepeatRuns       int
+	benchSeed             int64
 )
 
 func init() {
@@ -30,6 +32,8 @@ func init() {
 	benchCmd.Flags().Float64Var(&benchAbstainThreshold, "abstain-threshold", 0, "Score threshold for abstention evaluation on corpora with unanswerable queries")
 	benchCmd.Flags().BoolVar(&benchSnapshot, "snapshot", false, "Save benchmark results as a baseline snapshot under .bench-snapshots/")
 	benchCmd.Flags().BoolVar(&benchCompare, "compare", false, "Compare benchmark results against the stored baseline snapshot")
+	benchCmd.Flags().IntVar(&benchRepeatRuns, "repeat-runs", 1, "Rerun the query evaluation this many times and pool per-query samples")
+	benchCmd.Flags().Int64Var(&benchSeed, "seed", 42, "Seed for the deterministic bootstrap resampling in comparisons")
 	rootCmd.AddCommand(benchCmd)
 }
 
@@ -82,6 +86,8 @@ All output goes to stderr for easy piping.`,
 			Dataset:          benchDataset,
 			Corpus:           benchCorpus,
 			AbstainThreshold: benchAbstainThreshold,
+			RepeatRuns:       benchRepeatRuns,
+			Seed:             benchSeed,
 		}
 
 		var buf bytes.Buffer
