@@ -9,9 +9,26 @@ This guide describes how to connect the **Symaira Memory** Model Context Protoco
 **Symaira Memory** (`symmemory`) is designed to operate local-first. AI agents use the protocol via stdio JSON-RPC 2.0 (for local CLI-based agents) or HTTP REST endpoints (for browser extension injections and other network clients).
 
 To prevent agents from polluting the global database with ad-hoc project details, developers should:
-1. Initialize local scoping with `.symmemory.toml` config files in project workspace roots (see [configuration.md](file:///Users/daniel/Dev/symaira-memory/docs/configuration.md)).
+1. Initialize local scoping with `.symmemory.toml` config files in project workspace roots (see [configuration.md](file:///Users/daniel/Dev/Symaira%20Dev/symaira-memory/docs/configuration.md)).
 2. Configure agent profiles to set memories under the `project` or `session` scope rather than the fallback `global` scope.
 3. Keep the API daemon secured using JSON Web Tokens (JWT) when listening on network ports.
+
+---
+
+## 🏷️ Semantic Kinds and Staged Writes
+
+Every `memory_set` write must classify the fact with a `kind` (the MCP tool refuses unclassified writes):
+
+| Kind | Meaning | Example |
+|---|---|---|
+| `user` | Preferences and personal facts | "User prefers tabs over spaces." |
+| `feedback` | Corrections and evaluations | "User corrected the JSON schema: enums must be lowercase." |
+| `project` | Rules, constraints, architectural decisions | "API daemon runs on port 8787." |
+| `reference` | External facts and documentation | "PostgreSQL 16 default port is 5432." |
+
+Synonyms are snapped onto these canonical values (`preference` → `user`, `rule` → `project`, …). Kinds order context assembly: identity-level facts (user) precede project chatter within the same score band.
+
+Autonomous writes that were **not explicitly confirmed by the user** should pass `staged: true`. Staged candidates are excluded from `memory_search`, `memory_list`, and context assembly until a human reviews them via `memory_candidates` / `memory_promote` / `memory_reject` (or `symmemory review`). The server-wide default can be flipped to staged for low-trust clients with `memory.stage_writes_by_default = true` in the config.
 
 ---
 

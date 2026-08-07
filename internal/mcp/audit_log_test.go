@@ -64,7 +64,7 @@ func TestMemorySetWritesAuditEvents(t *testing.T) {
 	t.Cleanup(func() { s.service.db.SetAuditLogEnabled(true) })
 
 	text, err := s.handleMemorySet(context.Background(), json.RawMessage(
-		`{"content":"Contact alice@example.com for the vault token","scope":"global","session_id":"sess-mcp-1"}`,
+		`{"content":"Contact alice@example.com for the vault token","kind":"user","scope":"global","session_id":"sess-mcp-1"}`,
 	))
 	if err != nil {
 		t.Fatalf("handleMemorySet failed: %v", err)
@@ -135,7 +135,7 @@ func TestMemorySetAuditDisabled(t *testing.T) {
 	}
 	s := NewServer(database, jwtProvider, "test", cfg)
 
-	text, err := s.handleMemorySet(context.Background(), json.RawMessage(`{"content":"secret note","scope":"global"}`))
+	text, err := s.handleMemorySet(context.Background(), json.RawMessage(`{"content":"secret note","kind":"user","scope":"global"}`))
 	if err != nil {
 		t.Fatalf("handleMemorySet must not fail when audit logging is disabled: %v", err)
 	}

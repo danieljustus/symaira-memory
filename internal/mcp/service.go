@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/db"
@@ -121,6 +122,69 @@ func (s *MemoryService) Set(content, scope string, metadata map[string]string, s
 		return "", err
 	}
 	return m.ID, nil
+}
+
+// SetGoverned stores a memory like Set and then applies write-path
+// governance (#485/#486): the canonical semantic kind (validated against
+// the four buckets) and the review state. Staged writes land as
+// candidates excluded from retrieval until memory_promote approves them.
+func (s *MemoryService) SetGoverned(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string, working bool, ttl time.Duration, kind string, staged bool) (string, error) {
+	canonical, ok := db.NormalizeKind(kind)
+	if !ok {
+		return "", fmt.Errorf("invalid kind %q (valid: %s)", kind, strings.Join(db.ValidKinds(), ", "))
+	}
+	id, err := s.Set(content, scope, metadata, sessionID, author, entities, sourceTool, working, ttl)
+	if err != nil {
+		return "", err
+	}
+	if err := s.db.SetMemoryKind(id, canonical); err != nil {
+		return "", err
+	}
+	if staged {
+		if err := s.db.SetMemoryReviewStatus(id, db.ReviewStaged); err != nil {
+			return "", err
+		}
+	}
+	return id, nil
+}
+
+// Candidates returns the staged review queue (#485), newest first.
+func (s *MemoryService) Candidates(limit int) ([]*db.Memory, error) {
+	return s.db.ListStagedMemories(limit)
+}
+
+// Promote approves a staged candidate so it becomes retrievable (#485).
+func (s *MemoryService) Promote(id string) error {
+	m, err := s.db.GetMemory(id)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return &NotFoundError{Resource: "memory", Identifier: id}
+	}
+	if err := s.db.SetMemoryReviewStatus(id, db.ReviewApproved); err != nil {
+		return err
+	}
+	_ = s.db.LogAudit("promote", id, m.Scope, m.CreatedSession, m.CreatedBy, "")
+	return nil
+}
+
+// Reject removes a staged candidate (#485). A rejected candidate is
+// deleted: it never entered the curated store, so there is nothing to
+// keep. Live memories are refused, not silently deleted.
+func (s *MemoryService) Reject(id string) error {
+	m, err := s.db.GetMemory(id)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return &NotFoundError{Resource: "memory", Identifier: id}
+	}
+	if m.ReviewStatus != db.ReviewStaged {
+		return fmt.Errorf("memory %s is not a staged candidate (review_status=%s)", id, m.ReviewStatus)
+	}
+	_ = s.db.LogAudit("reject", id, m.Scope, m.CreatedSession, m.CreatedBy, "")
+	return s.db.DeleteMemory(id)
 }
 
 func (s *MemoryService) Get(id string) (*db.Memory, error) {

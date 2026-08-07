@@ -383,6 +383,62 @@ func TestFillRetrievalWithDegradation_GreedyFill(t *testing.T) {
 	}
 }
 
+// TestFillRetrievalWithDegradation_KindBandOrdering verifies the #486
+// ordering rule: within the same score band, identity-level facts (kind
+// user) precede project chatter; across bands, higher scores still win.
+func TestFillRetrievalWithDegradation_KindBandOrdering(t *testing.T) {
+	cfg := config.Defaults()
+	database, err := db.Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	a := NewAssembler(database, nil, &cfg.Context)
+	a.WithDegradationConfig(&cfg.Degradation)
+
+	results := []db.SearchResult{
+		{Memory: &db.Memory{ID: "top", Content: "best match", Kind: db.KindReference}, Score: 0.90},
+		{Memory: &db.Memory{ID: "project-chatter", Content: "project note about deploy", Kind: db.KindProject}, Score: 0.62},
+		{Memory: &db.Memory{ID: "user-pref", Content: "user prefers dark mode", Kind: db.KindUser}, Score: 0.60},
+	}
+	pieces := a.fillRetrievalWithDegradation(results, 500)
+	if len(pieces) == 0 {
+		t.Fatal("expected pieces")
+	}
+	var order []string
+	for _, p := range pieces {
+		switch {
+		case strings.Contains(p.Content, "best match"):
+			order = append(order, "top")
+		case strings.Contains(p.Content, "user prefers"):
+			order = append(order, "user-pref")
+		case strings.Contains(p.Content, "project note"):
+			order = append(order, "project-chatter")
+		}
+	}
+	if len(order) != 3 {
+		t.Fatalf("expected all three pieces in order, got %v", order)
+	}
+	// Highest band first regardless of kind.
+	if order[0] != "top" {
+		t.Errorf("top-scoring piece must come first, got %v", order)
+	}
+	// Same band (0.62 and 0.60 → band 12): kind user before kind project.
+	if idxUser, idxProj := indexOf(order, "user-pref"), indexOf(order, "project-chatter"); idxUser > idxProj {
+		t.Errorf("kind user must precede kind project within the same score band, got %v", order)
+	}
+}
+
+func indexOf(ss []string, s string) int {
+	for i, v := range ss {
+		if v == s {
+			return i
+		}
+	}
+	return -1
+}
+
 func TestFillRetrievalWithDegradation_SkipsWhenBudgetTooLow(t *testing.T) {
 	cfg := config.Defaults()
 	database, err := db.Open(cfg)

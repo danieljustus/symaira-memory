@@ -84,13 +84,15 @@ var (
 )
 
 type model struct {
-	db        *db.DB
-	memories  []*db.Memory
-	selected  int
-	scope     string
-	search    string
-	searching bool
-	err       error
+	db         *db.DB
+	memories   []*db.Memory
+	candidates []*db.Memory // staged review queue (#485)
+	reviewMode bool         // when true, the view shows staged candidates
+	selected   int
+	scope      string
+	search     string
+	searching  bool
+	err        error
 
 	dbPath          string
 	ollamaURL       string
@@ -181,6 +183,21 @@ func (m *model) loadMemories() {
 	}
 }
 
+func (m *model) loadCandidates() {
+	cands, err := m.db.ListStagedMemories(100)
+	if err != nil {
+		m.err = err
+		return
+	}
+	m.candidates = cands
+	if m.selected >= len(m.candidates) {
+		m.selected = len(m.candidates) - 1
+	}
+	if m.selected < 0 {
+		m.selected = 0
+	}
+}
+
 func (m model) Init() tea.Cmd {
 	return nil
 }
@@ -216,54 +233,136 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 
+		case "r":
+			// Toggle review mode: browse staged candidates (#485)
+			m.reviewMode = !m.reviewMode
+			m.selected = 0
+			if m.reviewMode {
+				m.loadCandidates()
+			} else {
+				m.loadMemories()
+			}
+			return m, nil
+
+		case "esc":
+			if m.reviewMode {
+				m.reviewMode = false
+				m.selected = 0
+				m.loadMemories()
+				return m, nil
+			}
+
 		case "up", "k":
 			if m.selected > 0 {
 				m.selected--
 			}
 
 		case "down", "j":
-			if m.selected < len(m.memories)-1 {
+			if m.reviewMode {
+				if m.selected < len(m.candidates)-1 {
+					m.selected++
+				}
+			} else if m.selected < len(m.memories)-1 {
 				m.selected++
 			}
 
 		case "/":
-			m.searching = true
+			if !m.reviewMode {
+				m.searching = true
+			}
+
+		case "p":
+			// In review mode: promote the selected candidate
+			if m.reviewMode && len(m.candidates) > 0 {
+				target := m.candidates[m.selected]
+				if err := m.promoteCandidate(target.ID); err == nil {
+					m.loadCandidates()
+				}
+			} else {
+				m.scope = "project"
+				m.selected = 0
+				m.loadMemories()
+			}
+
+		case "x":
+			// In review mode: reject (delete) the selected candidate
+			if m.reviewMode && len(m.candidates) > 0 {
+				target := m.candidates[m.selected]
+				if err := m.rejectCandidate(target.ID); err == nil {
+					m.loadCandidates()
+				}
+			}
 
 		case "d", "backspace":
-			if len(m.memories) > 0 {
+			if !m.reviewMode && len(m.memories) > 0 {
 				target := m.memories[m.selected]
 				_ = m.db.DeleteMemory(target.ID)
 				m.loadMemories()
 			}
 
-		// Filter scope triggers
+		// Filter scope triggers (disabled in review mode; there 'p' promotes)
 		case "g":
-			m.scope = "global"
-			m.selected = 0
-			m.loadMemories()
-		case "p":
-			m.scope = "project"
-			m.selected = 0
-			m.loadMemories()
+			if !m.reviewMode {
+				m.scope = "global"
+				m.selected = 0
+				m.loadMemories()
+			}
 		case "a":
-			m.scope = "agent"
-			m.selected = 0
-			m.loadMemories()
+			if !m.reviewMode {
+				m.scope = "agent"
+				m.selected = 0
+				m.loadMemories()
+			}
 		case "u":
-			m.scope = "user"
-			m.selected = 0
-			m.loadMemories()
+			if !m.reviewMode {
+				m.scope = "user"
+				m.selected = 0
+				m.loadMemories()
+			}
 		case "s":
-			m.scope = "session"
-			m.selected = 0
-			m.loadMemories()
+			if !m.reviewMode {
+				m.scope = "session"
+				m.selected = 0
+				m.loadMemories()
+			}
 		case "*", "c":
-			m.scope = ""
-			m.selected = 0
-			m.loadMemories()
+			if !m.reviewMode {
+				m.scope = ""
+				m.selected = 0
+				m.loadMemories()
+			}
 		}
 	}
 	return m, nil
+}
+
+// promoteCandidate approves a staged candidate from the TUI (#485).
+func (m *model) promoteCandidate(id string) error {
+	mem, err := m.db.GetMemory(id)
+	if err != nil {
+		return err
+	}
+	if mem == nil {
+		return fmt.Errorf("memory not found: %s", id)
+	}
+	if err := m.db.SetMemoryReviewStatus(id, db.ReviewApproved); err != nil {
+		return err
+	}
+	_ = m.db.LogAudit("promote", id, mem.Scope, mem.CreatedSession, mem.CreatedBy, "")
+	return nil
+}
+
+// rejectCandidate discards a staged candidate from the TUI (#485).
+func (m *model) rejectCandidate(id string) error {
+	mem, err := m.db.GetMemory(id)
+	if err != nil {
+		return err
+	}
+	if mem == nil {
+		return fmt.Errorf("memory not found: %s", id)
+	}
+	_ = m.db.LogAudit("reject", id, mem.Scope, mem.CreatedSession, mem.CreatedBy, "")
+	return m.db.DeleteMemory(id)
 }
 
 func (m model) View() string {
@@ -306,7 +405,36 @@ func (m model) View() string {
 		s.WriteString(m.styled(searchStyle, "🔍 Active Search: "+m.search+" (Press '/' to edit, 'esc' to clear)") + "\n\n")
 	}
 
-	// Main scrollable memory list
+	// Main scrollable list: staged candidates in review mode, memories otherwise
+	if m.reviewMode {
+		s.WriteString("📥 Staged Candidates (review queue):\n")
+		s.WriteString("========================================\n")
+		if len(m.candidates) == 0 {
+			emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#A6E3A1")).PaddingLeft(4)
+			s.WriteString(m.styled(emptyStyle, "No staged candidates awaiting review.") + "\n")
+		} else {
+			for i, cand := range m.candidates {
+				kind := cand.Kind
+				if kind == "" {
+					kind = "unclassified"
+				}
+				badge := m.scopeBadge(cand.Scope)
+				line := fmt.Sprintf("%s [%s] %s", badge, kind, cand.Content)
+				if i == m.selected {
+					s.WriteString(m.styled(selectedStyle, "👉 "+line) + "\n")
+					s.WriteString(m.styled(metaStyle.PaddingLeft(6), fmt.Sprintf("ID: %s | Saved: %s", cand.ID, cand.CreatedAt.Format("2006-01-02 15:04"))) + "\n")
+				} else {
+					s.WriteString(m.styled(normalStyle, "   "+line) + "\n")
+				}
+				s.WriteString("\n")
+			}
+		}
+		s.WriteString(m.styled(footerStyle,
+			"Review controls: [j/k/↑/↓] Navigate | [p] Promote | [x] Reject | [esc] Back | [q] Exit",
+		) + "\n")
+		return s.String()
+	}
+
 	s.WriteString("Persistent Memory Elements:\n")
 	s.WriteString("========================================\n")
 
@@ -330,7 +458,7 @@ func (m model) View() string {
 
 	// Keyboard Controls Footer
 	s.WriteString(m.styled(footerStyle,
-		"Controls: [j/k/↑/↓] Navigate | [d/backspace] Delete | [/] Filter Keyword | [g] Global | [p] Project | [a] Agent | [u] User | [s] Session | [*] All Scopes | [q] Exit",
+		"Controls: [j/k/↑/↓] Navigate | [d/backspace] Delete | [/] Filter Keyword | [r] Review staged candidates | [g] Global | [p] Project | [a] Agent | [u] User | [s] Session | [*] All Scopes | [q] Exit",
 	) + "\n")
 
 	return s.String()

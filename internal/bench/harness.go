@@ -47,6 +47,9 @@ type Report struct {
 
 	// #490: external baseline arm (skipped unless configured)
 	Baseline BaselineArmReport `json:"baseline,omitempty"`
+
+	// #491: aging assessment (hermetic synthetic-store comparison)
+	Aging AgingReport `json:"aging,omitempty"`
 }
 
 // TemporalReport holds temporal-validity evaluation results for a single mode.
@@ -176,6 +179,17 @@ func Run(w io.Writer, opts Options) error {
 		return err // configured but failing: fail loudly, never fake the arm
 	}
 	report.Baseline = baseline
+
+	// --- Aging assessment (#491): synthetic-store decay comparison ---
+	seed := opts.Seed
+	if seed == 0 {
+		seed = 42
+	}
+	agingReport, err := RunAgingAssessment(seed)
+	if err != nil {
+		return err
+	}
+	report.Aging = agingReport
 
 	// --- Output ---
 	switch opts.Output {
@@ -431,6 +445,15 @@ func writeTextReport(w io.Writer, report Report) error {
 			fmt.Fprintf(w, "  [mode=%s] threshold=%.3f: %d/%d correct (accuracy %.3f)\n",
 				a.Mode, a.Threshold, a.Correct, a.Total, a.Accuracy)
 		}
+	}
+
+	if report.Aging.Queries > 0 {
+		fmt.Fprintf(w, "\n--- Aging Assessment (#491) ---\n")
+		fmt.Fprintf(w, "  store=%d facts (%d%% stale), %d queries: MRR %.3f -> %.3f (delta %+.3f), stale-in-top5 %.2f -> %.2f (delta %+.2f)\n",
+			report.Aging.StoreSize, int(report.Aging.StalePct), report.Aging.Queries,
+			report.Aging.MRRNoDecay, report.Aging.MRRDecay, report.Aging.MRRDelta,
+			report.Aging.StaleCrowdNoDecay, report.Aging.StaleCrowdDecay, report.Aging.StaleCrowdDelta)
+		fmt.Fprintf(w, "  %s\n", report.Aging.Description)
 	}
 
 	fmt.Fprintf(w, "\n=== Benchmark Complete ===\n")

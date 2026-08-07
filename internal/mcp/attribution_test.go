@@ -100,11 +100,21 @@ func toolCallMsg(id int, name string, args map[string]interface{}) string {
 
 func memoryIDFromSetText(t *testing.T, text string) string {
 	t.Helper()
+	// Live wording: "Memory saved successfully with ID: <uuid>"
 	const prefix = "Memory saved successfully with ID: "
-	if !strings.HasPrefix(text, prefix) {
-		t.Fatalf("unexpected memory_set response: %q", text)
+	if strings.HasPrefix(text, prefix) {
+		return strings.TrimSpace(strings.TrimPrefix(text, prefix))
 	}
-	return strings.TrimSpace(strings.TrimPrefix(text, prefix))
+	// Staged wording (#485): "Memory staged as candidate (not yet retrievable) with ID: <uuid>. ..."
+	const stagedPrefix = "Memory staged as candidate (not yet retrievable) with ID: "
+	if strings.HasPrefix(text, stagedPrefix) {
+		rest := strings.TrimPrefix(text, stagedPrefix)
+		if j := strings.IndexAny(rest, " ."); j >= 0 {
+			return rest[:j]
+		}
+	}
+	t.Fatalf("unexpected memory_set response: %q", text)
+	return ""
 }
 
 // TestMCPServeAttribution_HandshakeIdentity verifies that a client which
@@ -115,7 +125,7 @@ func TestMCPServeAttribution_HandshakeIdentity(t *testing.T) {
 
 	responses := runAttributedSession(t, s,
 		testInitializeMsg,
-		toolCallMsg(2, "memory_set", map[string]interface{}{"content": "attribute me", "scope": "global"}),
+		toolCallMsg(2, "memory_set", map[string]interface{}{"content": "attribute me", "kind": "user", "scope": "global"}),
 	)
 	if code, msg := getToolError(responses[1]); code != 0 {
 		t.Fatalf("unexpected memory_set error: %v %s", code, msg)
@@ -141,7 +151,7 @@ func TestMCPServeAttribution_InstanceID(t *testing.T) {
 
 	responses := runAttributedSession(t, s,
 		testInitializeMsgWithInstance,
-		toolCallMsg(2, "memory_set", map[string]interface{}{"content": "attributed with instance", "scope": "global"}),
+		toolCallMsg(2, "memory_set", map[string]interface{}{"content": "attributed with instance", "kind": "user", "scope": "global"}),
 	)
 	if code, msg := getToolError(responses[1]); code != 0 {
 		t.Fatalf("unexpected memory_set error: %v %s", code, msg)
@@ -166,7 +176,7 @@ func TestMCPServeAttribution_ConfigOverrideWins(t *testing.T) {
 
 	responses := runAttributedSession(t, s,
 		testInitializeMsg,
-		toolCallMsg(2, "memory_set", map[string]interface{}{"content": "override me", "scope": "global"}),
+		toolCallMsg(2, "memory_set", map[string]interface{}{"content": "override me", "kind": "user", "scope": "global"}),
 	)
 	if code, msg := getToolError(responses[1]); code != 0 {
 		t.Fatalf("unexpected memory_set error: %v %s", code, msg)
@@ -193,7 +203,7 @@ func TestMCPServeAttribution_FlagOverrideWins(t *testing.T) {
 
 	responses := runAttributedSession(t, s,
 		testInitializeMsg,
-		toolCallMsg(2, "memory_set", map[string]interface{}{"content": "flag wins", "scope": "global"}),
+		toolCallMsg(2, "memory_set", map[string]interface{}{"content": "flag wins", "kind": "user", "scope": "global"}),
 	)
 	if code, msg := getToolError(responses[1]); code != 0 {
 		t.Fatalf("unexpected memory_set error: %v %s", code, msg)
@@ -217,7 +227,7 @@ func TestMCPServeAttribution_Fallback(t *testing.T) {
 		s := helperServer(t)
 		responses := runAttributedSession(t, s,
 			testInitializeMsgNoClientInfo,
-			toolCallMsg(2, "memory_set", map[string]interface{}{"content": "fallback one", "scope": "global"}),
+			toolCallMsg(2, "memory_set", map[string]interface{}{"content": "fallback one", "kind": "user", "scope": "global"}),
 		)
 		if code, msg := getToolError(responses[1]); code != 0 {
 			t.Fatalf("unexpected memory_set error: %v %s", code, msg)
@@ -235,7 +245,7 @@ func TestMCPServeAttribution_Fallback(t *testing.T) {
 	t.Run("no initialize before tools/call", func(t *testing.T) {
 		s := helperServer(t)
 		responses := runAttributedSession(t, s,
-			toolCallMsg(1, "memory_set", map[string]interface{}{"content": "fallback two", "scope": "global"}),
+			toolCallMsg(1, "memory_set", map[string]interface{}{"content": "fallback two", "kind": "user", "scope": "global"}),
 		)
 		if code, msg := getToolError(responses[0]); code != 0 {
 			t.Fatalf("unexpected memory_set error: %v %s", code, msg)

@@ -101,9 +101,33 @@ func (s *Server) MCPServer() *mcpserver.Server {
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_set",
-		Description: "Save a new persistent memory or fact. Use this tool autonomously when the user expresses a clear preference, constraint, architectural decision, or guideline that should persist across sessions.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","description":"The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},"scope":{"type":"string","description":"Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},"metadata":{"type":"string","description":"Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},"session_id":{"type":"string","description":"Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},"entities":{"type":"string","description":"Optional comma-separated entity names to link (e.g., 'Irene,Premium BnB'). Entities are auto-created if they don't exist."},"working":{"type":"boolean","description":"Store as working memory with TTL-based eviction (default false)"}},"required":["content"]}`),
+		Description: "Save a new persistent memory or fact. Use this tool autonomously when the user expresses a clear preference, constraint, architectural decision, or guideline that should persist across sessions. The 'kind' parameter is REQUIRED: classify the fact as one of user (preferences, personal facts), feedback (corrections, evaluations), project (rules, constraints, architectural decisions), or reference (external facts, documentation). Use 'staged': true when the fact was derived autonomously without explicit user confirmation — it is then held as a candidate that does not affect retrieval until a human reviews it.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","description":"The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},"kind":{"type":"string","description":"REQUIRED semantic kind: 'user' (preferences, personal facts), 'feedback' (corrections, evaluations), 'project' (rules, constraints, architectural decisions), 'reference' (external facts, documentation). Synonyms are accepted."},"scope":{"type":"string","description":"Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},"metadata":{"type":"string","description":"Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},"session_id":{"type":"string","description":"Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},"entities":{"type":"string","description":"Optional comma-separated entity names to link (e.g., 'Irene,Premium BnB'). Entities are auto-created if they don't exist."},"working":{"type":"boolean","description":"Store as working memory with TTL-based eviction (default false)"},"staged":{"type":"boolean","description":"Store as a staged candidate (excluded from retrieval until reviewed/promoted). Default false; when the server is configured with stage_writes_by_default, writes default to staged unless staged=false is passed explicitly."}},"required":["content","kind"]}`),
 		Handler:     s.handleMemorySet,
+	},
+	)
+
+	srv.RegisterTool(&mcpserver.Tool{
+		Name:        "memory_candidates",
+		Description: "List memories that were written as staged candidates and still await review (promote/reject). Staged candidates never affect retrieval, so this is the only way to see them.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","description":"Optional maximum number of candidates to return (default 100)"}}}`),
+		Handler:     s.handleMemoryCandidates,
+	},
+	)
+
+	srv.RegisterTool(&mcpserver.Tool{
+		Name:        "memory_promote",
+		Description: "Approve a staged candidate memory so it becomes retrievable by search and context assembly. Use after a human confirmed the fact.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"Unique memory UUID of the staged candidate"}},"required":["id"]}`),
+		Handler:     s.handleMemoryPromote,
+	},
+	)
+
+	srv.RegisterTool(&mcpserver.Tool{
+		Name:        "memory_reject",
+		Description: "Discard a staged candidate memory (deletes it). Refuses to act on memories that are not staged candidates.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string","description":"Unique memory UUID of the staged candidate"}},"required":["id"]}`),
+		Handler:     s.handleMemoryReject,
 	},
 	)
 
@@ -216,17 +240,35 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 
 	var args struct {
 		Content   string `json:"content"`
+		Kind      string `json:"kind"`
 		Scope     string `json:"scope"`
 		Metadata  string `json:"metadata"`
 		SessionID string `json:"session_id"`
 		Entities  string `json:"entities"`
 		Working   bool   `json:"working"`
+		Staged    *bool  `json:"staged"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_set': failed to parse arguments: %w", err)
 	}
 	if args.Content == "" {
 		return nil, fmt.Errorf("invalid arguments for 'memory_set': 'content' is required")
+	}
+
+	// Semantic kind (#486): required, snapped onto the canonical buckets.
+	canonicalKind, ok := db.NormalizeKind(args.Kind)
+	if !ok {
+		return nil, fmt.Errorf("invalid arguments for 'memory_set': 'kind' is required and must be one of: %s (got %q)",
+			strings.Join(db.ValidKinds(), ", "), args.Kind)
+	}
+
+	// Staging (#485): explicit per-call flag wins; otherwise the server
+	// default (stage_writes_by_default) decides for low-trust clients.
+	staged := false
+	if args.Staged != nil {
+		staged = *args.Staged
+	} else if s.cfg != nil && s.cfg.Memory.StageWritesByDefault {
+		staged = true
 	}
 
 	meta := make(map[string]string)
@@ -248,12 +290,86 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 
 	ttl := s.workingMemoryTTL
 	actor := s.attributionActor()
-	id, err := s.service.Set(args.Content, args.Scope, meta, args.SessionID, actor, entityNames, actor, args.Working, ttl)
+	id, err := s.service.SetGoverned(args.Content, args.Scope, meta, args.SessionID, actor, entityNames, actor, args.Working, ttl, canonicalKind, staged)
 	if err != nil {
 		return nil, fmt.Errorf("%s", err.Error())
 	}
 
+	if staged {
+		return fmt.Sprintf("Memory staged as candidate (not yet retrievable) with ID: %s. Review it with memory_candidates / memory_promote / memory_reject.", id), nil
+	}
 	return fmt.Sprintf("Memory saved successfully with ID: %s", id), nil
+}
+
+// handleMemoryCandidates lists the staged review queue (#485).
+func (s *Server) handleMemoryCandidates(ctx context.Context, input json.RawMessage) (any, error) {
+	var args struct {
+		Limit int `json:"limit"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments for 'memory_candidates': failed to parse arguments: %w", err)
+	}
+	if args.Limit < 1 {
+		args.Limit = 100
+	}
+	candidates, err := s.service.Candidates(args.Limit)
+	if err != nil {
+		return mcpError("Failed to list staged candidates", err)
+	}
+	if len(candidates) == 0 {
+		return "No staged candidates awaiting review.", nil
+	}
+
+	compact := make([]MemoryResponse, len(candidates))
+	for i, c := range candidates {
+		compact[i] = memoryResponse(c)
+	}
+	page := struct {
+		Count   int              `json:"count"`
+		Results []MemoryResponse `json:"results"`
+	}{Count: len(compact), Results: compact}
+	data, _ := json.MarshalIndent(page, "", "  ")
+	return string(data), nil
+}
+
+// handleMemoryPromote approves a staged candidate (#485).
+func (s *Server) handleMemoryPromote(ctx context.Context, input json.RawMessage) (any, error) {
+	var args struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments for 'memory_promote': failed to parse arguments: %w", err)
+	}
+	if args.ID == "" {
+		return nil, fmt.Errorf("invalid arguments for 'memory_promote': 'id' is required")
+	}
+	if err := s.service.Promote(args.ID); err != nil {
+		if nf, ok := err.(*NotFoundError); ok {
+			return nf.Error(), nil
+		}
+		return mcpError("Failed to promote memory", err)
+	}
+	return fmt.Sprintf("Memory %s promoted: it is now retrievable.", args.ID), nil
+}
+
+// handleMemoryReject discards a staged candidate (#485).
+func (s *Server) handleMemoryReject(ctx context.Context, input json.RawMessage) (any, error) {
+	var args struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(input, &args); err != nil {
+		return nil, fmt.Errorf("invalid arguments for 'memory_reject': failed to parse arguments: %w", err)
+	}
+	if args.ID == "" {
+		return nil, fmt.Errorf("invalid arguments for 'memory_reject': 'id' is required")
+	}
+	if err := s.service.Reject(args.ID); err != nil {
+		if nf, ok := err.(*NotFoundError); ok {
+			return nf.Error(), nil
+		}
+		return mcpError("Failed to reject memory", err)
+	}
+	return fmt.Sprintf("Memory %s rejected and removed.", args.ID), nil
 }
 
 func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) (any, error) {

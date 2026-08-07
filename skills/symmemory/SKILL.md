@@ -14,7 +14,10 @@ Symaira Memory (`symmemory`) is a persistent semantic database for developer pre
 | Tool | Purpose |
 |---|---|
 | `memory_search` | Semantic vector similarity search across stored memories |
-| `memory_set` | Store a new persistent memory or fact |
+| `memory_set` | Store a new persistent memory or fact (requires `kind`; `staged: true` holds the fact for review) |
+| `memory_candidates` | List staged candidate memories awaiting review |
+| `memory_promote` | Approve a staged candidate so it becomes retrievable |
+| `memory_reject` | Discard a staged candidate |
 | `memory_get` | Retrieve a specific memory by its UUID |
 | `memory_list` | List all memories, optionally filtered by scope |
 
@@ -34,7 +37,13 @@ Retrieval is bounded: `memory_search`, `memory_get`, and `memory_list` combined 
 
 ## When to Use `memory_set`
 
-Autonomously store memories when the user expresses persistent information. Do not ask for permission.
+Autonomously store memories when the user expresses persistent information. Do not ask for permission — but pass `staged: true` when a fact was derived autonomously without explicit user confirmation, so it is held as a candidate for review instead of silently entering the live store.
+
+**Always classify the fact with `kind`** — `memory_set` requires it:
+- `user` — preferences and personal facts: "User prefers TypeScript for scripting tasks."
+- `feedback` — corrections and evaluations: "User corrected the JSON schema: enums must be lowercase."
+- `project` — rules, constraints, architectural decisions: "API daemon runs on port 8787.", "Shared services must remain free of private commercial logic.", "No CGO dependencies in the build."
+- `reference` — external facts and documentation: "PostgreSQL 16 default port is 5432."
 
 **Store these:**
 - User preferences: "User prefers TypeScript for scripting tasks."

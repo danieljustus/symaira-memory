@@ -430,6 +430,7 @@ func TestToolMemorySetInvalidMetadata(t *testing.T) {
 	s := helperServer(t)
 	res := callTool(s, "memory_set", map[string]interface{}{
 		"content":  "test content",
+		"kind":     "user",
 		"metadata": "not-json",
 	})
 
@@ -449,6 +450,7 @@ func TestToolMemorySetMetadataArrayRejected(t *testing.T) {
 	s := helperServer(t)
 	res := callTool(s, "memory_set", map[string]interface{}{
 		"content":  "test content",
+		"kind":     "project",
 		"metadata": `["one", "two"]`,
 	})
 
@@ -467,6 +469,7 @@ func TestToolMemorySetAndSearch(t *testing.T) {
 	content := "The API server runs on port 8080"
 	setRes := callTool(s, "memory_set", map[string]interface{}{
 		"content":  content,
+		"kind":     "project",
 		"scope":    "project",
 		"metadata": `{"source":"test"}`,
 	})

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -315,10 +316,21 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 		return degradeRetrievalBlock(results, budget)
 	}
 
-	// sort results by score descending (greedy)
+	// sort results by score descending (greedy), with a semantic-kind
+	// tiebreak within the same score band (#486): identity-level facts
+	// (kind user) precede project chatter when scores are close. The
+	// retrieval Score already carries the aging decay multiplier (#491).
 	sorted := make([]db.SearchResult, len(results))
 	copy(sorted, results)
 	sort.Slice(sorted, func(i, j int) bool {
+		bi, bj := scoreBand(sorted[i].Score), scoreBand(sorted[j].Score)
+		if bi != bj {
+			return bi > bj
+		}
+		ki, kj := db.KindRank(sorted[i].Memory.Kind), db.KindRank(sorted[j].Memory.Kind)
+		if ki != kj {
+			return ki < kj
+		}
 		return sorted[i].Score > sorted[j].Score
 	})
 
@@ -376,6 +388,12 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 	}
 
 	return pieces
+}
+
+// scoreBand quantizes a retrieval score into 0.05-wide bands so that the
+// kind tiebreak only applies within a band ("same score band", #486).
+func scoreBand(score float32) int {
+	return int(math.Round(float64(score) * 20))
 }
 
 // degradeRetrievalBlock formats all results as a single block at degraded level

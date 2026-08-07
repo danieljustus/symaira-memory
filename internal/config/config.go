@@ -58,6 +58,8 @@ type Config struct {
 	Import        ImportConfig         `json:"import"`
 	WorkingMemory WorkingMemoryConfig  `json:"working_memory"`
 	MCP           MCPConfig            `json:"mcp"`
+	Memory        MemoryConfig         `json:"memory"`
+	Aging         AgingConfig          `json:"aging"`
 }
 
 type DatabaseConfig struct {
@@ -195,6 +197,28 @@ type MCPConfig struct {
 	RecallReceipts bool `json:"recall_receipts"`
 }
 
+// MemoryConfig controls the write path (#485): staging of autonomous
+// writes. Staging is opt-in per client via the memory_set `staged`
+// parameter until an operator flips StageWritesByDefault for low-trust
+// clients; explicit per-call flags always win.
+type MemoryConfig struct {
+	// StageWritesByDefault makes memory_set writes land as staged
+	// candidates (excluded from retrieval) unless the caller explicitly
+	// passes staged=false. Default false: writes stay live.
+	StageWritesByDefault bool `json:"stage_writes_by_default"`
+}
+
+// AgingConfig controls the aging pass (#491). Decay is a multiplier in
+// (0,1] applied to retrieval scores; retirement below RetireBelow flags a
+// memory (never deletes it). Setting access_half_life_days to 0 or
+// enabled=false disables decay effectively.
+type AgingConfig struct {
+	Enabled            bool    `json:"enabled"`
+	AccessHalfLifeDays float64 `json:"access_half_life_days"`
+	RetireBelow        float64 `json:"retire_below"`
+	AccessBoostCap     int64   `json:"access_boost_cap"`
+}
+
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	trueVal := true
@@ -212,6 +236,15 @@ func Defaults() *Config {
 		},
 		MCP: MCPConfig{
 			RecallReceipts: true,
+		},
+		Memory: MemoryConfig{
+			StageWritesByDefault: false,
+		},
+		Aging: AgingConfig{
+			Enabled:            true,
+			AccessHalfLifeDays: 120,
+			RetireBelow:        0.1,
+			AccessBoostCap:     20,
 		},
 		Consolidation: ConsolidationConfig{
 			Enabled:     true,
