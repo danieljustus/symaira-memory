@@ -32,15 +32,23 @@ func (db *DB) SetAuditLogEnabled(enabled bool) {
 }
 
 type AuditEvent struct {
-	ID        string    `json:"id"`
-	Action    string    `json:"action"`
-	MemoryID  string    `json:"memory_id,omitempty"`
-	Scope     string    `json:"scope,omitempty"`
-	Session   string    `json:"session,omitempty"`
-	Actor     string    `json:"actor,omitempty"`
-	Detail    string    `json:"detail,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID         string    `json:"id"`
+	Action     string    `json:"action"`
+	MemoryID   string    `json:"memory_id,omitempty"`
+	TargetType string    `json:"target_type,omitempty"`
+	TargetID   string    `json:"target_id,omitempty"`
+	Scope      string    `json:"scope,omitempty"`
+	Session    string    `json:"session,omitempty"`
+	Actor      string    `json:"actor,omitempty"`
+	Detail     string    `json:"detail,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
 }
+
+// Target types used with LogTargetAudit.
+const (
+	TargetEntity   = "entity"
+	TargetRelation = "relation"
+)
 
 func (db *DB) LogAudit(action, memoryID, scope, session, actor, detail string) error {
 	if !auditLogEnabled.Load() {
@@ -65,6 +73,26 @@ func (db *DB) LogRedactionAudit(memoryID, scope, session, actor string, patterns
 	return db.LogAudit(EventRedaction, memoryID, scope, session, actor, detail)
 }
 
+// LogTargetAudit writes an audit event for a non-memory target (entity or
+// relation). The event's target_type/target_id columns carry the target;
+// memory_id stays NULL so entity events are never mistaken for memory
+// events when reading the log. Honors the audit_log_enabled switch like
+// LogAudit.
+func (db *DB) LogTargetAudit(action, targetType, targetID, scope, session, actor, detail string) error {
+	if !auditLogEnabled.Load() {
+		return nil
+	}
+	if _, err := db.conn.Exec(
+		`INSERT INTO audit_log (id, action, target_type, target_id, memory_id, scope, session, actor, detail, created_at)
+		 VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)`,
+		uuid.New().String(), action, targetType, targetID,
+		nullStr(scope), nullStr(session), nullStr(actor), nullStr(detail), time.Now().UTC(),
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (db *DB) GetAuditLogs(action string, limit int) ([]*AuditEvent, error) {
 	if limit <= 0 {
 		limit = 100
@@ -73,12 +101,12 @@ func (db *DB) GetAuditLogs(action string, limit int) ([]*AuditEvent, error) {
 	var err error
 	if action != "" {
 		rows, err = db.conn.Query(
-			"SELECT id, action, memory_id, scope, session, actor, detail, created_at FROM audit_log WHERE action = ? ORDER BY created_at DESC LIMIT ?",
+			"SELECT id, action, memory_id, target_type, target_id, scope, session, actor, detail, created_at FROM audit_log WHERE action = ? ORDER BY created_at DESC LIMIT ?",
 			action, limit,
 		)
 	} else {
 		rows, err = db.conn.Query(
-			"SELECT id, action, memory_id, scope, session, actor, detail, created_at FROM audit_log ORDER BY created_at DESC LIMIT ?",
+			"SELECT id, action, memory_id, target_type, target_id, scope, session, actor, detail, created_at FROM audit_log ORDER BY created_at DESC LIMIT ?",
 			limit,
 		)
 	}
@@ -90,11 +118,13 @@ func (db *DB) GetAuditLogs(action string, limit int) ([]*AuditEvent, error) {
 	var events []*AuditEvent
 	for rows.Next() {
 		var e AuditEvent
-		var memID, sc, sess, act, det sql.NullString
-		if err := rows.Scan(&e.ID, &e.Action, &memID, &sc, &sess, &act, &det, &e.CreatedAt); err != nil {
+		var memID, tgtType, tgtID, sc, sess, act, det sql.NullString
+		if err := rows.Scan(&e.ID, &e.Action, &memID, &tgtType, &tgtID, &sc, &sess, &act, &det, &e.CreatedAt); err != nil {
 			return nil, err
 		}
 		e.MemoryID = memID.String
+		e.TargetType = tgtType.String
+		e.TargetID = tgtID.String
 		e.Scope = sc.String
 		e.Session = sess.String
 		e.Actor = act.String

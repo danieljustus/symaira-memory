@@ -37,6 +37,13 @@ func (db *DB) SaveEntity(e *Entity) error {
 	}
 	e.UpdatedAt = now
 
+	// Determine create vs update before the upsert so the audit event
+	// records the mutation class and what changed.
+	existing, err := db.entityBeforeSave(e)
+	if err != nil {
+		return err
+	}
+
 	query := `INSERT INTO entities (id, name, type, aliases, description, created_by, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -55,7 +62,59 @@ func (db *DB) SaveEntity(e *Entity) error {
 	for _, alias := range e.Aliases {
 		_, _ = db.conn.Exec("INSERT OR IGNORE INTO entities_aliases (entity_id, alias) VALUES (?, ?)", e.ID, alias)
 	}
+
+	db.auditEntitySave(existing, e)
 	return nil
+}
+
+// entityBeforeSave resolves the pre-mutation row so SaveEntity can tell a
+// create from an update and diff the changed fields. It matches by ID when
+// set, otherwise by name (the upsert itself conflicts on id).
+func (db *DB) entityBeforeSave(e *Entity) (*Entity, error) {
+	if e.ID != "" {
+		return db.GetEntityByID(e.ID)
+	}
+	return db.GetEntityByName(e.Name)
+}
+
+// auditEntitySave writes exactly one audit event for a SaveEntity call.
+// Creates record the new identity; updates record renames and alias
+// additions/removals in detail. Audit failures never fail the mutation.
+func (db *DB) auditEntitySave(existing, e *Entity) {
+	action := "entity_create"
+	detail := map[string]interface{}{
+		"name": e.Name,
+		"type": e.Type,
+	}
+	if existing != nil {
+		action = "entity_update"
+		if existing.Name != "" && existing.Name != e.Name {
+			detail["renamed_from"] = existing.Name
+		}
+		if added := diffStrings(e.Aliases, existing.Aliases); len(added) > 0 {
+			detail["aliases_added"] = added
+		}
+		if removed := diffStrings(existing.Aliases, e.Aliases); len(removed) > 0 {
+			detail["aliases_removed"] = removed
+		}
+	}
+	detailJSON, _ := json.Marshal(detail)
+	_ = db.LogTargetAudit(action, TargetEntity, e.ID, "", "", e.CreatedBy, string(detailJSON))
+}
+
+// diffStrings returns the elements of a that are not in b, in a's order.
+func diffStrings(a, b []string) []string {
+	inB := make(map[string]bool, len(b))
+	for _, s := range b {
+		inB[s] = true
+	}
+	var out []string
+	for _, s := range a {
+		if !inB[s] {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // ResolveEntity finds an entity by name (case-insensitive) or by alias match.
@@ -260,10 +319,22 @@ func (db *DB) ListEntities() ([]*Entity, error) {
 
 // DeleteEntity removes an entity by ID and its memory links.
 func (db *DB) DeleteEntity(id string) error {
+	existing, err := db.GetEntityByID(id)
+	if err != nil {
+		return err
+	}
 	_, _ = db.conn.Exec("DELETE FROM memory_entities WHERE entity_id = ?", id)
 	_, _ = db.conn.Exec("DELETE FROM entities_aliases WHERE entity_id = ?", id)
-	_, err := db.conn.Exec("DELETE FROM entities WHERE id = ?", id)
-	return err
+	_, err = db.conn.Exec("DELETE FROM entities WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		detail := map[string]interface{}{"name": existing.Name, "type": existing.Type}
+		detailJSON, _ := json.Marshal(detail)
+		_ = db.LogTargetAudit("entity_delete", TargetEntity, id, "", "", existing.CreatedBy, string(detailJSON))
+	}
+	return nil
 }
 
 // LinkMemoryToEntity creates a link between a memory and an entity.
