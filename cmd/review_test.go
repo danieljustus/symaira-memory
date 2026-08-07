@@ -121,3 +121,59 @@ func captureStdoutOfReview(t *testing.T) string {
 		}
 	})
 }
+
+func TestReviewPromoteRejectMutuallyExclusive(t *testing.T) {
+	reviewTestSetup(t)
+	if err := reviewCmd.Flags().Set("promote", "staged-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := reviewCmd.Flags().Set("reject", "staged-1"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = reviewCmd.Flags().Set("promote", "")
+		_ = reviewCmd.Flags().Set("reject", "")
+	})
+
+	err := reviewCmd.RunE(reviewCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("--promote with --reject must fail with a clear validation error, got %v", err)
+	}
+}
+
+func TestReviewPromoteUnknownID(t *testing.T) {
+	reviewTestSetup(t)
+	if err := reviewCmd.Flags().Set("promote", "missing-1"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reviewCmd.Flags().Set("promote", "") })
+
+	err := reviewCmd.RunE(reviewCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "memory not found") {
+		t.Fatalf("promoting an unknown ID must fail with a clear error, got %v", err)
+	}
+}
+
+func TestReviewRejectUnknownID(t *testing.T) {
+	reviewTestSetup(t)
+	if err := reviewCmd.Flags().Set("reject", "missing-1"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reviewCmd.Flags().Set("reject", "") })
+
+	err := reviewCmd.RunE(reviewCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "memory not found") {
+		t.Fatalf("rejecting an unknown ID must fail with a clear error, got %v", err)
+	}
+}
+
+func TestReviewDatabaseUnavailable(t *testing.T) {
+	prev := GetDB()
+	SetDB(nil)
+	t.Cleanup(func() { SetDB(prev) })
+
+	err := reviewCmd.RunE(reviewCmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "database not available") {
+		t.Fatalf("review without a database must fail with a clear error, got %v", err)
+	}
+}
