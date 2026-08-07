@@ -254,8 +254,15 @@ func (s *MemoryService) LogAudit(action, memoryID, scope, session, actor, detail
 	return s.db.LogAudit(action, memoryID, scope, session, actor, detail)
 }
 
-func (s *MemoryService) LogQuery(actor, scope, session, tool, queryText, params string, durationMs int64) error {
+func (s *MemoryService) LogQuery(actor, scope, session, tool, queryText, params string, durationMs int64) (string, error) {
 	return s.db.LogQuery(actor, scope, session, tool, queryText, params, durationMs)
+}
+
+// RecordQueryResults links a logged query to the memories its retrieval
+// returned (ids and scores only). Best-effort telemetry: callers treat an
+// error as non-fatal.
+func (s *MemoryService) RecordQueryResults(queryID string, results []db.QueryResultRef) error {
+	return s.db.RecordQueryResults(queryID, results)
 }
 
 func (s *MemoryService) GetQueryLogEntries(limit int) ([]*db.QueryLogEntry, error) {

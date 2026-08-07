@@ -37,10 +37,10 @@ func TestQueryLogCmdJSONOutput(t *testing.T) {
 	SetDB(database)
 	t.Cleanup(func() { SetDB(nil) })
 
-	if err := database.LogQuery("mcp", "", "", "memory_search", "hello world", "scope-a", 12); err != nil {
+	if _, err := database.LogQuery("mcp", "", "", "memory_search", "hello world", "scope-a", 12); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("mcp", "", "", "entity_resolve", "alice", "scope-b", 5); err != nil {
+	if _, err := database.LogQuery("mcp", "", "", "entity_resolve", "alice", "scope-b", 5); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -77,10 +77,10 @@ func TestQueryLogCmdTableOutput(t *testing.T) {
 	SetDB(database)
 	t.Cleanup(func() { SetDB(nil) })
 
-	if err := database.LogQuery("mcp", "", "", "zeta_tool", "q", "s", 1); err != nil {
+	if _, err := database.LogQuery("mcp", "", "", "zeta_tool", "q", "s", 1); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("mcp", "", "", "alpha_tool", "q", "s", 2); err != nil {
+	if _, err := database.LogQuery("mcp", "", "", "alpha_tool", "q", "s", 2); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -111,13 +111,13 @@ func TestQueryLogCmdActorFilter(t *testing.T) {
 	SetDB(database)
 	t.Cleanup(func() { SetDB(nil) })
 
-	if err := database.LogQuery("alice", "project", "s1", "memory_search", "q1", "{}", 1); err != nil {
+	if _, err := database.LogQuery("alice", "project", "s1", "memory_search", "q1", "{}", 1); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("alice", "project", "s2", "memory_search", "q2", "{}", 2); err != nil {
+	if _, err := database.LogQuery("alice", "project", "s2", "memory_search", "q2", "{}", 2); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("bob", "global", "", "memory_get", "", "", 3); err != nil {
+	if _, err := database.LogQuery("bob", "global", "", "memory_get", "", "", 3); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 
@@ -163,10 +163,10 @@ func TestQueryLogCmdActorBreakdownInTable(t *testing.T) {
 	SetDB(database)
 	t.Cleanup(func() { SetDB(nil) })
 
-	if err := database.LogQuery("alice", "", "", "memory_search", "q1", "", 1); err != nil {
+	if _, err := database.LogQuery("alice", "", "", "memory_search", "q1", "", 1); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
-	if err := database.LogQuery("bob", "", "", "memory_get", "", "", 2); err != nil {
+	if _, err := database.LogQuery("bob", "", "", "memory_get", "", "", 2); err != nil {
 		t.Fatalf("LogQuery: %v", err)
 	}
 

@@ -94,6 +94,8 @@ max_entries = 1000   # Row cap for the query log; when exceeded, the oldest
                      # entries are pruned on write (default: 1000)
 max_age = ""         # Optional maximum age of query log entries (e.g. "720h"
                      # = 30 days, "7d"). Empty disables age-based pruning.
+record_results = true  # Record which memories each retrieval returned
+                     # (ids and scores only). Set to false to opt out.
 ```
 
 The query log records every MCP search/list call together with the calling
@@ -103,7 +105,15 @@ handshake `clientInfo`, or the literal `"mcp"` fallback), the request's
 `scope`, and the optional `session_id` carried by the request. The bounds
 above keep the log deliberate instead of letting it grow without limit; when
 no `[query_log]` section is present the historical behavior is preserved
-(1000-row cap, no age pruning).
+(1000-row cap, no age pruning, result recording on).
+
+With `record_results` enabled (default), each `memory_search` also records
+one row per returned memory in `query_log_results` — the memory id plus its
+rank and score. This stores **references** to stored memories, never a
+second copy of their content; the rows are pruned together with their
+query-log entry and cascade away when a memory is deleted. Inspect them
+with `symmemory query-log results <query-id>` (get the id from the JSON
+output of `symmemory query-log --json`).
 
 Inspect the log with `symmemory query-log` — the summary shows tool and
 per-actor breakdowns; `--actor <id>` narrows the summary and recent entries
