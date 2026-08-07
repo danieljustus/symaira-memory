@@ -34,7 +34,7 @@ engine and then evicting the originals. Use --dry-run to preview without changes
 		cfg := GetConfig()
 		database := GetDB()
 		embeddings := extractor.NewEmbeddingsGenerator(cfg)
-		engine := consolidation.NewEngine(database, embeddings, cfg.Consolidation.URL, cfg.Consolidation.Model, cfg.Consolidation.Provider, cfg.Security.PIIEnabled != nil && *cfg.Security.PIIEnabled)
+		engine := consolidation.NewEngine(database, embeddings, cfg.Consolidation.URL, cfg.Consolidation.Model, cfg.Consolidation.Provider, cfg.Security.PIIEnabled != nil && *cfg.Security.PIIEnabled, cfg.PromptMode)
 		evictor := working.NewEvictor(database, embeddings, engine, cfg.Security.PIIEnabled != nil && *cfg.Security.PIIEnabled)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

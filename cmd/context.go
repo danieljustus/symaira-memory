@@ -90,6 +90,11 @@ empty/minimal block is emitted so that hooks never break.`,
 		for _, piece := range result.Pieces {
 			fmt.Println(piece.Content)
 		}
+		// #492: hard budget report — be truthful about what was dropped.
+		if result.BudgetReport != nil && !result.BudgetReport.Fit {
+			fmt.Fprintf(os.Stderr, "⚠ token budget: dropped %d piece(s) (%s): %v\n",
+				result.BudgetReport.DroppedPieces, result.BudgetReport.Reason, result.BudgetReport.DroppedIDs)
+		}
 		return nil
 	},
 }

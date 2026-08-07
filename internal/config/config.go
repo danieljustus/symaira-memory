@@ -60,6 +60,7 @@ type Config struct {
 	MCP           MCPConfig            `json:"mcp"`
 	Memory        MemoryConfig         `json:"memory"`
 	Aging         AgingConfig          `json:"aging"`
+	PromptMode    string               `json:"prompt_mode"` // "chat" (default) | "code" (#483)
 }
 
 type DatabaseConfig struct {
@@ -259,6 +260,7 @@ func Defaults() *Config {
 			RetireBelow:        0.1,
 			AccessBoostCap:     20,
 		},
+		PromptMode: "chat", // #483: chat | code; chat stays the unchanged default
 		Consolidation: ConsolidationConfig{
 			Enabled:     true,
 			Schedule:    "0 2 * * *",
