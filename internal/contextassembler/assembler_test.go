@@ -63,7 +63,7 @@ func TestAssembler_Construction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	if a == nil {
@@ -77,7 +77,7 @@ func TestAssembler_Assemble_EmptySession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	ctx, err := a.Assemble("test query", "", "")
@@ -98,7 +98,7 @@ func TestAssembler_Assemble_WithSessionText(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	sessionText := "User: What is the port?\nAssistant: The backend uses port 8080.\nUser: Thanks!"
@@ -124,7 +124,7 @@ func TestAssembler_TokenBudgetRespected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	longText := strings.Repeat("word ", 500)
@@ -146,7 +146,7 @@ func TestAssembler_WorkingMemoryIncluded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	futureExpiry := time.Now().UTC().Add(24 * time.Hour)
 	if err := database.SaveMemory(&db.Memory{
@@ -188,7 +188,7 @@ func TestAssembler_WorkingMemoryExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	futureExpiry := time.Now().UTC().Add(24 * time.Hour)
 	if err := database.SaveMemory(&db.Memory{
@@ -227,7 +227,7 @@ func TestAssembler_WorkingMemoryRespectsBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	futureExpiry := time.Now().UTC().Add(24 * time.Hour)
 	for i := 0; i < 5; i++ {
@@ -265,7 +265,7 @@ func TestAssembler_WorkingMemoryRespectsMaxItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	futureExpiry := time.Now().UTC().Add(24 * time.Hour)
 	for i := 0; i < 5; i++ {
@@ -342,7 +342,7 @@ func TestFillRetrievalWithDegradation_NoDegradationConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	results := []db.SearchResult{
@@ -364,7 +364,7 @@ func TestFillRetrievalWithDegradation_GreedyFill(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.WithDegradationConfig(&cfg.Degradation)
@@ -392,7 +392,7 @@ func TestFillRetrievalWithDegradation_KindBandOrdering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.WithDegradationConfig(&cfg.Degradation)
@@ -445,7 +445,7 @@ func TestFillRetrievalWithDegradation_SkipsWhenBudgetTooLow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.WithDegradationConfig(&cfg.Degradation)
@@ -561,7 +561,7 @@ func TestMaybeSnapshot_FirstSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.WithDeltaPackConfig(&cfg.DeltaPack)
@@ -586,7 +586,7 @@ func TestSnapshots_Chain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.WithDeltaPackConfig(&cfg.DeltaPack)
@@ -693,7 +693,7 @@ func TestProfileLayer_AttachedInAssembly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.WithProfileLayerConfig(&cfg.ProfileLayer)
@@ -792,7 +792,7 @@ func TestSessionContextLayer_AttachedInAssembly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Save a session summary
 	if err := database.SaveSessionSummary("test-session", "Session summary content about topic X"); err != nil {
@@ -835,7 +835,7 @@ func TestAssemble_WithDegradationLadder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Save some memories to retrieve
 	for i := 0; i < 5; i++ {
@@ -878,7 +878,7 @@ func TestAssemble_WithExpandableSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	if err := database.SaveSessionSummary("expand-session", "Session about expandable context features"); err != nil {
 		t.Fatal(err)
@@ -913,7 +913,7 @@ func TestAssemble_DeltaPackGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.WithFullConfig(cfg)
@@ -952,7 +952,7 @@ func TestAssemble_ProfileLayerWithoutQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.WithFullConfig(cfg)
@@ -985,7 +985,7 @@ func TestAssemble_AllNewLayers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	if err := database.SaveSessionSummary("all-layers", "Session covering all new layer types"); err != nil {
 		t.Fatal(err)

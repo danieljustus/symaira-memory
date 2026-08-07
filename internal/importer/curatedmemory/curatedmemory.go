@@ -87,7 +87,7 @@ func (c *CuratedMemoryImporter) ImportSession(ref importer.SessionRef) ([]import
 	if err != nil {
 		return nil, fmt.Errorf("failed to read memory file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	memFile, err := c.parseMemoryFile(file, ref.Path, ref.Metadata)
 	if err != nil {

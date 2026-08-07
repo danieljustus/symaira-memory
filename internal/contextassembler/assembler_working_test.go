@@ -21,7 +21,7 @@ func TestWorkingMemory_MultipleSessionsRespectsBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	futureExpiry := time.Now().UTC().Add(24 * time.Hour)
 	for i := 0; i < 3; i++ {
@@ -58,7 +58,7 @@ func TestWorkingMemory_NoWorkingMemories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.SetWorkingMemoryConfig(&cfg.WorkingMemory)
@@ -79,7 +79,7 @@ func TestAssembler_WithFullConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	a := NewAssembler(database, nil, &cfg.Context)
 	a.SetWorkingMemoryConfig(&cfg.WorkingMemory)

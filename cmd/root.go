@@ -73,7 +73,7 @@ SQLite, and exposes them to agents through the Model Context Protocol (MCP).`,
 	},
 	PersistentPostRun: func(cmd *cobra.Command, args []string) {
 		if db := GetDB(); db != nil {
-			db.Close()
+			_ = db.Close()
 		}
 	},
 }

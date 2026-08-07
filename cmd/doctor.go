@@ -91,7 +91,7 @@ func checkDatabase() checkResult {
 	if err != nil {
 		return checkResult{name: "Database", passed: false, detail: fmt.Sprintf("cannot open: %v", err)}
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	var count int
 	err = database.Conn().QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count)
@@ -174,7 +174,7 @@ func checkOllamaEndpoint(url, model string) checkResult {
 	if err != nil {
 		return checkResult{name: "Ollama", passed: false, detail: fmt.Sprintf("not reachable: %v", err)}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return checkResult{name: "Ollama", passed: false, detail: "model not found or endpoint unavailable"}
@@ -347,7 +347,7 @@ func checkMemoryCount() checkResult {
 	if err != nil {
 		return checkResult{name: "Memories", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	var count int
 	err = database.Conn().QueryRow("SELECT COUNT(*) FROM memories").Scan(&count)
@@ -368,7 +368,7 @@ func checkProfiles() checkResult {
 	if err != nil {
 		return checkResult{name: "Profiles", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	profiles, err := database.ListProfiles()
 	if err != nil {
@@ -431,7 +431,7 @@ func checkDuplicateCandidates() checkResult {
 	if err != nil {
 		return checkResult{name: "Duplicate Candidates", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Gracefully handle missing content_hash column (pre-migration 018 schemas)
 	var dupGroupCount int
@@ -492,7 +492,7 @@ func checkNeverRecalled() checkResult {
 	if err != nil {
 		return checkResult{name: "Never-Recalled (old)", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Detect if #409 access-tracking columns exist; gracefully degrade if not.
 	var hasRecallCol bool
@@ -547,7 +547,7 @@ func checkDurableRatio() checkResult {
 	if err != nil {
 		return checkResult{name: "Durable Ratio", passed: false, detail: fmt.Sprintf("cannot open database: %v", err)}
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	var total int
 	err = database.Conn().QueryRow(`SELECT COUNT(*) FROM memories`).Scan(&total)

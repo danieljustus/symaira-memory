@@ -96,7 +96,7 @@ func checkpointAndClose(dbPath string) error {
 	if err != nil {
 		return fmt.Errorf("open for checkpoint: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if _, err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE);"); err != nil {
 		return fmt.Errorf("wal checkpoint: %w", err)
@@ -119,7 +119,7 @@ func validateSQLiteFile(data []byte) error {
 		return fmt.Errorf("validation I/O error: %w", err)
 	}
 	defer os.Remove(tmp.Name())
-	defer tmp.Close()
+	defer func() { _ = tmp.Close() }()
 
 	if _, err := tmp.Write(data); err != nil {
 		return fmt.Errorf("validation I/O error: %w", err)
@@ -132,7 +132,7 @@ func validateSQLiteFile(data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to open backup payload as SQLite: %w", err)
 	}
-	defer testDB.Close()
+	defer func() { _ = testDB.Close() }()
 
 	var result string
 	if err := testDB.QueryRow("PRAGMA integrity_check;").Scan(&result); err != nil {
@@ -193,13 +193,13 @@ var exportCmd = &cobra.Command{
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to create target file")
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		gw := gzip.NewWriter(file)
-		defer gw.Close()
+		defer func() { _ = gw.Close() }()
 
 		tw := tar.NewWriter(gw)
-		defer tw.Close()
+		defer func() { _ = tw.Close() }()
 
 		header := &tar.Header{
 			Name: "default.db.enc",
@@ -231,13 +231,13 @@ var importCmd = &cobra.Command{
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to open source file")
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		gr, err := gzip.NewReader(file)
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitData, exitcodes.KindValidation, "gzip unpack failed; file may not be a valid gzip archive")
 		}
-		defer gr.Close()
+		defer func() { _ = gr.Close() }()
 
 		tr := tar.NewReader(gr)
 		var payload []byte
@@ -319,17 +319,17 @@ var importCmd = &cobra.Command{
 		}()
 
 		if err := tmpFile.Chmod(0600); err != nil {
-			tmpFile.Close()
+			_ = tmpFile.Close()
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to set staging file permissions")
 		}
 
 		if _, err := tmpFile.Write(dbBytes); err != nil {
-			tmpFile.Close()
+			_ = tmpFile.Close()
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to write staging file")
 		}
 
 		if err := tmpFile.Sync(); err != nil {
-			tmpFile.Close()
+			_ = tmpFile.Close()
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to sync staging file")
 		}
 

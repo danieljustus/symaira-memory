@@ -99,12 +99,12 @@ func syncHTTPDo(client *http.Client, method, url, token string, body []byte) (*h
 		return nil, fmt.Errorf("contacting remote: %w", err)
 	}
 	if resp.StatusCode == http.StatusUnauthorized {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("authentication failed (401). Check your --token")
 	}
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("%s %s failed with status %d: %s", method, url, resp.StatusCode, string(respBody))
 	}
 	return resp, nil
@@ -154,10 +154,10 @@ func runSync(database *db.DB, remote, token string) error {
 				NextCursor string             `json:"next_cursor"`
 			}
 			if err := json.NewDecoder(pullResp.Body).Decode(&pullResult); err != nil {
-				pullResp.Body.Close()
+				_ = pullResp.Body.Close()
 				return fmt.Errorf("decoding pull response: %w", err)
 			}
-			pullResp.Body.Close()
+			_ = pullResp.Body.Close()
 
 			allMemories = append(allMemories, pullResult.Memories...)
 			allDeleted = append(allDeleted, pullResult.Deleted...)
@@ -234,7 +234,7 @@ func runSync(database *db.DB, remote, token string) error {
 			if err != nil {
 				return err
 			}
-			defer pushResp.Body.Close()
+			defer func() { _ = pushResp.Body.Close() }()
 
 			var pushResult struct {
 				Applied int `json:"applied"`
@@ -307,10 +307,10 @@ func runRelaySync(database *db.DB, remote, token, passphrase string) error {
 			ServerTime string         `json:"server_time"`
 		}
 		if err := json.NewDecoder(pullResp.Body).Decode(&pullResult); err != nil {
-			pullResp.Body.Close()
+			_ = pullResp.Body.Close()
 			return fmt.Errorf("decoding relay response: %w", err)
 		}
-		pullResp.Body.Close()
+		_ = pullResp.Body.Close()
 
 		if pullResult.ServerTime != "" {
 			serverTime, err = time.Parse(time.RFC3339Nano, pullResult.ServerTime)
@@ -399,10 +399,10 @@ func runRelaySync(database *db.DB, remote, token, passphrase string) error {
 				Stored int `json:"stored"`
 			}
 			if err := json.NewDecoder(pushResp.Body).Decode(&pushResult); err != nil {
-				pushResp.Body.Close()
+				_ = pushResp.Body.Close()
 				return fmt.Errorf("decoding relay push response: %w", err)
 			}
-			pushResp.Body.Close()
+			_ = pushResp.Body.Close()
 			pushed = pushResult.Stored
 		}
 	}

@@ -91,7 +91,7 @@ func TestExternalBaseline_FailsLoudlyWhenUnreachable(t *testing.T) {
 
 func TestExternalBaseline_FailsLoudlyOnMalformedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	}))
 	defer server.Close()
 

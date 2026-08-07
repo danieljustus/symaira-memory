@@ -40,11 +40,13 @@ func (le *LLMEnhancer) ConsolidateMemories(memories []*db.Memory) ([]string, err
 		return list, nil
 	}
 
-	// Prepare list of statements for the LLM
+	// Prepare list of statements for the LLM. Every statement is treated as
+	// untrusted data (#493): injection markers are neutralized before the
+	// prompt is composed.
 	var builder strings.Builder
 	builder.WriteString("Statements:\n")
 	for i, m := range memories {
-		fmt.Fprintf(&builder, "%d. %s (Scope: %s)\n", i+1, m.Content, m.Scope)
+		fmt.Fprintf(&builder, "%d. %s (Scope: %s)\n", i+1, SanitizeLines(m.Content), m.Scope)
 	}
 
 	prompt := fmt.Sprintf(`You are the semantic memory cleaning engine for Symaira Memory. 
@@ -102,7 +104,7 @@ func (le *LLMEnhancer) queryOllama(prompt string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ollama daemon connection failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ollama returned HTTP error: %d", resp.StatusCode)
@@ -146,7 +148,7 @@ func (le *LLMEnhancer) queryOpenAI(prompt string, apiKey string) ([]string, erro
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var res struct {
 		Choices []struct {

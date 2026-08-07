@@ -35,7 +35,7 @@ func newPressureAssembler(tb testing.TB) *pressureAssembler {
 	return &pressureAssembler{
 		assembler: a,
 		cfg:       cfg,
-		dbClosed:  func() { database.Close() },
+		dbClosed:  func() { _ = database.Close() },
 	}
 }
 

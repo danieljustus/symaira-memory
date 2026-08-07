@@ -54,7 +54,7 @@ func (h *HermesImporter) DiscoverSessions(since time.Time) ([]importer.SessionRe
 	if err != nil {
 		return nil, fmt.Errorf("failed to open hermes database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	schema, err := h.discoverSchema(db)
 	if err != nil {
@@ -74,7 +74,7 @@ func (h *HermesImporter) DiscoverSessions(since time.Time) ([]importer.SessionRe
 		if err != nil {
 			return nil, fmt.Errorf("failed to query sessions: %w", err)
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 
 		for rows.Next() {
 			var sessionID string
@@ -99,7 +99,7 @@ func (h *HermesImporter) ImportSession(ref importer.SessionRef) ([]importer.Impo
 	if err != nil {
 		return nil, fmt.Errorf("failed to open hermes database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	schema, err := h.discoverSchema(db)
 	if err != nil {
@@ -119,7 +119,7 @@ func (h *HermesImporter) ImportSession(ref importer.SessionRef) ([]importer.Impo
 	if err != nil {
 		return nil, fmt.Errorf("failed to query messages: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var facts []importer.ImportedFact
 
@@ -224,7 +224,7 @@ func (h *HermesImporter) listTables(db *sql.DB) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var tables []string
 	for rows.Next() {
@@ -243,7 +243,7 @@ func (h *HermesImporter) listColumns(db *sql.DB, table string) ([]string, error)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var columns []string
 	for rows.Next() {

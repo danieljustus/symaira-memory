@@ -111,7 +111,7 @@ func TestHookClaudeCodeOutputIsValidJSON(t *testing.T) {
 	}()
 
 	output := captureCmdOutput(func() {
-		hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
+		_ = hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
 	})
 
 	var parsed map[string]interface{}
@@ -129,7 +129,7 @@ func TestHookClaudeCodeOutputStructure(t *testing.T) {
 	}()
 
 	output := captureCmdOutput(func() {
-		hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
+		_ = hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
 	})
 
 	var parsed map[string]interface{}
@@ -197,7 +197,7 @@ func TestHookClaudeCodeMergeCreatesFile(t *testing.T) {
 	}()
 
 	stderr := captureStderr(func() {
-		hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
+		_ = hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
 	})
 
 	// File should exist
@@ -229,8 +229,8 @@ func TestHookClaudeCodeMergeIsIdempotent(t *testing.T) {
 	}()
 
 	// Run merge twice
-	hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
-	hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
+	_ = hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
+	_ = hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
 
 	// Read file and count occurrences of our hook
 	data, err := os.ReadFile(settingsPath)
@@ -272,7 +272,7 @@ func TestHookClaudeCodeMergePreservesExistingSettings(t *testing.T) {
 		hookSettingsPath = ""
 	}()
 
-	hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
+	_ = hookClaudeCodeCmd.RunE(hookClaudeCodeCmd, nil)
 
 	data, err := os.ReadFile(settingsPath)
 	if err != nil {

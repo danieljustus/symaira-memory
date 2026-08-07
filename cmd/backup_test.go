@@ -37,7 +37,7 @@ func TestCheckpointAndClose(t *testing.T) {
 		t.Fatalf("insert: %v", err)
 	}
 
-	db.Close()
+	_ = db.Close()
 
 	walPath := dbPath + "-wal"
 	if _, err := os.Stat(walPath); os.IsNotExist(err) {
@@ -52,7 +52,7 @@ func TestCheckpointAndClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	var val string
 	if err := db2.QueryRow("SELECT val FROM t WHERE id = 1").Scan(&val); err != nil {
@@ -77,7 +77,7 @@ func TestValidateSQLiteFile_Valid(t *testing.T) {
 	if _, err := db.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY);"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	db.Close()
+	_ = db.Close()
 
 	data, err := os.ReadFile(dbPath)
 	if err != nil {
@@ -119,7 +119,7 @@ func TestValidateSQLiteFile_CorruptIntegrity(t *testing.T) {
 	if _, err := db.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY);"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	db.Close()
+	_ = db.Close()
 
 	data, err := os.ReadFile(dbPath)
 	if err != nil {
@@ -176,7 +176,7 @@ func TestRoundTripBackupRestoreWithWALWrites(t *testing.T) {
 		}
 	}
 
-	db.Close()
+	_ = db.Close()
 
 	if err := checkpointAndClose(dbPath); err != nil {
 		t.Fatalf("checkpoint: %v", err)
@@ -218,7 +218,7 @@ func TestRoundTripBackupRestoreWithWALWrites(t *testing.T) {
 	if err := tmpFile.Sync(); err != nil {
 		t.Fatalf("sync: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	if err := os.Rename(stagingPath, restoreDBPath); err != nil {
 		t.Fatalf("atomic rename: %v", err)
@@ -236,7 +236,7 @@ func TestRoundTripBackupRestoreWithWALWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open restored: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	var count int
 	if err := db2.QueryRow("SELECT COUNT(*) FROM memories").Scan(&count); err != nil {
@@ -292,7 +292,7 @@ func TestRestoreDoesNotReplaceOnInvalidData(t *testing.T) {
 	if _, err := origDB.Exec("INSERT INTO t (val) VALUES ('original')"); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
-	origDB.Close()
+	_ = origDB.Close()
 
 	invalidData := []byte("not-a-database")
 	if err := validateSQLiteFile(invalidData); err == nil {
@@ -303,7 +303,7 @@ func TestRestoreDoesNotReplaceOnInvalidData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	var val string
 	if err := db2.QueryRow("SELECT val FROM t WHERE id = 1").Scan(&val); err != nil {
@@ -327,7 +327,7 @@ func TestStagingFilePermissions(t *testing.T) {
 	if err := tmpFile.Chmod(0600); err != nil {
 		t.Fatalf("chmod: %v", err)
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	info, err := os.Stat(path)
 	if err != nil {
@@ -360,7 +360,7 @@ func TestWALCheckpointTruncatesSidecar(t *testing.T) {
 		}
 	}
 
-	db.Close()
+	_ = db.Close()
 
 	walBefore := dbPath + "-wal"
 	if _, err := os.Stat(walBefore); err == nil {
@@ -380,7 +380,7 @@ func TestWALCheckpointTruncatesSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	var count int
 	if err := db2.QueryRow("SELECT COUNT(*) FROM t").Scan(&count); err != nil {
@@ -396,13 +396,13 @@ func createTarGz(path, entryName string, data []byte) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gw := gzip.NewWriter(f)
-	defer gw.Close()
+	defer func() { _ = gw.Close() }()
 
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
+	defer func() { _ = tw.Close() }()
 
 	hdr := &tar.Header{
 		Name: entryName,
@@ -421,13 +421,13 @@ func extractTarGz(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
 		return nil, err
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 	for {
@@ -462,13 +462,13 @@ func TestRestoreRejectsOversizedEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
 		t.Fatalf("gzip: %v", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 	header, err := tr.Next()
@@ -558,7 +558,7 @@ func TestExportCreatesEncryptedArchive(t *testing.T) {
 	if _, err := db.Exec("CREATE TABLE t (id INTEGER PRIMARY KEY);"); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	db.Close()
+	_ = db.Close()
 
 	pwFile := filepath.Join(dir, "pw.txt")
 	if err := os.WriteFile(pwFile, []byte("exportsecret"), 0600); err != nil {
@@ -581,23 +581,23 @@ func TestExportCreatesEncryptedArchive(t *testing.T) {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
-	exportCmd.RunE(exportCmd, []string{backupPath})
+	_ = exportCmd.RunE(exportCmd, []string{backupPath})
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
-	buf.ReadFrom(r)
+	_, _ = buf.ReadFrom(r)
 
 	f, err := os.Open(backupPath)
 	if err != nil {
 		t.Fatalf("open backup: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	gr, err := gzip.NewReader(f)
 	if err != nil {
 		t.Fatalf("gzip: %v", err)
 	}
-	defer gr.Close()
+	defer func() { _ = gr.Close() }()
 
 	tr := tar.NewReader(gr)
 	hdr, err := tr.Next()

@@ -32,7 +32,7 @@ func TestListCmd_AsOf_ReturnsHistoricalVersion(t *testing.T) {
 	outputFormat = "json"
 	defer func() {
 		outputFormat = oldOutput
-		listCmd.Flags().Set("as-of", "")
+		_ = listCmd.Flags().Set("as-of", "")
 	}()
 
 	output := captureCmdOutput(func() {
@@ -62,8 +62,8 @@ func TestListCmd_AsOf_RejectsEntityCombination(t *testing.T) {
 		t.Fatalf("failed to set entity flag: %v", err)
 	}
 	defer func() {
-		listCmd.Flags().Set("as-of", "")
-		listCmd.Flags().Set("entity", "")
+		_ = listCmd.Flags().Set("as-of", "")
+		_ = listCmd.Flags().Set("entity", "")
 	}()
 
 	err := listCmd.RunE(listCmd, nil)

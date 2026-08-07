@@ -74,7 +74,7 @@ func TestDiscoverSessionsWithServerListResponse(t *testing.T) {
 		if strings.Contains(r.URL.Path, "/api/documents/") && r.URL.Path != "/api/documents/" {
 			docID := strings.TrimPrefix(r.URL.Path, "/api/documents/")
 			docID = strings.TrimSuffix(docID, "/")
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"id": ` + docID + `,
 				"title": "Test Document",
 				"content": "content",
@@ -87,7 +87,7 @@ func TestDiscoverSessionsWithServerListResponse(t *testing.T) {
 			}`))
 			return
 		}
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"count": 2,
 			"next": null,
 			"results": [
@@ -158,7 +158,7 @@ func TestDiscoverSessionsPagination(t *testing.T) {
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		if callCount == 1 {
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"count": 3,
 				"next": "` + server.URL + `/api/documents/?page=2",
 				"results": [
@@ -166,7 +166,7 @@ func TestDiscoverSessionsPagination(t *testing.T) {
 				]
 			}`))
 		} else {
-			w.Write([]byte(`{
+			_, _ = w.Write([]byte(`{
 				"count": 3,
 				"next": null,
 				"results": [
@@ -203,7 +203,7 @@ func TestDiscoverSessionsWithFilters(t *testing.T) {
 		if q.Get("created_date__gte") != "2026-06-01" {
 			t.Errorf("expected created_date__gte=2026-06-01, got %q", q.Get("created_date__gte"))
 		}
-		w.Write([]byte(`{"count": 0, "next": null, "results": []}`))
+		_, _ = w.Write([]byte(`{"count": 0, "next": null, "results": []}`))
 	}))
 	defer server.Close()
 
@@ -220,7 +220,7 @@ func TestDiscoverSessionsWithFilters(t *testing.T) {
 
 func TestImportSessionFullDocument(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"id": 42,
 			"title": "Invoice March 2026",
 			"content": "This is the full content of an invoice document that should be imported.",
@@ -268,7 +268,7 @@ func TestImportSessionFullDocument(t *testing.T) {
 
 func TestImportSessionEmptyContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"id": 99,
 			"title": "Empty Doc",
 			"content": "",
@@ -304,7 +304,7 @@ func TestImportSessionContentTruncation(t *testing.T) {
 		for i := 0; i < 100; i++ {
 			longContent += "Lorem ipsum dolor sit amet. "
 		}
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"id": 50,
 			"title": "Long Document",
 			"content": "` + longContent + `",
@@ -340,7 +340,7 @@ func TestImportSessionContentTruncation(t *testing.T) {
 func TestDoAPIRequestNon200(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"detail": "Invalid token"}`))
+		_, _ = w.Write([]byte(`{"detail": "Invalid token"}`))
 	}))
 	defer server.Close()
 
@@ -357,7 +357,7 @@ func TestDoAPIRequestNon200(t *testing.T) {
 
 func TestDiscoverSessionsInvalidDate(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"count": 1,
 			"next": null,
 			"results": [

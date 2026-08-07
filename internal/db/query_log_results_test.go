@@ -8,7 +8,7 @@ import (
 
 func TestLogQueryReturnsIDAndRecordsResults(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Result rows reference real memories (FK), so save them first.
 	saveResultTestMemories(t, database)
@@ -71,7 +71,7 @@ func saveResultTestMemories(t *testing.T, database *DB) {
 
 func TestRecordQueryResultsEmptyAndUnknown(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Empty result list is a no-op.
 	queryID, err := database.LogQuery("actor-1", "global", "", "memory_search", "nothing", "", 1)
@@ -123,7 +123,7 @@ func TestRecordQueryResultsDisabled(t *testing.T) {
 
 func TestQueryLogResultsCascadeOnMemoryDelete(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	if err := database.SaveMemory(&Memory{
 		ID:       "mem-cascade",

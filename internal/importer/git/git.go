@@ -109,8 +109,10 @@ func (g *GitImporter) ImportSession(ref importer.SessionRef) ([]importer.Importe
 		for _, line := range lines {
 			nums := strings.Fields(line)
 			if len(nums) >= 3 {
-				fmt.Sscanf(nums[0], "%d", &commit.Insertions)
-				fmt.Sscanf(nums[1], "%d", &commit.Deletions)
+				// Best-effort stat parsing: unparsable numbers stay zero,
+				// which the caller treats as "no insertions/deletions".
+				_, _ = fmt.Sscanf(nums[0], "%d", &commit.Insertions)
+				_, _ = fmt.Sscanf(nums[1], "%d", &commit.Deletions)
 			}
 			if idx := strings.LastIndex(line, "\t"); idx >= 0 {
 				commit.Files = append(commit.Files, line[idx+1:])

@@ -39,7 +39,7 @@ func helperDB(t *testing.T) *db.DB {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 	return database
 }
 
@@ -564,8 +564,8 @@ func TestToolMemoryListWithMemories(t *testing.T) {
 	s := helperServer(t)
 	m1 := &db.Memory{ID: "list-1", Content: "Memory A", Scope: "global", Embedding: testEmbedding(1.0)}
 	m2 := &db.Memory{ID: "list-2", Content: "Memory B", Scope: "project", Embedding: testEmbedding(2.0)}
-	s.DB().SaveMemory(m1)
-	s.DB().SaveMemory(m2)
+	_ = s.DB().SaveMemory(m1)
+	_ = s.DB().SaveMemory(m2)
 
 	res := callTool(s, "memory_list", map[string]interface{}{})
 
@@ -616,7 +616,7 @@ func TestToolMemoryListWithLimit(t *testing.T) {
 			Scope:     "global",
 			Embedding: testEmbedding(float32(i) * 0.1),
 		}
-		s.DB().SaveMemory(m)
+		_ = s.DB().SaveMemory(m)
 	}
 
 	res := callTool(s, "memory_list", map[string]interface{}{"limit": 2})
@@ -640,7 +640,7 @@ func TestToolMemoryListLimitClampedToMax(t *testing.T) {
 			Scope:     "global",
 			Embedding: testEmbedding(float32(i) * 0.1),
 		}
-		s.DB().SaveMemory(m)
+		_ = s.DB().SaveMemory(m)
 	}
 
 	res := callTool(s, "memory_list", map[string]interface{}{"limit": 5000})
@@ -664,7 +664,7 @@ func TestToolMemoryListInvalidLimitFallsBackToDefault(t *testing.T) {
 			Scope:     "global",
 			Embedding: testEmbedding(float32(i) * 0.1),
 		}
-		s.DB().SaveMemory(m)
+		_ = s.DB().SaveMemory(m)
 	}
 
 	res := callTool(s, "memory_list", map[string]interface{}{"limit": "not-a-number"})
@@ -734,7 +734,7 @@ func TestSyncChangesUnauthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", res.StatusCode)
 	}
@@ -749,7 +749,7 @@ func TestSyncApplyUnauthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	// CSRF blocks unauthenticated state-changing requests before the auth check.
 	if res.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403 (CSRF), got %d", res.StatusCode)
@@ -771,7 +771,7 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: testEmbedding(0.1),
 	}
-	s.DB().SaveMemory(old)
+	_ = s.DB().SaveMemory(old)
 
 	got, _ := s.DB().GetMemory("sync-old")
 	cutoff := got.UpdatedAt
@@ -784,7 +784,7 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: testEmbedding(0.2),
 	}
-	s.DB().SaveMemory(new)
+	_ = s.DB().SaveMemory(new)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -796,7 +796,7 @@ func TestSyncChangesSinceFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -833,7 +833,7 @@ func TestSyncChangesCursorPagination(t *testing.T) {
 			Metadata:  map[string]string{},
 			Embedding: testEmbedding(float32(i) * 0.1),
 		}
-		s.DB().SaveMemory(m)
+		_ = s.DB().SaveMemory(m)
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -847,7 +847,7 @@ func TestSyncChangesCursorPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp1.Body.Close()
+	defer func() { _ = resp1.Body.Close() }()
 
 	if resp1.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp1.StatusCode)
@@ -875,7 +875,7 @@ func TestSyncChangesCursorPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp2.StatusCode)
@@ -907,7 +907,7 @@ func TestSyncChangesCursorPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp3.Body.Close()
+	defer func() { _ = resp3.Body.Close() }()
 
 	var body3 struct {
 		Memories   []*db.Memory `json:"memories"`
@@ -939,7 +939,7 @@ func TestSyncChangesCursorInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for invalid cursor, got %d", resp.StatusCode)
@@ -960,7 +960,7 @@ func TestSyncChangesLimitClamped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -982,7 +982,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: testEmbedding(0.1),
 	}
-	s.DB().SaveMemory(existing)
+	_ = s.DB().SaveMemory(existing)
 
 	got, _ := s.DB().GetMemory("110e8400-e29b-41d4-a716-446655440001")
 	existingTime := got.UpdatedAt
@@ -1030,7 +1030,7 @@ func TestSyncApplyOlderSkippedNewerOverwrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -1104,7 +1104,7 @@ func TestSyncApplyPIIRedactionAndScopeValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -1164,7 +1164,7 @@ func TestSyncApplyMetadataPIIRedaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -1233,7 +1233,7 @@ func TestSyncApplyInvalidUUIDSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -1290,7 +1290,7 @@ func TestSyncApplyAuditLogCreated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -1321,7 +1321,7 @@ func TestApiGetUnauthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", res.StatusCode)
 	}
@@ -1340,7 +1340,7 @@ func TestApiGetMissingID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
@@ -1359,13 +1359,13 @@ func TestApiGetNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
 
 	var body map[string]string
-	json.NewDecoder(resp.Body).Decode(&body)
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if !strings.Contains(body["error"], "not found") {
 		t.Errorf("expected error containing 'not found', got %q", body["error"])
 	}
@@ -1382,7 +1382,7 @@ func TestApiGetSuccess(t *testing.T) {
 		Metadata:  map[string]string{"source": "test"},
 		Embedding: testEmbedding(0.1, 0.2),
 	}
-	s.DB().SaveMemory(m)
+	_ = s.DB().SaveMemory(m)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1394,7 +1394,7 @@ func TestApiGetSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -1425,7 +1425,7 @@ func TestApiDeleteUnauthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	// CSRF blocks unauthenticated state-changing requests before the auth check.
 	if res.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403 (CSRF), got %d", res.StatusCode)
@@ -1445,7 +1445,7 @@ func TestApiDeleteMissingID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400, got %d", resp.StatusCode)
 	}
@@ -1464,7 +1464,7 @@ func TestApiDeleteNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", resp.StatusCode)
 	}
@@ -1481,7 +1481,7 @@ func TestApiDeleteSuccess(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: testEmbedding(0.1),
 	}
-	s.DB().SaveMemory(m)
+	_ = s.DB().SaveMemory(m)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1493,13 +1493,13 @@ func TestApiDeleteSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
 
 	var body map[string]bool
-	json.NewDecoder(resp.Body).Decode(&body)
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if !body["deleted"] {
 		t.Error("expected deleted: true")
 	}
@@ -1521,7 +1521,7 @@ func TestApiDeleteViaPost(t *testing.T) {
 		Metadata:  map[string]string{},
 		Embedding: testEmbedding(0.1),
 	}
-	s.DB().SaveMemory(m)
+	_ = s.DB().SaveMemory(m)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1533,7 +1533,7 @@ func TestApiDeleteViaPost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -1557,7 +1557,7 @@ func TestApiRulesUnauthenticated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", res.StatusCode)
 	}
@@ -1576,7 +1576,7 @@ func TestApiRulesEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -1584,7 +1584,7 @@ func TestApiRulesEmpty(t *testing.T) {
 	var body struct {
 		Rules []db.Rule `json:"rules"`
 	}
-	json.NewDecoder(resp.Body).Decode(&body)
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if len(body.Rules) != 0 {
 		t.Errorf("expected 0 rules, got %d", len(body.Rules))
 	}
@@ -1600,7 +1600,7 @@ func TestApiRulesWithData(t *testing.T) {
 		Scope:    "global",
 		Metadata: map[string]string{"source": "test"},
 	}
-	s.DB().SaveRule(r)
+	_ = s.DB().SaveRule(r)
 
 	ts := httptest.NewServer(s.httpMux())
 	defer ts.Close()
@@ -1612,7 +1612,7 @@ func TestApiRulesWithData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
 	}
@@ -1620,7 +1620,7 @@ func TestApiRulesWithData(t *testing.T) {
 	var body struct {
 		Rules []db.Rule `json:"rules"`
 	}
-	json.NewDecoder(resp.Body).Decode(&body)
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if len(body.Rules) != 1 {
 		t.Fatalf("expected 1 rule, got %d", len(body.Rules))
 	}
@@ -1645,7 +1645,7 @@ func TestWebConsoleReturnsHTML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("expected 200, got %d", res.StatusCode)
@@ -1681,7 +1681,7 @@ func TestWebConsoleStaticAssets(t *testing.T) {
 			t.Errorf("request for %s failed: %v", asset.path, err)
 			continue
 		}
-		res.Body.Close()
+		_ = res.Body.Close()
 
 		if res.StatusCode != http.StatusOK {
 			t.Errorf("expected 200 for %s, got %d", asset.path, res.StatusCode)
@@ -1707,7 +1707,7 @@ func TestCORSPreflightAllowedOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for allowed origin preflight, got %d", resp.StatusCode)
@@ -1730,7 +1730,7 @@ func TestCORSForbiddenOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403 for disallowed origin, got %d", resp.StatusCode)
@@ -1750,7 +1750,7 @@ func TestCORSNoOriginHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 when no Origin header, got %d", resp.StatusCode)
@@ -1771,7 +1771,7 @@ func TestSearchMalformedBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for malformed body, got %d", resp.StatusCode)
@@ -1792,7 +1792,7 @@ func TestSetMalformedBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("expected 400 for malformed body, got %d", resp.StatusCode)
@@ -1812,7 +1812,7 @@ func TestSearchMethodNotAllowed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 for GET on search, got %d", resp.StatusCode)
@@ -1834,7 +1834,7 @@ func TestRequireRoleReadOnlyProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403 for read-only profile on write endpoint, got %d", resp.StatusCode)
@@ -1850,14 +1850,14 @@ func TestStatusIncludesEmbeddingBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 
 	var body map[string]string
-	json.NewDecoder(res.Body).Decode(&body)
+	_ = json.NewDecoder(res.Body).Decode(&body)
 	if body["embedding_backend"] == "" {
 		t.Error("expected non-empty embedding_backend in status response")
 	}
@@ -1876,10 +1876,10 @@ func TestStatusEmbeddingBackendLexicalAfterFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	var body map[string]string
-	json.NewDecoder(res.Body).Decode(&body)
+	_ = json.NewDecoder(res.Body).Decode(&body)
 	if body["embedding_backend"] != "lexical" {
 		t.Errorf("expected embedding_backend 'lexical' after failure, got %q", body["embedding_backend"])
 	}
@@ -1898,14 +1898,14 @@ func TestWebConsoleDoesNotShadowAPIRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for /api/status, got %d", resp.StatusCode)
 	}
 
 	var body map[string]string
-	json.NewDecoder(resp.Body).Decode(&body)
+	_ = json.NewDecoder(resp.Body).Decode(&body)
 	if body["status"] != "healthy" {
 		t.Errorf("expected status 'healthy', got %q", body["status"])
 	}
@@ -1922,7 +1922,7 @@ func TestStartHTTPServerOccupiedPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to occupy port: %v", err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	port := ln.Addr().(*net.TCPAddr).Port
 	err = s.StartHTTPServer(port)
@@ -1943,7 +1943,7 @@ func TestStartHTTPServerGracefulShutdown(t *testing.T) {
 		t.Fatalf("failed to get free port: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 
 	done := make(chan error, 1)
 	go func() {
@@ -1980,7 +1980,7 @@ func TestStartHTTPServerServeError(t *testing.T) {
 		t.Fatalf("failed to get free port: %v", err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 
 	done := make(chan error, 1)
 	go func() {
@@ -2032,7 +2032,7 @@ func TestRequireAuthNilJWTProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 when jwts is nil (auth disabled), got %d", resp.StatusCode)
@@ -2056,7 +2056,7 @@ func TestRequireRoleNilJWTProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for role-gated route when jwts is nil (auth disabled), got %d", resp.StatusCode)
@@ -2105,7 +2105,7 @@ func TestRequireAuthTableDriven(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request failed: %v", err)
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode != tt.wantStatus {
 				t.Errorf("expected %d, got %d", tt.wantStatus, resp.StatusCode)
 			}
@@ -2141,7 +2141,7 @@ func TestRequireRoleDBProfileLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403 for read-only DB profile on write endpoint, got %d", resp.StatusCode)
@@ -2155,7 +2155,7 @@ func TestRequireRoleDBProfileLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for read-only DB profile on read endpoint, got %d", resp2.StatusCode)
@@ -2188,7 +2188,7 @@ func TestRequireRoleDBProfileReadWriteAllowsAccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for readwrite DB profile on write endpoint, got %d", resp.StatusCode)
@@ -2233,7 +2233,7 @@ func TestRequireRoleDBLookupErrorFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403 when profile lookup errors (fail closed), got %d", resp.StatusCode)
@@ -2256,7 +2256,7 @@ func TestRequireRoleUnknownSubjectPermissiveByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for unknown subject under permissive default, got %d", resp.StatusCode)
@@ -2278,7 +2278,7 @@ func TestRequireRoleUnknownSubjectDeniedWhenRequireProfileEnabled(t *testing.T) 
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403 for unknown subject when require_profile is enabled, got %d", resp.StatusCode)
@@ -2291,7 +2291,7 @@ func TestRequireRoleUnknownSubjectDeniedWhenRequireProfileEnabled(t *testing.T) 
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp2.Body.Close()
+	defer func() { _ = resp2.Body.Close() }()
 
 	if resp2.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for read access with require_profile enabled, got %d", resp2.StatusCode)
@@ -2339,7 +2339,7 @@ func TestCORSPreflightWildcardOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for wildcard origin preflight, got %d", resp.StatusCode)
@@ -2475,7 +2475,7 @@ func TestHostValidationDoesNotBlockLoopbackOnRealServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	// /api/status has authNone, so it should succeed.
 	if res.StatusCode != http.StatusOK {
 		t.Errorf("expected 200 for /api/status via httptest, got %d", res.StatusCode)
@@ -2538,7 +2538,7 @@ func TestCSRFBlockedAfterHostValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusForbidden {
 		t.Errorf("expected 403 (CSRF), got %d", res.StatusCode)
 	}

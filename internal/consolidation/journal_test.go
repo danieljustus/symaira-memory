@@ -21,7 +21,7 @@ func newEngineTestDB(t *testing.T) (*db.DB, *Engine) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
 	eng := NewEngine(database, embeddings, "", "", "", false)
 	return database, eng

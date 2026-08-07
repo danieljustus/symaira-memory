@@ -70,7 +70,7 @@ func (db *DB) ListRules(scope string) ([]*Rule, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var rules []*Rule
 	for rows.Next() {

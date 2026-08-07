@@ -18,7 +18,7 @@ func TestGetSyncCursorZeroTime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// First read for a remote that has never been stored should return zero time.
 	cursor, err := database.GetSyncCursor("https://example.com/repo")
@@ -40,7 +40,7 @@ func TestSyncCursorRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	remote := "https://github.com/owner/project"
 	want := time.Date(2026, 6, 1, 12, 30, 0, 0, time.UTC)
@@ -68,7 +68,7 @@ func TestSyncCursorOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	remote := "https://github.com/owner/project"
 	t1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -104,7 +104,7 @@ func TestSyncCursorIndependentRemotes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	remoteA := "https://github.com/owner/project-a"
 	remoteB := "https://github.com/owner/project-b"

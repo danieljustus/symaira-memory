@@ -99,7 +99,7 @@ func (db *DB) GetQueryLogResults(queryID string) ([]*QueryLogResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []*QueryLogResult
 	for rows.Next() {
@@ -190,7 +190,7 @@ func (db *DB) getQueryLogEntries(limit int, actor string) ([]*QueryLogEntry, err
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var entries []*QueryLogEntry
 	for rows.Next() {
@@ -250,12 +250,12 @@ func (db *DB) GetQueryLogSummary(limit int, actor string) (*QueryLogSummary, err
 		var tool string
 		var cnt int
 		if err := rows.Scan(&tool, &cnt); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		summary.ToolBreakdown[tool] = cnt
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
@@ -270,7 +270,7 @@ func (db *DB) GetQueryLogSummary(limit int, actor string) (*QueryLogSummary, err
 		var a sql.NullString
 		var cnt int
 		if err := rows.Scan(&a, &cnt); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		key := "(unknown)"
@@ -279,7 +279,7 @@ func (db *DB) GetQueryLogSummary(limit int, actor string) (*QueryLogSummary, err
 		}
 		summary.ActorBreakdown[key] = cnt
 	}
-	rows.Close()
+	_ = rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}

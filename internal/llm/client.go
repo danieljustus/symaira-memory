@@ -126,7 +126,7 @@ func (c *Client) QueryOllama(ctx context.Context, systemPrompt, userPrompt strin
 	if err != nil {
 		return "", fmt.Errorf("failed to query Ollama: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
@@ -199,7 +199,7 @@ func (c *Client) QueryOpenAI(ctx context.Context, systemPrompt, userPrompt, apiK
 	if err != nil {
 		return "", fmt.Errorf("failed to query OpenAI: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("openai returned HTTP status %d", resp.StatusCode)

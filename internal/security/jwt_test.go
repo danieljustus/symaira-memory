@@ -434,7 +434,7 @@ func openTestDB(t *testing.T) (*db.DB, string) {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 
 	return database, tempDir
 }
@@ -515,7 +515,7 @@ func TestRevokedJTIPersistedAcrossFreshProvider(t *testing.T) {
 		t.Fatalf("token should be valid before revocation: %v", err)
 	}
 
-	provider1.RevokeToken(payload.JWTID)
+	_ = provider1.RevokeToken(payload.JWTID)
 
 	_, err = provider1.VerifyToken(token)
 	if err == nil {
@@ -575,7 +575,7 @@ func TestMultipleRevocationsPersisted(t *testing.T) {
 		jtis[i] = p.JWTID
 	}
 
-	provider.RevokeToken(jtis[1])
+	_ = provider.RevokeToken(jtis[1])
 
 	provider2 := jwtProviderWithStore(t, database, tempDir)
 
@@ -1125,7 +1125,7 @@ func TestJWTProviderConcurrentVerifyAndRotate(t *testing.T) {
 			for j := 0; j < 25; j++ {
 				provider.RotateSecret(fmt.Sprintf("rotated-secret-%d-%d", i, j))
 				provider.AddFallbackSecret(fmt.Sprintf("fallback-secret-%d-%d", i, j))
-				provider.RevokeToken(fmt.Sprintf("unrelated-jti-%d-%d", i, j))
+				_ = provider.RevokeToken(fmt.Sprintf("unrelated-jti-%d-%d", i, j))
 			}
 		}(i)
 	}

@@ -95,7 +95,7 @@ func (s *ShellHistoryImporter) DiscoverSessions(since time.Time) ([]importer.Ses
 	if err != nil {
 		return nil, fmt.Errorf("failed to open history file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sessions []importer.SessionRef
 	scanner := bufio.NewScanner(file)

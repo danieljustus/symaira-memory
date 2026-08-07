@@ -98,7 +98,7 @@ func (db *DB) ListContextProfiles() ([]*ContextProfile, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var profiles []*ContextProfile
 	for rows.Next() {
@@ -168,7 +168,7 @@ func (db *DB) ListContextProfileLinks(profileName string) ([]*ContextProfileLink
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var links []*ContextProfileLink
 	for rows.Next() {

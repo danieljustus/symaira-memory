@@ -186,7 +186,7 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []SearchResult
 	for rows.Next() {

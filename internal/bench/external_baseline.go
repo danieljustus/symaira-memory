@@ -92,7 +92,7 @@ func RunExternalBaseline(corpus *Corpus) (BaselineArmReport, error) {
 			fmt.Errorf("external baseline: cannot reach %s (set %s to a reachable endpoint or unset it to skip): %w",
 				url, BaselineURLEnv, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return BaselineArmReport{Configured: true, Error: resp.Status},
 			fmt.Errorf("external baseline: %s returned %s (set %s to a reachable endpoint or unset it to skip)",

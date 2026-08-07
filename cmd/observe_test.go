@@ -88,7 +88,7 @@ func TestObserveToolFailureNeverWritesStdout(t *testing.T) {
 
 	err := observeToolFailureCmd.RunE(observeToolFailureCmd, nil)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
@@ -110,7 +110,7 @@ func TestObserveSessionEndNeverWritesStdout(t *testing.T) {
 
 	err := observeSessionEndCmd.RunE(observeSessionEndCmd, nil)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
@@ -132,7 +132,7 @@ func TestObservePreCompactNeverWritesStdout(t *testing.T) {
 
 	err := observePreCompactCmd.RunE(observePreCompactCmd, nil)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer
@@ -148,8 +148,8 @@ func TestObservePreCompactNeverWritesStdout(t *testing.T) {
 }
 
 func TestObserveToolFailureWithDataNeverWritesStdout(t *testing.T) {
-	observeToolFailureCmd.Flags().Set("data", `{"tool":"bash","error":"exit code 1"}`)
-	defer observeToolFailureCmd.Flags().Set("data", "")
+	_ = observeToolFailureCmd.Flags().Set("data", `{"tool":"bash","error":"exit code 1"}`)
+	defer func() { _ = observeToolFailureCmd.Flags().Set("data", "") }()
 
 	old := os.Stdout
 	r, w, _ := os.Pipe()
@@ -157,7 +157,7 @@ func TestObserveToolFailureWithDataNeverWritesStdout(t *testing.T) {
 
 	err := observeToolFailureCmd.RunE(observeToolFailureCmd, nil)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = old
 
 	var buf bytes.Buffer

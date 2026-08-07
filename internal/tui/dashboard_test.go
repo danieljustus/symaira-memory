@@ -27,7 +27,7 @@ func helperDB(t *testing.T) *db.DB {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 	return database
 }
 
@@ -94,13 +94,13 @@ func TestModelUpdateNavigationEmpty(t *testing.T) {
 func TestModelUpdateNavigationWithMemories(t *testing.T) {
 	database := helperDB(t)
 	// Seed some test memories
-	database.SaveMemory(&db.Memory{
+	_ = database.SaveMemory(&db.Memory{
 		ID:        "tui-mem-1",
 		Content:   "First memory",
 		Scope:     "global",
 		Embedding: testEmbedding(1.0),
 	})
-	database.SaveMemory(&db.Memory{
+	_ = database.SaveMemory(&db.Memory{
 		ID:        "tui-mem-2",
 		Content:   "Second memory",
 		Scope:     "global",
@@ -246,7 +246,7 @@ func TestModelUpdateSearchBackspace(t *testing.T) {
 func TestModelUpdateDeleteMemory(t *testing.T) {
 	database := helperDB(t)
 	// Seed a memory
-	database.SaveMemory(&db.Memory{
+	_ = database.SaveMemory(&db.Memory{
 		ID:        "delete-me",
 		Content:   "Delete me",
 		Scope:     "global",
@@ -291,7 +291,7 @@ func TestModelView(t *testing.T) {
 
 func TestModelViewWithMemories(t *testing.T) {
 	database := helperDB(t)
-	database.SaveMemory(&db.Memory{
+	_ = database.SaveMemory(&db.Memory{
 		ID:        "view-1",
 		Content:   "Test memory view",
 		Scope:     "global",

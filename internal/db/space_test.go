@@ -38,7 +38,7 @@ func TestDifferentSpacesNotCrossScored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	vec := make([]float32, EmbeddingDim)
 	vec[0] = 1.0

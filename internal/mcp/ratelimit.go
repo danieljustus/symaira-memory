@@ -192,7 +192,9 @@ func RateLimitMiddleware(rl *RateLimiter, next http.Handler) http.Handler {
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Retry-After", "60")
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"rate limit exceeded"}`))
+			if _, err := w.Write([]byte(`{"error":"rate limit exceeded"}`)); err != nil {
+				slog.Error("failed to write rate-limit response", "error", err)
+			}
 			return
 		}
 

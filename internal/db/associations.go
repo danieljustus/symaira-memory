@@ -72,7 +72,7 @@ func (db *DB) AssociationsFrom(ids []string) (map[string]map[string]float64, err
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var from, to string
 		var weight float64
@@ -126,12 +126,12 @@ func (db *DB) SeedMemoryAssociations(createdBy string) (int, error) {
 	for rows.Next() {
 		var qid, a, b string
 		if err := rows.Scan(&qid, &a, &b); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return inserted, err
 		}
 		coPairs = append(coPairs, struct{ from, to string }{a, b})
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, p := range coPairs {
 		if err := upsert(p.from, p.to, CoRetrievalWeight); err != nil {
 			return inserted, err
@@ -150,12 +150,12 @@ func (db *DB) SeedMemoryAssociations(createdBy string) (int, error) {
 	for rows.Next() {
 		var eid string
 		if err := rows.Scan(&eid); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return inserted, err
 		}
 		entityIDs = append(entityIDs, eid)
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, eid := range entityIDs {
 		memRows, err := db.conn.Query(
 			`SELECT me.memory_id FROM memory_entities me
@@ -171,12 +171,12 @@ func (db *DB) SeedMemoryAssociations(createdBy string) (int, error) {
 		for memRows.Next() {
 			var mid string
 			if err := memRows.Scan(&mid); err != nil {
-				memRows.Close()
+				_ = memRows.Close()
 				return inserted, err
 			}
 			mems = append(mems, mid)
 		}
-		memRows.Close()
+		_ = memRows.Close()
 		for i := 0; i < len(mems); i++ {
 			for j := i + 1; j < len(mems); j++ {
 				if err := upsert(mems[i], mems[j], SharedEntityWeight); err != nil {
@@ -199,12 +199,12 @@ func (db *DB) SeedMemoryAssociations(createdBy string) (int, error) {
 	for rows.Next() {
 		var pid string
 		if err := rows.Scan(&pid); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return inserted, err
 		}
 		parentIDs = append(parentIDs, pid)
 	}
-	rows.Close()
+	_ = rows.Close()
 	for _, pid := range parentIDs {
 		memRows, err := db.conn.Query(
 			`SELECT id FROM memories WHERE consolidated_into_id = ? AND review_status = 'approved' AND retired_at IS NULL`,
@@ -217,12 +217,12 @@ func (db *DB) SeedMemoryAssociations(createdBy string) (int, error) {
 		for memRows.Next() {
 			var mid string
 			if err := memRows.Scan(&mid); err != nil {
-				memRows.Close()
+				_ = memRows.Close()
 				return inserted, err
 			}
 			mems = append(mems, mid)
 		}
-		memRows.Close()
+		_ = memRows.Close()
 		for i := 0; i < len(mems); i++ {
 			for j := i + 1; j < len(mems); j++ {
 				if err := upsert(mems[i], mems[j], ConsolidationWeight); err != nil {

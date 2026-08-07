@@ -62,7 +62,7 @@ func TestReviewPromoteMakesRetrievable(t *testing.T) {
 	if err := reviewCmd.Flags().Set("promote", "staged-1"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { reviewCmd.Flags().Set("promote", "") })
+	t.Cleanup(func() { _ = reviewCmd.Flags().Set("promote", "") })
 
 	out := captureStdoutOfReview(t)
 	if !strings.Contains(out, "promoted") {
@@ -83,7 +83,7 @@ func TestReviewRejectRemovesCandidate(t *testing.T) {
 	if err := reviewCmd.Flags().Set("reject", "staged-1"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { reviewCmd.Flags().Set("reject", "") })
+	t.Cleanup(func() { _ = reviewCmd.Flags().Set("reject", "") })
 
 	out := captureStdoutOfReview(t)
 	if !strings.Contains(out, "rejected") {
@@ -104,7 +104,7 @@ func TestReviewRejectsLiveMemoryRefused(t *testing.T) {
 	if err := reviewCmd.Flags().Set("reject", "live-1"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { reviewCmd.Flags().Set("reject", "") })
+	t.Cleanup(func() { _ = reviewCmd.Flags().Set("reject", "") })
 
 	err := reviewCmd.RunE(reviewCmd, nil)
 	if err == nil || !strings.Contains(err.Error(), "not a staged candidate") {

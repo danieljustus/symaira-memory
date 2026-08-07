@@ -27,7 +27,7 @@ func openTestDBWithConfig(t *testing.T, cfg *config.Config) *DB {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 	return database
 }
 
@@ -47,7 +47,7 @@ func insertQueryLogRows(t *testing.T, database *DB, n int, base time.Time, prefi
 			 VALUES (?, ?, ?, ?, ?, ?)`,
 			id, "memory_search", nullStr("query "+id), nullStr(`{"k":"v"}`), int64(i), base.Add(time.Duration(i)*time.Minute),
 		); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			t.Fatalf("failed to insert query log row %s: %v", id, err)
 		}
 	}
@@ -212,7 +212,7 @@ func TestGetQueryLogSummaryAggregation(t *testing.T) {
 			 VALUES (?, ?, ?, ?, ?, ?)`,
 			fmt.Sprintf("sum-%04d", i), tool, nullStr("q"), nullStr("{}"), int64(i), base.Add(time.Duration(i)*time.Minute),
 		); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			t.Fatal(err)
 		}
 	}

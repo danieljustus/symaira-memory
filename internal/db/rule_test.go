@@ -22,7 +22,7 @@ func TestRuleCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Save rules with varying scopes
 	rules := []*Rule{
@@ -169,7 +169,7 @@ func TestRuleEmptyScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	r := &Rule{
 		ID:       "empty-scope-rule",

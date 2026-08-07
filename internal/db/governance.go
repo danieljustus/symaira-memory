@@ -162,7 +162,7 @@ func (db *DB) ListStagedMemories(limit int) ([]*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {
@@ -228,7 +228,7 @@ func (db *DB) AgingCandidates() ([]*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {

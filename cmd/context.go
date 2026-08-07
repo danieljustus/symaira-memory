@@ -51,7 +51,7 @@ empty/minimal block is emitted so that hooks never break.`,
 			emitContextEmpty(format)
 			return nil
 		}
-		defer database.Close()
+		defer func() { _ = database.Close() }()
 
 		embeddings := extractor.NewEmbeddingsGenerator(cfg)
 

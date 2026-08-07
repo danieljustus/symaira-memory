@@ -139,7 +139,7 @@ func SaveSnapshot(snapDir string, snap SnapshotFile) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create snapshot file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	enc := json.NewEncoder(f)
 	enc.SetIndent("", "  ")
@@ -156,7 +156,7 @@ func LoadSnapshot(path string) (SnapshotFile, error) {
 	if err != nil {
 		return snap, fmt.Errorf("open snapshot: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	if err := json.NewDecoder(f).Decode(&snap); err != nil {
 		return snap, fmt.Errorf("decode snapshot: %w", err)

@@ -196,7 +196,7 @@ func (o *ObsidianImporter) parseNote(path string) (*ObsidianNote, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	note := &ObsidianNote{
 		Path:        path,

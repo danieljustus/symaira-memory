@@ -83,13 +83,13 @@ func Open(cfg *config.Config) (*DB, error) {
 	}
 	db.queryLogRecordResults.Store(cfg.QueryLog.RecordResults)
 	if err := db.runMigrations(); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	if _, err := os.Stat(dbPath); err == nil {
 		if err := os.Chmod(dbPath, 0600); err != nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil, fmt.Errorf("failed to set db file permissions: %w", err)
 		}
 	}

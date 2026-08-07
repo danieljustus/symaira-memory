@@ -172,7 +172,7 @@ func TestGenerateVectorUsesOllamakitEmbedEndpoint(t *testing.T) {
 		for i := range vec {
 			vec[i] = float32(i+1) / float32(DefaultDimensions)
 		}
-		json.NewEncoder(w).Encode(struct {
+		_ = json.NewEncoder(w).Encode(struct {
 			Embeddings [][]float32 `json:"embeddings"`
 		}{Embeddings: [][]float32{vec}})
 	}))

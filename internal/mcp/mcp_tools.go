@@ -622,7 +622,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 			return mcpError("Failed to list memories as of the given time", err)
 		}
 		if len(memories) == 0 {
-			s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", "as_of", args.AsOf, time.Since(startTime).Milliseconds())
+			_, _ = s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", "as_of", args.AsOf, time.Since(startTime).Milliseconds())
 			return "No memories were valid at that point in time.", nil
 		}
 
@@ -647,7 +647,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 		}
 
 		pageInfo := buildMemoryListPage(memories, len(memories) < limit)
-		s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", "as_of", args.AsOf, time.Since(startTime).Milliseconds())
+		_, _ = s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", "as_of", args.AsOf, time.Since(startTime).Milliseconds())
 		data, _ := json.MarshalIndent(pageInfo, "", "  ")
 		return string(data), nil
 	}
@@ -679,7 +679,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 	}
 
 	if len(memories) == 0 {
-		s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", queryText, args.Scope, time.Since(startTime).Milliseconds())
+		_, _ = s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", queryText, args.Scope, time.Since(startTime).Milliseconds())
 		return "Memory store is empty.", nil
 	}
 
@@ -689,7 +689,7 @@ func (s *Server) handleMemoryList(ctx context.Context, input json.RawMessage) (a
 	}
 
 	pageInfo := buildMemoryListPage(memories, len(memories) < limit)
-	s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", queryText, args.Scope, time.Since(startTime).Milliseconds())
+	_, _ = s.service.LogQuery(s.attributionActor(), args.Scope, "", "memory_list", queryText, args.Scope, time.Since(startTime).Milliseconds())
 
 	data, _ := json.MarshalIndent(pageInfo, "", "  ")
 	return string(data), nil

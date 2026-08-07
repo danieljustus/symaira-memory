@@ -202,7 +202,7 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 		for rows.Next() {
 			var id string
 			if err := rows.Scan(&id); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return nil, err
 			}
 			candidateIDs = append(candidateIDs, id)
@@ -210,7 +210,7 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 				break
 			}
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 
 	if len(candidateIDs) == 0 {
@@ -252,11 +252,11 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 				&m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession,
 				&m.ConsolidationStatus, &consolidatedInto, &m.Importance,
 				&validFrom, &validTo, &supersededBy, &m.AccessCount, &lastAccess); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return nil, err
 			}
 			if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return nil, err
 			}
 			m.Embedding = decodeEmbeddingBLOB(embBLOB)
@@ -268,7 +268,7 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 				results = append(results, scored{m: &m, score: score})
 			}
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 
 	sort.Slice(results, func(i, j int) bool {
@@ -307,7 +307,7 @@ func benchOpenTempDB(b testing.TB) (*DB, func()) {
 	}
 
 	cleanup := func() {
-		database.Close()
+		_ = database.Close()
 		os.Setenv("HOME", oldHome)
 		os.RemoveAll(tempDir)
 	}

@@ -95,7 +95,7 @@ func (c *CodexImporter) ImportSession(ref importer.SessionRef) ([]importer.Impor
 	if err != nil {
 		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var facts []importer.ImportedFact
 

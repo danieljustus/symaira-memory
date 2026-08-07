@@ -113,7 +113,7 @@ func handleObserveEvent(eventType, data string) {
 		fmt.Fprintf(os.Stderr, "observe %s: db open failed: %v\n", eventType, err)
 		return
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Build event content
 	content := fmt.Sprintf("Agent hook event: %s", eventType)
