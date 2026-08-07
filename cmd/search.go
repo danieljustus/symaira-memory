@@ -100,9 +100,10 @@ var searchCmd = &cobra.Command{
 
 		cfg := GetConfig()
 		useHybrid := cfg.HybridSearch.Enabled && emb.Source != "hash-fallback"
+		weights := db.WeightsFromConfig(cfg.Ranking)
 
 		if useHybrid {
-			hybridResults, hErr := GetDB().HybridSearch(emb.Vector, emb.Source, query, searchScope, searchLimit, entityID, trustFilter, policyFilter, cfg.HybridSearch.VectorWeight, cfg.HybridSearch.BM25Weight)
+			hybridResults, hErr := GetDB().HybridSearchWithWeights(emb.Vector, emb.Source, query, searchScope, searchLimit, entityID, trustFilter, policyFilter, cfg.HybridSearch.VectorWeight, cfg.HybridSearch.BM25Weight, weights)
 			if hErr != nil {
 				return exitcodes.Wrapf(hErr, exitcodes.ExitSoftware, exitcodes.KindInternal, "hybrid search failure")
 			}
@@ -117,7 +118,7 @@ var searchCmd = &cobra.Command{
 		} else if emb.Source == "hash-fallback" {
 			results, err = GetDB().SearchMemoriesBM25(query, searchScope, searchLimit)
 		} else {
-			results, err = GetDB().SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, searchScope, searchLimit, entityID, trustFilter, policyFilter, db.TimeWindow{}, "")
+			results, err = GetDB().SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, searchScope, searchLimit, entityID, trustFilter, policyFilter, db.TimeWindow{}, "", weights)
 		}
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "semantic search failure")

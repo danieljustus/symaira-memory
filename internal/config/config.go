@@ -105,6 +105,19 @@ type RankingConfig struct {
 	AccessReinforcementWeight float64 `json:"access_reinforcement_weight"` // access frequency boost (default 0 = disabled)
 	RecencyHalfLife           float64 `json:"recency_half_life"`           // half-life in days (default 30)
 	AccessHalfLife            float64 `json:"access_half_life"`            // half-life for last-access recency decay (default 14)
+	// AccessSpacingHalfLife gates the spacing-aware reinforcement
+	// (#489): when access_reinforcement_weight > 0 and a memory carries
+	// prev_access data, the count boost scales with the interval since the
+	// previous reinforcement (same-session bursts hit diminishing returns).
+	// Default 30 days.
+	AccessSpacingHalfLife float64 `json:"access_spacing_half_life"`
+	// SpreadingWeight enables the memory-to-memory association bonus
+	// (#488): memories up to 2 hops away from a strong retrieval hit gain
+	// score so facts that are only relevant through association can
+	// surface. Default 0 = disabled (rankings stay byte-identical until
+	// explicitly enabled; any default change must be validated with
+	// `symmemory bench` first).
+	SpreadingWeight float64 `json:"spreading_weight"`
 }
 
 // ContextConfig controls the context assembler.
@@ -260,6 +273,8 @@ func Defaults() *Config {
 			AccessReinforcementWeight: 0.0,
 			RecencyHalfLife:           30,
 			AccessHalfLife:            14,
+			AccessSpacingHalfLife:     30,
+			SpreadingWeight:           0.0,
 		},
 		Context: ContextConfig{
 			TokenBudget:          2000,

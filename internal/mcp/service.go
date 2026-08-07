@@ -18,6 +18,7 @@ type MemoryService struct {
 	extractor  *extractor.PatternExtractor
 	embeddings *extractor.EmbeddingsGenerator
 	piiEnabled bool
+	weights    db.RankingWeights // retrieval ranking weights (#488/#489 config)
 }
 
 // NewMemoryService creates a service with the given dependencies.
@@ -27,7 +28,13 @@ func NewMemoryService(database *db.DB, embeddings *extractor.EmbeddingsGenerator
 		extractor:  extractor.NewPatternExtractor(),
 		embeddings: embeddings,
 		piiEnabled: piiEnabled,
+		weights:    db.DefaultRankingWeights(),
 	}
+}
+
+// SetRankingWeights applies the configured retrieval weights.
+func (s *MemoryService) SetRankingWeights(w db.RankingWeights) {
+	s.weights = w
 }
 
 func (s *MemoryService) SetPIIEnabled(enabled bool) {
@@ -67,7 +74,7 @@ func (s *MemoryService) Search(query, scope string, limit int, entityName string
 	}
 
 	emb := s.embeddings.GenerateVector(query)
-	return s.db.SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, scope, limit, entityID, trustFilter, policyFilter, tw, "")
+	return s.db.SearchMemoriesFilteredWithTrust(emb.Vector, emb.Source, scope, limit, entityID, trustFilter, policyFilter, tw, "", s.weights)
 }
 
 // HybridSearch performs hybrid vector + BM25 retrieval through the HybridSearch
@@ -87,9 +94,8 @@ func (s *MemoryService) HybridSearch(query, scope string, limit int, entityName 
 	}
 
 	emb := s.embeddings.GenerateVector(query)
-	return s.db.HybridSearch(emb.Vector, emb.Source, query, scope, limit, entityID, trustFilter, policyFilter, vectorWeight, bm25Weight, timeWindow...)
+	return s.db.HybridSearchWithWeights(emb.Vector, emb.Source, query, scope, limit, entityID, trustFilter, policyFilter, vectorWeight, bm25Weight, s.weights, timeWindow...)
 }
-
 func (s *MemoryService) SearchWithProfile(query, profileName string, limit int, entityName string, trustFilter db.TrustFilter, policyFilter db.PolicyFilter, timeWindow ...db.TimeWindow) ([]db.SearchResult, error) {
 	var entityID string
 	if entityName != "" {
@@ -109,7 +115,7 @@ func (s *MemoryService) SearchWithProfile(query, profileName string, limit int, 
 	}
 
 	emb := s.embeddings.GenerateVector(query)
-	return s.db.SearchMemoriesWithProfile(emb.Vector, emb.Source, profileName, limit, entityID, trustFilter, policyFilter, tw)
+	return s.db.SearchMemoriesWithProfile(emb.Vector, emb.Source, profileName, limit, entityID, trustFilter, policyFilter, tw, s.weights)
 }
 
 func (s *MemoryService) Set(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string, working bool, ttl time.Duration) (string, error) {

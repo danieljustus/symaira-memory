@@ -264,7 +264,7 @@ func searchMemoriesBLOB(database *DB, queryVec []float32, scope string, limit in
 			if len(m.Embedding) > 0 {
 				relevance := CosineSimilarity(queryVec, m.Embedding)
 				w := DefaultRankingWeights()
-				score := float32(CompositeScore(relevance, m.CreatedAt, float64(m.Importance)/10.0, m.AccessCount, m.LastAccess, w))
+				score := float32(CompositeScore(relevance, m.CreatedAt, float64(m.Importance)/10.0, m.AccessCount, m.LastAccess, nil, w))
 				results = append(results, scored{m: &m, score: score})
 			}
 		}

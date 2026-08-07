@@ -90,6 +90,24 @@ recall_receipts = true  # Attach an engine-minted one-line recall receipt to eac
 
 The same override is available per invocation via `symmemory serve --client-id <id>` (or `SYMMEMORY_MCP_CLIENT_ID`), which takes precedence over the config file value.
 
+### Ranking Settings
+
+Retrieval ranking weights in `~/.config/symmemory/config.toml`. All fields default to the built-in values shown; the two recall-quality terms ship disabled by default so existing rankings stay byte-identical until explicitly enabled (validate any default change with `symmemory bench` first):
+
+```toml
+[ranking]
+relevance_weight = 0.6   # cosine similarity weight
+recency_weight = 0.2     # recency decay weight
+importance_weight = 0.2  # importance weight
+access_reinforcement_weight = 0.0   # access-frequency boost (0 = disabled)
+recency_half_life = 30    # days
+access_half_life = 14     # days for last-access recency decay
+access_spacing_half_life = 30  # days for the spacing-aware reinforcement gap (#489)
+spreading_weight = 0.0    # memory-association bonus weight (0 = disabled, #488)
+```
+
+When `access_reinforcement_weight > 0`, the access boost is spacing-aware: it scales with the interval since the previous reinforcement (`prev_access`), so a long-gap recall earns a large boost while repeated same-session recalls hit diminishing returns. When `spreading_weight > 0`, memories up to two hops away from a strong retrieval hit gain score through the memory-to-memory association graph (seeded automatically from co-retrieval in the query log, shared entity links, and consolidation siblings; re-seed manually with `symmemory associations seed`).
+
 ### Query Log Settings
 
 Configure query log retention in `~/.config/symmemory/config.toml`:
