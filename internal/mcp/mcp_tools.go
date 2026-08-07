@@ -12,6 +12,7 @@ import (
 	"github.com/danieljustus/symaira-corekit/mcpserver"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/instructions"
+	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/danieljustus/symaira-memory/internal/temporal"
 )
@@ -38,6 +39,9 @@ type SearchResultResponse struct {
 	Score         float32        `json:"score"`
 	SourceProfile string         `json:"source_profile,omitempty"`
 	SourceScope   string         `json:"source_scope,omitempty"`
+	// Receipt is the engine-minted recall receipt (issue #487), additive
+	// and omitted when receipts are disabled.
+	Receipt string `json:"receipt,omitempty"`
 }
 
 func memoryResponse(m *db.Memory) MemoryResponse {
@@ -422,6 +426,9 @@ func (s *Server) handleMemorySearch(ctx context.Context, input json.RawMessage) 
 	compact := make([]SearchResultResponse, len(searchResults))
 	for i, r := range searchResults {
 		compact[i] = searchResultResponse(r)
+		if s.cfg != nil && s.cfg.MCP.RecallReceipts {
+			compact[i].Receipt = memory.Receipt(r.Memory, time.Now())
+		}
 		if args.WithEvidence && r.Memory != nil {
 			evidence, err := s.service.GetMemoryEvidence(r.Memory.ID)
 			if err == nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/config"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/danieljustus/symaira-memory/internal/summarizer"
 )
 
@@ -152,6 +153,10 @@ type AssembledPiece struct {
 	Layer   ContextLayer `json:"layer"`
 	Content string       `json:"content"`
 	Tokens  int          `json:"tokens"`
+	// Receipt is the engine-minted recall receipt (issue #487) for the
+	// memory behind this piece, when receipts are enabled. Additive and
+	// omitted when disabled.
+	Receipt string `json:"receipt,omitempty"`
 }
 
 type AssembledContext struct {
@@ -197,6 +202,8 @@ type Assembler struct {
 	profileLayerCfg *config.ProfileLayerConfig
 	// session-context config (#400)
 	sessionCtxCfg *config.SessionContextConfig
+	// recall receipts (#487)
+	recallReceipts bool
 
 	// #412: per-session snapshot chain
 	snapshots map[string][]ContentHashSnapshot
@@ -250,12 +257,23 @@ func (a *Assembler) WithSessionContextConfig(cfg *config.SessionContextConfig) *
 	return a
 }
 
+// WithRecallReceipts enables or disables the engine-minted one-line recall
+// receipt on retrieval pieces (issue #487). Defaults to off; the MCP and
+// CLI entry points mirror the [mcp] recall_receipts config value.
+func (a *Assembler) WithRecallReceipts(enabled bool) *Assembler {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.recallReceipts = enabled
+	return a
+}
+
 // WithFullConfig applies all context-assembler sub-configs from the global config.
 func (a *Assembler) WithFullConfig(cfg *config.Config) *Assembler {
 	a.WithDegradationConfig(&cfg.Degradation)
 	a.WithDeltaPackConfig(&cfg.DeltaPack)
 	a.WithProfileLayerConfig(&cfg.ProfileLayer)
 	a.WithSessionContextConfig(&cfg.SessionCtx)
+	a.WithRecallReceipts(cfg.MCP.RecallReceipts)
 	return a
 }
 
@@ -269,6 +287,15 @@ func (a *Assembler) SetWorkingMemoryConfig(cfg *config.WorkingMemoryConfig) {
 
 // fillRetrievalWithDegradation fills retrieval results greedily by score,
 // degrading each piece full→summary→reference before dropping it.
+// receiptFor returns the engine-minted recall receipt for a memory when
+// receipts are enabled, empty otherwise.
+func (a *Assembler) receiptFor(m *db.Memory) string {
+	if !a.recallReceipts || m == nil {
+		return ""
+	}
+	return memory.Receipt(m, time.Now())
+}
+
 func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budget int) []AssembledPiece {
 	if len(results) == 0 || budget <= 0 {
 		return nil
@@ -312,6 +339,7 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 				Layer:   LayerRetrieval,
 				Content: fullContent,
 				Tokens:  fullTokens,
+				Receipt: a.receiptFor(r.Memory),
 			})
 			used += fullTokens
 			continue
@@ -325,6 +353,7 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 				Layer:   LayerRetrieval,
 				Content: summaryContent,
 				Tokens:  summaryTokens,
+				Receipt: a.receiptFor(r.Memory),
 			})
 			used += summaryTokens
 			continue
@@ -338,6 +367,7 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 				Layer:   LayerRetrieval,
 				Content: refContent,
 				Tokens:  refTokens,
+				Receipt: a.receiptFor(r.Memory),
 			})
 			used += refTokens
 			continue

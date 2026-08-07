@@ -80,6 +80,12 @@ client_id = ""   # Fixed attribution identity for MCP writes (created_by/updated
                  # initialize handshake. When empty (default), writes are attributed
                  # to the handshake clientInfo (name/version, plus a per-host instance
                  # id when the client sends one), falling back to "mcp".
+recall_receipts = true  # Attach an engine-minted one-line recall receipt to each
+                 # returned memory in search results and context assembly pieces,
+                 # e.g. ◉ memory: "daemon runs on port 8787" (project, 3d). The
+                 # receipt references the memory by content prefix, scope and age —
+                 # never content in full — and is meant to be echoed verbatim by
+                 # agents. Set to false to drop the additive field.
 ```
 
 The same override is available per invocation via `symmemory serve --client-id <id>` (or `SYMMEMORY_MCP_CLIENT_ID`), which takes precedence over the config file value.
