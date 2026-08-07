@@ -152,11 +152,20 @@ func captureInstructionsOutput(t *testing.T) string {
 	r, w, _ := os.Pipe()
 	os.Stdout = w
 
+	// Read the pipe concurrently: on Windows the pipe buffer is ~4KB
+	// (vs 64KB on Unix), so the instruction document (~6KB) blocks the
+	// writer forever if the reader only starts after RunE returns.
+	done := make(chan struct{})
+	go func() {
+		buf.ReadFrom(r)
+		close(done)
+	}()
+
 	err := instructionsCmd.RunE(instructionsCmd, nil)
 
 	w.Close()
 	os.Stdout = oldStdout
-	buf.ReadFrom(r)
+	<-done
 
 	if err != nil {
 		t.Fatalf("instructionsCmd.RunE returned error: %v", err)
