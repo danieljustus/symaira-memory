@@ -187,6 +187,6 @@ func openAgingTestDB(t *testing.T) *db.DB {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 	return database
 }

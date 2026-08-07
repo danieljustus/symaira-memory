@@ -103,7 +103,7 @@ func (o *OpenCodeImporter) DiscoverSessions(since time.Time) ([]importer.Session
 	if err != nil {
 		return nil, fmt.Errorf("failed to open opencode database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Query sessions modified since the given time.
 	// time_updated is stored as epoch milliseconds.
@@ -118,7 +118,7 @@ func (o *OpenCodeImporter) DiscoverSessions(since time.Time) ([]importer.Session
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sessions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var sessions []importer.SessionRef
 	for rows.Next() {
@@ -154,7 +154,7 @@ func (o *OpenCodeImporter) ImportSession(ref importer.SessionRef) ([]importer.Im
 	if err != nil {
 		return nil, fmt.Errorf("failed to open opencode database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Get session metadata for enrichment.
 	var title, directory, agent string
@@ -174,7 +174,7 @@ func (o *OpenCodeImporter) ImportSession(ref importer.SessionRef) ([]importer.Im
 	if err != nil {
 		return nil, fmt.Errorf("failed to query messages: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var facts []importer.ImportedFact
 
@@ -247,7 +247,7 @@ func (o *OpenCodeImporter) getMessageText(db *sql.DB, messageID string) (string,
 	if err != nil {
 		return "", err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var texts []string
 	for rows.Next() {

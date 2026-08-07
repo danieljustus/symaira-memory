@@ -126,7 +126,7 @@ func TestMemorySetAuditDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		database.Close()
+		_ = database.Close()
 		database.SetAuditLogEnabled(true)
 	})
 	jwtProvider, err := security.NewJWTProvider(config.Defaults(), nil)

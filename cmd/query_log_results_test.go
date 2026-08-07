@@ -59,7 +59,7 @@ func TestQueryLogResultsOutputsReturnedMemories(t *testing.T) {
 
 	err = queryLogResultsCmd.RunE(queryLogResultsCmd, []string{queryID})
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 	buf.ReadFrom(r)
 
@@ -95,7 +95,7 @@ func TestQueryLogResultsUnknownQuery(t *testing.T) {
 
 	err := queryLogResultsCmd.RunE(queryLogResultsCmd, []string{"no-such-query"})
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 	buf.ReadFrom(r)
 

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,17 +18,21 @@ import (
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status":            "healthy",
 		"version":           s.version,
 		"server":            "symaira-memory",
 		"embedding_backend": s.service.ActiveBackend(),
-	})
+	}); err != nil {
+		slog.Error("failed to write status response", "error", err)
+	}
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.Stats())
+	if err := json.NewEncoder(w).Encode(s.Stats()); err != nil {
+		slog.Error("failed to write stats response", "error", err)
+	}
 }
 
 // handleTokenRevoke revokes a JWT token by its jti (or by full token value)
@@ -75,10 +80,12 @@ func (s *Server) handleTokenRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "revoked",
 		"jti":    jti,
-	})
+	}); err != nil {
+		slog.Error("failed to write revoke response", "error", err)
+	}
 }
 
 func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -140,7 +147,9 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	if err := json.NewEncoder(w).Encode(results); err != nil {
+		slog.Error("failed to write memory-list response", "error", err)
+	}
 }
 
 func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
@@ -177,10 +186,12 @@ func (s *Server) handleSet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	if err := json.NewEncoder(w).Encode(map[string]string{
 		"status": "success",
 		"id":     id,
-	})
+	}); err != nil {
+		slog.Error("failed to write set response", "error", err)
+	}
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
@@ -212,7 +223,9 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(memories)
+	if err := json.NewEncoder(w).Encode(memories); err != nil {
+		slog.Error("failed to write list response", "error", err)
+	}
 }
 
 func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
@@ -305,7 +318,9 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Error("failed to write search response", "error", err)
+	}
 }
 
 func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
@@ -377,13 +392,15 @@ func (s *Server) handleSyncApply(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("applied=%d skipped=%d deleted=%d invalidScope=%d invalidID=%d", applied, skipped, deleted, skippedInvalidScope, skippedInvalidID))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]int{
+	if err := json.NewEncoder(w).Encode(map[string]int{
 		"applied":             applied,
 		"skipped":             skipped,
 		"deleted":             deleted,
 		"skippedInvalidScope": skippedInvalidScope,
 		"skippedInvalidID":    skippedInvalidID,
-	})
+	}); err != nil {
+		slog.Error("failed to write sync-apply response", "error", err)
+	}
 }
 
 // handleSyncRelay stores and serves opaque, client-side-encrypted sync blobs.
@@ -413,10 +430,12 @@ func (s *Server) handleSyncRelay(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"blobs":       blobs,
 			"server_time": time.Now().UTC().Format(time.RFC3339Nano),
-		})
+		}); err != nil {
+			slog.Error("failed to write sync-relay response", "error", err)
+		}
 	case "POST":
 		var body struct {
 			Blobs []db.RelayBlob `json:"blobs"`
@@ -443,7 +462,9 @@ func (s *Server) handleSyncRelay(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]int{"stored": stored, "skipped": skipped})
+		if err := json.NewEncoder(w).Encode(map[string]int{"stored": stored, "skipped": skipped}); err != nil {
+			slog.Error("failed to write sync-relay response", "error", err)
+		}
 	default:
 		writeJSONError(w, http.StatusMethodNotAllowed, CodeMethodNotAllowed, "Method not allowed", nil)
 	}
@@ -556,7 +577,9 @@ func (s *Server) ensureAuditLogConfig() {
 func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(web.IndexHTML())
+		if _, err := w.Write(web.IndexHTML()); err != nil {
+			slog.Error("failed to write index page", "error", err)
+		}
 		return
 	}
 	fileServer := http.FileServer(http.FS(web.StaticFS()))

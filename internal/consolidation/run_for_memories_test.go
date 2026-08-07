@@ -41,7 +41,7 @@ func TestRunConsolidationForMemories_SingleMemoryMarksConsolidated(t *testing.T)
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	m := &db.Memory{ID: "wm-1", Content: "solo working memory", Scope: "session-a", ConsolidationStatus: "raw", Metadata: map[string]string{}}
 	if err := database.SaveMemory(m); err != nil {
@@ -87,7 +87,7 @@ func TestRunConsolidationForMemories_MultiMemoryUsesLLMAndGroupsByScope(t *testi
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	m1 := &db.Memory{ID: "wm-a1", Content: "Daniel likes dark mode", Scope: "session-a", ConsolidationStatus: "raw", Metadata: map[string]string{}}
 	m2 := &db.Memory{ID: "wm-a2", Content: "Daniel prefers dark backgrounds", Scope: "session-a", ConsolidationStatus: "raw", Metadata: map[string]string{}}
@@ -112,7 +112,7 @@ func TestRunConsolidationForMemories_MultiMemoryUsesLLMAndGroupsByScope(t *testi
 				"discarded_ids": []
 			}`,
 		}
-		json.NewEncoder(w).Encode(respObj)
+		_ = json.NewEncoder(w).Encode(respObj)
 	}))
 	defer mockLLM.Close()
 

@@ -114,7 +114,7 @@ func TestNewEngineDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
 
@@ -154,7 +154,7 @@ func TestEngineConsolidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Seed raw memories
 	m1 := &db.Memory{
@@ -212,7 +212,7 @@ func TestEngineConsolidation(t *testing.T) {
 				"discarded_ids": ["3"]
 			}`,
 		}
-		json.NewEncoder(w).Encode(respObj)
+		_ = json.NewEncoder(w).Encode(respObj)
 	}))
 	defer mockLLM.Close()
 
@@ -342,7 +342,7 @@ func TestEngineConsolidationPropagatesEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	m1 := &db.Memory{ID: "ev-mem-1", Content: "Daniel likes dark mode", Scope: "global", ConsolidationStatus: "raw", Metadata: map[string]string{}}
 	m2 := &db.Memory{ID: "ev-mem-2", Content: "Daniel prefers dark backgrounds", Scope: "global", ConsolidationStatus: "raw", Metadata: map[string]string{}}
@@ -377,7 +377,7 @@ func TestEngineConsolidationPropagatesEvidence(t *testing.T) {
 				"discarded_ids": []
 			}`,
 		}
-		json.NewEncoder(w).Encode(respObj)
+		_ = json.NewEncoder(w).Encode(respObj)
 	}))
 	defer mockLLM.Close()
 
@@ -433,7 +433,7 @@ func TestRunConsolidationSkipsFailedScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	seed := func(id, content, scope string) {
 		m := &db.Memory{ID: id, Content: content, Scope: scope, ConsolidationStatus: "raw", Metadata: map[string]string{}}
@@ -459,7 +459,7 @@ func TestRunConsolidationSkipsFailedScope(t *testing.T) {
 		} else {
 			resp = `{"consolidated": [{"content": "Daniel prefers dark mode.", "replaces_ids": ["1", "2"], "metadata": {}}], "discarded_ids": []}`
 		}
-		json.NewEncoder(w).Encode(map[string]string{"response": resp})
+		_ = json.NewEncoder(w).Encode(map[string]string{"response": resp})
 	}))
 	defer mockLLM.Close()
 
@@ -494,7 +494,7 @@ func TestRunConsolidationAllScopesFail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for _, m := range []*db.Memory{
 		{ID: "f-1", Content: "fact one", Scope: "scope-a", ConsolidationStatus: "raw", Metadata: map[string]string{}},
@@ -509,7 +509,7 @@ func TestRunConsolidationAllScopesFail(t *testing.T) {
 
 	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"response": "garbage, no json here"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"response": "garbage, no json here"})
 	}))
 	defer mockLLM.Close()
 

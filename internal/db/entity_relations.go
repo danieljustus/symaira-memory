@@ -431,7 +431,7 @@ func (db *DB) queryRelations(query, entityID string) ([]*EntityRelation, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var relations []*EntityRelation
 	for rows.Next() {
@@ -501,7 +501,7 @@ func (db *DB) queryRelationsAsOf(query, entityID string, asOf time.Time) ([]*Ent
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var relations []*EntityRelation
 	for rows.Next() {

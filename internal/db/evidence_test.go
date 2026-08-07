@@ -121,7 +121,7 @@ func TestReparentMemoryEvidenceTx_MovesRows(t *testing.T) {
 		t.Fatalf("BeginTransaction failed: %v", err)
 	}
 	if err := database.ReparentMemoryEvidenceTx(tx, oldMem.ID, newMem.ID); err != nil {
-		tx.Rollback()
+		_ = tx.Rollback()
 		t.Fatalf("ReparentMemoryEvidenceTx failed: %v", err)
 	}
 	if err := tx.Commit(); err != nil {

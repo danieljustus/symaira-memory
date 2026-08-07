@@ -51,7 +51,7 @@ func postRevoke(t *testing.T, ts *httptest.Server, token, body string) (*http.Re
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	var out map[string]string
 	_ = json.NewDecoder(res.Body).Decode(&out)
 	return res, out
@@ -131,7 +131,7 @@ func TestTokenRevokeEndpointRequiresAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401 for invalid bearer token, got %d", resp.StatusCode)
 	}
@@ -168,7 +168,7 @@ func TestTokenRevokeEndpointBadRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("expected 405 for GET, got %d", resp.StatusCode)
 	}

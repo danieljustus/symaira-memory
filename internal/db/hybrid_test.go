@@ -46,7 +46,7 @@ func TestSearchMemoriesBM25_FindsExactKeyword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	dark := &Memory{
 		ID:       "dark-mode",
@@ -87,7 +87,7 @@ func TestSearchMemoriesBM25_EmptyQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	results, err := database.SearchMemoriesBM25("the a is", "global", 5)
 	if err != nil {
@@ -105,7 +105,7 @@ func TestSearchMemoriesBM25_RejectsInvalidScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	injections := []string{
 		`" OR 1=1 --`,
@@ -128,7 +128,7 @@ func TestHybridSearch_CandidateCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	const count = maxCandidates + 500
 	tx, err := database.BeginTransaction()
@@ -176,7 +176,7 @@ func TestHybridSearch_SmallLimitUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for i := 0; i < 50; i++ {
 		emb := make([]float32, EmbeddingDim)
@@ -317,7 +317,7 @@ func TestTrackMemoryAccessBatchWritesTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	ids := []string{"acc-1", "acc-2", "acc-3"}
 	for _, id := range ids {

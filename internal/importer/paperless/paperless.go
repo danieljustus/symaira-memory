@@ -249,7 +249,7 @@ func (p *PaperlessImporter) doAPIRequest(url string, result interface{}) error {
 	if err != nil {
 		return fmt.Errorf("API request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)

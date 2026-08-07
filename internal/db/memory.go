@@ -501,7 +501,7 @@ func (db *DB) ListMemories(scope string, offset, limit int) ([]*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {
@@ -541,7 +541,7 @@ func (db *DB) ListMemoriesAsOf(scope string, asOf time.Time, offset, limit int) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {
@@ -572,7 +572,7 @@ func (db *DB) ListMemoriesLite(scope string, offset, limit int) ([]*Memory, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {
@@ -622,7 +622,7 @@ func (db *DB) ListMemoriesFiltered(scope, entityID string, offset, limit int) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {
@@ -680,7 +680,7 @@ func (db *DB) GetMemoriesSinceCursor(since time.Time, limit int, includeEmbeddin
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var memories []*Memory
 	for rows.Next() {
 		var m *Memory
@@ -704,7 +704,7 @@ func (db *DB) GetRawMemories() ([]*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {
@@ -939,7 +939,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		for rows.Next() {
 			var id string
 			if err := rows.Scan(&id); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return nil, err
 			}
 			candidateIDs = append(candidateIDs, id)
@@ -947,7 +947,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 				break
 			}
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 
 	if len(candidateIDs) == 0 {
@@ -981,7 +981,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		for rows.Next() {
 			m, err := scanMemory(rows)
 			if err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return nil, err
 			}
 			if len(m.Embedding) != len(queryVec) {
@@ -1001,7 +1001,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 				results = append(results, scored{m: m})
 			}
 		}
-		rows.Close()
+		_ = rows.Close()
 	}
 
 	// Hamming prefilter: reduce cosine computations by selecting candidates
@@ -1092,7 +1092,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 			for rows.Next() {
 				m, err := scanMemory(rows)
 				if err != nil {
-					rows.Close()
+					_ = rows.Close()
 					return nil, err
 				}
 				if !passesTrustFilter(m, trustFilter) || !PassesPolicyFilter(m, policyFilter) || !passesTimeWindow(m, timeWindow) {
@@ -1100,7 +1100,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 				}
 				results = append(results, scored{m: m, score: float32(w.SpreadingWeight * bonus[m.ID])})
 			}
-			rows.Close()
+			_ = rows.Close()
 		}
 
 		for i := range results {
@@ -1489,7 +1489,7 @@ func (db *DB) GetWorkingMemories(scope string, limit int) ([]*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {
@@ -1510,7 +1510,7 @@ func (db *DB) GetExpiredWorkingMemories() ([]*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {
@@ -1648,7 +1648,7 @@ func (db *DB) GetSupersededHistory(supersededByID string) ([]*Memory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {

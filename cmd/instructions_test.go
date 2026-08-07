@@ -163,7 +163,7 @@ func captureInstructionsOutput(t *testing.T) string {
 
 	err := instructionsCmd.RunE(instructionsCmd, nil)
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 	<-done
 

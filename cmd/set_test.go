@@ -45,7 +45,7 @@ func TestSetCommandOutputsJSON(t *testing.T) {
 		t.Fatalf("setCmd.RunE returned error: %v", err)
 	}
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 	buf.ReadFrom(r)
 
@@ -101,7 +101,7 @@ func TestSetCommandOutputsHumanTextByDefault(t *testing.T) {
 		t.Fatalf("setCmd.RunE returned error: %v", err)
 	}
 
-	w.Close()
+	_ = w.Close()
 	os.Stdout = oldStdout
 	buf.ReadFrom(r)
 

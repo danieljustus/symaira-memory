@@ -24,7 +24,7 @@ func (db *DB) GetDeletedSince(since time.Time) ([]DeletedMemory, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var deleted []DeletedMemory
 	for rows.Next() {
@@ -132,7 +132,7 @@ func (db *DB) GetRelayBlobsSince(since time.Time, limit int) ([]RelayBlob, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var blobs []RelayBlob
 	for rows.Next() {

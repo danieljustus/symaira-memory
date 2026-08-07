@@ -221,7 +221,7 @@ func helperMemDB(t *testing.T) *db.DB {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 	return database
 }
 

@@ -24,7 +24,7 @@ func helperWorkingDB(t *testing.T) *db.DB {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 	return database
 }
 
@@ -187,7 +187,7 @@ func TestEvictExpiredWorkingMemories(t *testing.T) {
 // Test error path when GetExpiredWorkingMemories fails (closed database).
 func TestCompactWorkingMemories_GetExpiredError(t *testing.T) {
 	database := helperWorkingDB(t)
-	database.Close() // close so SQL queries fail
+	_ = database.Close() // close so SQL queries fail
 
 	ev := NewEvictor(database, nil, nil, false)
 	_, err := ev.CompactWorkingMemories(context.Background(), false)

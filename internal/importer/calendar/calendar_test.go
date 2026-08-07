@@ -274,7 +274,7 @@ func withMockGoogleAPI(t *testing.T, handler http.HandlerFunc) func() {
 
 func TestDiscoverSessionsCancelledEventsSkipped(t *testing.T) {
 	defer withMockGoogleAPI(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"items": [
 				{
 					"id": "evt-1",
@@ -343,7 +343,7 @@ func TestDiscoverSessionsCancelledEventsSkipped(t *testing.T) {
 
 func TestDiscoverSessionsRecurringEvents(t *testing.T) {
 	defer withMockGoogleAPI(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"items": [
 				{
 					"id": "evt-recur",
@@ -377,7 +377,7 @@ func TestDiscoverSessionsRecurringEvents(t *testing.T) {
 
 func TestDiscoverSessionsAllDayEvent(t *testing.T) {
 	defer withMockGoogleAPI(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"items": [
 				{
 					"id": "all-day",
@@ -410,7 +410,7 @@ func TestDiscoverSessionsAllDayEvent(t *testing.T) {
 
 func TestImportSessionFullEvent(t *testing.T) {
 	defer withMockGoogleAPI(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"id": "full-evt",
 			"summary": "Project Review",
 			"description": "Review Q3 milestones and deliverables.\n\nAgenda:\n1. Status update\n2. Blockers\n3. Next steps",
@@ -470,7 +470,7 @@ func TestImportSessionFullEvent(t *testing.T) {
 
 func TestImportSessionNoDescription(t *testing.T) {
 	defer withMockGoogleAPI(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"id": "minimal",
 			"summary": "Quick Sync",
 			"status": "confirmed",
@@ -499,7 +499,7 @@ func TestImportSessionNoDescription(t *testing.T) {
 
 func TestImportSessionEventWithZeroDates(t *testing.T) {
 	defer withMockGoogleAPI(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{
+		_, _ = w.Write([]byte(`{
 			"id": "nodate",
 			"summary": "Event Without Dates",
 			"status": "confirmed",

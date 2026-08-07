@@ -29,7 +29,7 @@ func helperTestDB(t *testing.T) *db.DB {
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
 	}
-	t.Cleanup(func() { database.Close() })
+	t.Cleanup(func() { _ = database.Close() })
 	return database
 }
 
@@ -49,7 +49,7 @@ func fakeRemoteServer(t *testing.T, memories []*db.Memory, authRequired bool) *h
 		switch r.URL.Path {
 		case "/api/sync/changes":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"memories":    memories,
 				"server_time": serverTime.Format(time.RFC3339),
 			})
@@ -62,7 +62,7 @@ func fakeRemoteServer(t *testing.T, memories []*db.Memory, authRequired bool) *h
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]int{
+			_ = json.NewEncoder(w).Encode(map[string]int{
 				"applied": len(body.Memories),
 				"skipped": 0,
 			})
@@ -135,8 +135,8 @@ func TestSyncIncremental(t *testing.T) {
 		CreatedAt: oldTime,
 	}
 
-	localDB.SaveMemory(oldMemory)
-	localDB.SetSyncCursor("http://fake-remote", oldTime)
+	_ = localDB.SaveMemory(oldMemory)
+	_ = localDB.SetSyncCursor("http://fake-remote", oldTime)
 
 	newMemory := &db.Memory{
 		ID:        "new-mem",
@@ -175,7 +175,7 @@ func TestSyncLWWSkip(t *testing.T) {
 		UpdatedAt: existingTime,
 		CreatedAt: existingTime,
 	}
-	localDB.SaveMemory(existing)
+	_ = localDB.SaveMemory(existing)
 
 	olderRemote := &db.Memory{
 		ID:        "lww-test",
@@ -272,7 +272,7 @@ func paginatedFakeServer(t *testing.T, allMemories []*db.Memory, pageSize int) *
 			}
 
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(resp)
+			_ = json.NewEncoder(w).Encode(resp)
 
 		case "/api/sync/apply":
 			var body struct {
@@ -283,7 +283,7 @@ func paginatedFakeServer(t *testing.T, allMemories []*db.Memory, pageSize int) *
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]int{
+			_ = json.NewEncoder(w).Encode(map[string]int{
 				"applied": len(body.Memories),
 				"skipped": 0,
 			})

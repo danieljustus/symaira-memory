@@ -65,7 +65,7 @@ func (db *DB) GetMemoryEvidence(memoryID string) ([]EvidenceSpan, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var spans []EvidenceSpan
 	for rows.Next() {

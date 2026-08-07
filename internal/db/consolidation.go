@@ -145,7 +145,7 @@ func (db *DB) GetStaleMemories(limit int, threshold StalenessThreshold) ([]*Memo
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var memories []*Memory
 	for rows.Next() {

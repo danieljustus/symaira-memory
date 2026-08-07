@@ -32,7 +32,7 @@ func TestEntityNeighborsCmd_JSONMatchesMCPShape(t *testing.T) {
 	}
 	outputFormat = "json"
 	defer func() {
-		entityNeighborsCmd.Flags().Set("depth", "1")
+		_ = entityNeighborsCmd.Flags().Set("depth", "1")
 		outputFormat = "table"
 	}()
 

@@ -113,7 +113,7 @@ func (db *DB) GetAuditLogs(action string, limit int) ([]*AuditEvent, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var events []*AuditEvent
 	for rows.Next() {

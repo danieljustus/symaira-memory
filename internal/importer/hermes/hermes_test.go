@@ -36,7 +36,7 @@ func createTestDB(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("failed to open temp db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Create tables that match a realistic hermes state.db schema.
 	_, err = db.Exec(`

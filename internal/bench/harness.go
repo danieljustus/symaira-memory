@@ -112,7 +112,7 @@ func Run(w io.Writer, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("failed to open benchmark database: %w", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Generate embeddings and populate corpus
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)

@@ -216,7 +216,7 @@ func TestCheckProfilesAllCommonPresent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for _, name := range commonAgentProfiles {
 		p := &db.Profile{
@@ -250,7 +250,7 @@ func TestCheckProfilesSomeMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	p := &db.Profile{
 		ID:   uuid.New().String(),
@@ -282,7 +282,7 @@ func TestCheckProfilesRolesSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	profiles := []db.Profile{
 		{ID: uuid.New().String(), Name: "agent-a", Type: "agent", Role: "read"},
@@ -312,7 +312,7 @@ func TestCheckProfilesCustomNonAgentProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	p := &db.Profile{
 		ID:   uuid.New().String(),
@@ -397,10 +397,10 @@ func TestCheckDBSizeWarn(t *testing.T) {
 	}
 	size := int64(600 * 1024 * 1024)
 	if err := f.Truncate(size); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatalf("failed to truncate: %v", err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	cfg := config.Defaults()
 	cfg.Database.Path = dbPath
@@ -432,10 +432,10 @@ func TestCheckDBSizeError(t *testing.T) {
 	}
 	size := int64(3 * 1024 * 1024 * 1024)
 	if err := f.Truncate(size); err != nil {
-		f.Close()
+		_ = f.Close()
 		t.Fatalf("failed to truncate: %v", err)
 	}
-	f.Close()
+	_ = f.Close()
 
 	cfg := config.Defaults()
 	cfg.Database.Path = dbPath
@@ -507,7 +507,7 @@ func TestCheckMemoryCountWithData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for i := 0; i < 5; i++ {
 		m := &db.Memory{
@@ -1092,7 +1092,7 @@ func TestCheckDuplicateCandidatesNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for i := 0; i < 3; i++ {
 		m := &db.Memory{
@@ -1125,7 +1125,7 @@ func TestCheckDuplicateCandidatesFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for i := 0; i < 2; i++ {
 		m := &db.Memory{
@@ -1162,7 +1162,7 @@ func TestCheckNeverRecalledNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for i := 0; i < 3; i++ {
 		m := &db.Memory{
@@ -1195,7 +1195,7 @@ func TestCheckNeverRecalledFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	m := &db.Memory{ID: "old-never-recalled", Content: "stale memory", Scope: "global"}
 	if err := database.SaveMemory(m); err != nil {
@@ -1250,7 +1250,7 @@ func TestCheckDurableRatioHealthy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for i := 0; i < 10; i++ {
 		m := &db.Memory{
@@ -1284,7 +1284,7 @@ func TestCheckDurableRatioLow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cannot open test db: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for i := 0; i < 10; i++ {
 		importance := 0.1

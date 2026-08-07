@@ -52,7 +52,7 @@ func (ds *deltaServer) handler(t *testing.T) http.HandlerFunc {
 		switch r.URL.Path {
 		case "/api/sync/changes":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"memories":    ds.memories,
 				"deleted":     ds.deleted,
 				"server_time": time.Now().UTC().Format(time.RFC3339),
@@ -62,7 +62,7 @@ func (ds *deltaServer) handler(t *testing.T) http.HandlerFunc {
 				t.Errorf("decoding push: %v", err)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]int{
+			_ = json.NewEncoder(w).Encode(map[string]int{
 				"applied": len(ds.pushed.Memories),
 				"deleted": len(ds.pushed.Deleted),
 			})
@@ -202,7 +202,7 @@ func (rs *relayServer) handler(t *testing.T) http.HandlerFunc {
 				out = append(out, b)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"blobs":       out,
 				"server_time": time.Now().UTC().Format(time.RFC3339Nano),
 			})
@@ -227,7 +227,7 @@ func (rs *relayServer) handler(t *testing.T) http.HandlerFunc {
 				}
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]int{"stored": stored})
+			_ = json.NewEncoder(w).Encode(map[string]int{"stored": stored})
 		}
 	}
 }

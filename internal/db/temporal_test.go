@@ -14,7 +14,7 @@ func TestTemporalFields_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	now := time.Now().UTC()
 	m := &Memory{
@@ -50,7 +50,7 @@ func TestSupersedeFact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	old := &Memory{
 		ID:       "old-fact",
@@ -106,7 +106,7 @@ func TestListMemoriesAsOf_ThreeVersionChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	t1 := t0.Add(1 * time.Hour)
@@ -162,7 +162,7 @@ func TestListMemoriesAsOf_DefaultMatchesListMemories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for _, m := range []*Memory{
 		{ID: "a", Content: "alpha", Scope: "global", Metadata: map[string]string{}},
@@ -198,7 +198,7 @@ func TestTemporalFields_NilDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	m := &Memory{
 		ID:       "no-temporal",

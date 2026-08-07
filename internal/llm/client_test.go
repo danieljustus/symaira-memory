@@ -122,7 +122,7 @@ func TestQueryOllamaHTTPError(t *testing.T) {
 func TestQueryOllamaMalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-ndjson")
-		w.Write([]byte("not json\n"))
+		_, _ = w.Write([]byte("not json\n"))
 	}))
 	defer server.Close()
 
@@ -211,7 +211,7 @@ func TestQueryOpenAISuccess(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
 					"message": map[string]string{
@@ -236,14 +236,14 @@ func TestQueryOpenAISuccess(t *testing.T) {
 func TestQueryOpenAICustomModel(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody map[string]interface{}
-		json.NewDecoder(r.Body).Decode(&reqBody)
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
 
 		if reqBody["model"] != "gpt-4" {
 			t.Errorf("expected model 'gpt-4', got %v", reqBody["model"])
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
 					"message": map[string]string{
@@ -281,7 +281,7 @@ func TestQueryOpenAIHTTPError(t *testing.T) {
 func TestQueryOpenAIEmptyChoices(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []interface{}{},
 		})
 	}))
@@ -297,7 +297,7 @@ func TestQueryOpenAIEmptyChoices(t *testing.T) {
 func TestQueryOpenAIMalformedJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("not json"))
+		_, _ = w.Write([]byte("not json"))
 	}))
 	defer server.Close()
 
@@ -384,7 +384,7 @@ func TestConsolidationResponseSchema(t *testing.T) {
 func TestQueryOpenAIProvider(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
 					"message": map[string]string{
@@ -423,7 +423,7 @@ func TestQueryOpenAIProviderUsesEnvKey(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"choices": []map[string]interface{}{
 				{
 					"message": map[string]string{

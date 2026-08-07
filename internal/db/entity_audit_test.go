@@ -25,7 +25,7 @@ func entityAuditEvents(t *testing.T, database *DB, action, targetType, targetID 
 
 func TestEntityCreateAudit(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	e := &Entity{ID: "ent-1", Name: "auth-service", Type: "service", CreatedBy: "cli:test"}
 	if err := database.SaveEntity(e); err != nil {
@@ -53,7 +53,7 @@ func TestEntityCreateAudit(t *testing.T) {
 
 func TestEntityRenameAndAliasAudit(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	e := &Entity{ID: "ent-2", Name: "old-name", Type: "service", Aliases: []string{"on"}, CreatedBy: "cli:test"}
 	if err := database.SaveEntity(e); err != nil {
@@ -90,7 +90,7 @@ func TestEntityRenameAndAliasAudit(t *testing.T) {
 
 func TestEntityDeleteAudit(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	e := &Entity{ID: "ent-3", Name: "doomed", Type: "tool", CreatedBy: "cli:test"}
 	if err := database.SaveEntity(e); err != nil {
@@ -111,7 +111,7 @@ func TestEntityDeleteAudit(t *testing.T) {
 
 func TestEntityDeleteMissingNoAudit(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	if err := database.DeleteEntity("does-not-exist"); err != nil {
 		t.Fatalf("DeleteEntity failed: %v", err)
@@ -127,7 +127,7 @@ func TestEntityDeleteMissingNoAudit(t *testing.T) {
 
 func TestRelationCreateAudit(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	for _, ent := range []*Entity{
 		{ID: "rel-a", Name: "alpha", Type: "service", CreatedBy: "cli:test"},
@@ -187,7 +187,7 @@ func saveRelationEntities(t *testing.T, database *DB) {
 
 func TestRelationIdempotentRetryNoDuplicateAudit(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	saveRelationEntities(t, database)
 
 	r := &EntityRelation{
@@ -218,7 +218,7 @@ func TestRelationIdempotentRetryNoDuplicateAudit(t *testing.T) {
 
 func TestRelationUpdateAudit(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	saveRelationEntities(t, database)
 
 	r := &EntityRelation{
@@ -265,7 +265,7 @@ func TestRelationUpdateAudit(t *testing.T) {
 
 func TestRelationDeleteAudit(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	saveRelationEntities(t, database)
 
 	r := &EntityRelation{
@@ -314,7 +314,7 @@ func TestRelationDeleteAudit(t *testing.T) {
 
 func TestEntityAuditDisabled(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	database.SetAuditLogEnabled(false)
 	defer database.SetAuditLogEnabled(true)
@@ -344,7 +344,7 @@ func TestEntityAuditDisabled(t *testing.T) {
 
 func TestAuditLogTargetRoundTrip(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Memory event keeps memory_id and no target.
 	if err := database.LogAudit("set", "mem-1", "global", "s1", "u1", ""); err != nil {
@@ -375,7 +375,7 @@ func TestAuditLogTargetRoundTrip(t *testing.T) {
 
 func TestAuditLogPruningKeepsTargetEvents(t *testing.T) {
 	database := openTestDB(t)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	if err := database.LogTargetAudit("entity_create", TargetEntity, "ent-keep", "", "", "u1", ""); err != nil {
 		t.Fatal(err)

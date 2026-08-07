@@ -300,7 +300,7 @@ func (db *DB) ListEntities() ([]*Entity, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var entities []*Entity
 	for rows.Next() {
@@ -367,7 +367,7 @@ func (db *DB) EntitiesForMemory(memoryID string) ([]*Entity, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var entities []*Entity
 	for rows.Next() {
@@ -393,7 +393,7 @@ func (db *DB) MemoryIDsForEntity(entityID string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ids []string
 	for rows.Next() {

@@ -44,7 +44,7 @@ func TestGetCommandWithEvidenceJSON(t *testing.T) {
 	}
 	defer func() {
 		outputFormat = oldOutput
-		getCmd.Flags().Set("with-evidence", "false")
+		_ = getCmd.Flags().Set("with-evidence", "false")
 	}()
 
 	output := captureCmdOutput(func() {

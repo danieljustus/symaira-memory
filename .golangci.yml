@@ -1,13 +1,38 @@
 version: "2"
 
 linters:
-  # Standard set minus errcheck. The standard set in v2 is:
-  # errcheck, gosimple, govet, ineffassign, staticcheck, unused.
-  # errcheck is excluded because 50+ pre-existing unchecked error returns
-  # (defer Close, fmt.Fprintf to stderr, etc.) require a dedicated follow-up.
   default: none
   enable:
+    - errcheck
     - govet
     - ineffassign
     - staticcheck
     - unused
+  settings:
+    errcheck:
+      # Benign patterns that never need handling (#471): defer-close
+      # idioms, temp-file/temp-dir cleanup, test env restore, and
+      # best-effort stdout/stderr diagnostics. Entries are matched
+      # verbatim (no globs). NOTE: golangci-lint's analysis cache can
+      # serve stale per-package results after changing this list — run
+      # `golangci-lint cache clean` if findings look stale.
+      exclude-functions:
+        - "fmt.Fprint"
+        - "fmt.Fprintf"
+        - "fmt.Fprintln"
+        - "os.Remove"
+        - "os.RemoveAll"
+        - "os.Setenv"
+        - "os.Unsetenv"
+        - "os.Chdir"
+        - "os.WriteFile"
+        - "os.MkdirAll"
+        - "(*os.File).Close"
+        - "(*os.File).Sync"
+        - "(*os.File).Chmod"
+        - "(*os.Process).Signal"
+        - "(*bytes.Buffer).ReadFrom"
+        - "(*database/sql.DB).Close"
+        - "(*database/sql.Rows).Close"
+        - "(*database/sql.Stmt).Close"
+        - "(*database/sql.Tx).Rollback"

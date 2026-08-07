@@ -15,7 +15,7 @@ func TestAuditLogRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	if err := database.LogAudit("set", "mem-1", "global", "session-1", "user-1", `{"key":"val"}`); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestRedactionAuditEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	if err := database.LogRedactionAudit("mem-1", "global", "session-1", "user-1", []string{"email", "api_key"}); err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestPurgeExpiredMemories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	old := &Memory{
 		ID:        "old-session",
@@ -144,7 +144,7 @@ func TestMutationAuditEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	database.SetAuditLogEnabled(true)
 	t.Cleanup(func() { database.SetAuditLogEnabled(true) })
 
@@ -337,7 +337,7 @@ func TestAuditLogDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	database.SetAuditLogEnabled(false)
 	t.Cleanup(func() { database.SetAuditLogEnabled(true) })
 
@@ -384,7 +384,7 @@ func TestPurgeExpiredAuditLogsRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	database.SetAuditLogEnabled(true)
 	t.Cleanup(func() { database.SetAuditLogEnabled(true) })
 

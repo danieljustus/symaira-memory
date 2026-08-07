@@ -29,7 +29,7 @@ func TestDBSchemaAndOperations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Verify database file was created inside temp directory
 	expectedPath := filepath.Join(tempDir, ".local", "share", "symmemory", "default.db")
@@ -125,7 +125,7 @@ func TestMigrationsApplied(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	var count int
 	if err := database.conn.QueryRow(
@@ -162,13 +162,13 @@ func TestMigrationsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first open failed: %v", err)
 	}
-	db1.Close()
+	_ = db1.Close()
 
 	db2, err := Open(config.Defaults())
 	if err != nil {
 		t.Fatalf("second open failed: %v", err)
 	}
-	defer db2.Close()
+	defer func() { _ = db2.Close() }()
 
 	var count int
 	if err := db2.conn.QueryRow(
@@ -290,7 +290,7 @@ func TestSearchWithLSHIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Seed 100 memories with varying embeddings
 	for i := 0; i < 100; i++ {
@@ -337,7 +337,7 @@ func BenchmarkSearchWithLSH(b *testing.B) {
 	if err != nil {
 		b.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Seed 1000 memories
 	n := 1000
@@ -384,7 +384,7 @@ func TestDatabaseFilePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	dbPath := filepath.Join(tempDir, ".local", "share", "symmemory", "default.db")
 
@@ -435,7 +435,7 @@ func TestGetMemoriesSinceFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	oldTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	newTime := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
@@ -493,7 +493,7 @@ func TestFactExistsWithSpecialCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	m := &Memory{
 		ID:          "fact-test-1",
@@ -562,7 +562,7 @@ func TestFactExistsAutoHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	content := "Alice prefers dark mode"
 	autoHash := ComputeContentHash(content)
@@ -608,7 +608,7 @@ func TestDeleteMemoryEdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Test deleting non-existent ID returns no error
 	err = database.DeleteMemory("nonexistent-id")
@@ -673,7 +673,7 @@ func TestUpsertMemoryIfNewer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	baseTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -794,7 +794,7 @@ func TestListMemoriesLiteScopeAndPagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Seed memories across scopes
 	scopes := []string{"global", "global", "project", "project", "project", "agent"}
@@ -902,7 +902,7 @@ func TestConsolidationStatusFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	m1 := &Memory{
 		ID:                  "mem-raw",
@@ -1012,7 +1012,7 @@ func TestSetMemoryEmbedding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	m := &Memory{
 		ID:        "setemb-1",
@@ -1081,7 +1081,7 @@ func TestSyncedMemorySearchableAfterEmbeddingBackfill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open database: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	syncTime := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC)
 
@@ -1185,7 +1185,7 @@ func TestSearchMemoriesFiltersEmbeddingSourceAtCandidateQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 
 	// Use a single shared embedding so every row lands in the same LSH bucket.
 	sharedVec := make([]float32, EmbeddingDim)
