@@ -9,11 +9,27 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-corekit/exitcodes"
+	"github.com/danieljustus/symaira-memory/internal/conflict"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
 	"github.com/spf13/cobra"
 )
+
+// cliConflictChecker builds the write-path contradiction checker from the
+// loaded config (#462). Staged writes are excluded: a candidate awaiting
+// review must never supersede a live fact. Returns nil when the check is
+// disabled or staging applies, which restores the legacy write behavior.
+func cliConflictChecker(staged bool) *conflict.Checker {
+	if staged {
+		return nil
+	}
+	cfg := GetConfig()
+	if cfg == nil || !cfg.Conflict.Enabled {
+		return nil
+	}
+	return conflict.NewChecker(GetDB(), cfg.Conflict)
+}
 
 var (
 	setValue    string
@@ -122,7 +138,9 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 			}
 		}
 
-		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, content, setScope, meta, true, attr, entities, "cli", setWorking, ttl)
+		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, content, setScope, meta, true, attr, entities, "cli", setWorking, ttl, memory.StoreOptions{
+			ConflictChecker: cliConflictChecker(setStaged),
+		})
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to store memory")
 		}

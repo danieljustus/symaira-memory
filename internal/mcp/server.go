@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-memory/internal/config"
+	"github.com/danieljustus/symaira-memory/internal/conflict"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/security"
@@ -55,6 +56,11 @@ func NewServer(database *db.DB, jwtProvider *security.JWTProvider, version strin
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
 	service := NewMemoryService(database, embeddings, true)
 	service.SetRankingWeights(db.WeightsFromConfig(cfg.Ranking))
+	if cfg.Conflict.Enabled {
+		// Write-path contradiction detection (#462): staged writes are
+		// excluded inside SetGoverned via checkerForStaged.
+		service.SetConflictChecker(conflict.NewChecker(database, cfg.Conflict))
+	}
 	auth := NewAuthMiddleware(jwtProvider, database, cfg.Security.RequireProfile)
 	cors := NewCORSMiddleware([]string{"chrome-extension://*", "moz-extension://*"})
 

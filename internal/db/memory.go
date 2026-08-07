@@ -330,6 +330,21 @@ func (db *DB) DeleteMemory(id string) error {
 // GetMemory retrieves a single memory by its ID using a direct index lookup.
 // It also tracks the access for retrieval feedback.
 func (db *DB) GetMemory(id string) (*Memory, error) {
+	m, err := db.loadMemory(id)
+	if err != nil || m == nil {
+		return m, err
+	}
+	// Track access for retrieval feedback loop.
+	if err := db.TrackMemoryAccess(m.ID); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// loadMemory hydrates a memory row by ID without side effects (no access
+// tracking). Used by internal lookups such as the write-path duplicate
+// check, where a lookup must not count as a retrieval.
+func (db *DB) loadMemory(id string) (*Memory, error) {
 	var m Memory
 	var metaStr, embStr string
 	var embBin []byte
@@ -380,11 +395,6 @@ func (db *DB) GetMemory(id string) (*Memory, error) {
 		for _, e := range entities {
 			m.Entities = append(m.Entities, e.Name)
 		}
-	}
-
-	// Track access for retrieval feedback loop.
-	if err := db.TrackMemoryAccess(m.ID); err != nil {
-		return nil, err
 	}
 
 	return &m, nil
@@ -1434,6 +1444,43 @@ func (db *DB) FactExists(contentHash string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// FindActiveDuplicate returns the newest active memory in the given scope
+// with the exact same content hash, or nil when none exists. Active means
+// live in retrieval: not archived by consolidation, not staged, not
+// retired and not already superseded. The lookup does not track access.
+func (db *DB) FindActiveDuplicate(contentHash, scope string) (*Memory, error) {
+	if contentHash == "" {
+		return nil, nil
+	}
+	var id string
+	err := db.conn.QueryRow(`SELECT id FROM memories
+		WHERE content_hash = ? AND scope = ?
+		  AND consolidation_status != 'archived'
+		  AND review_status = 'approved'
+		  AND retired_at IS NULL
+		  AND (superseded_by IS NULL OR superseded_by = '')
+		ORDER BY created_at DESC LIMIT 1`, contentHash, scope).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return db.loadMemory(id)
+}
+
+// SupersedeMemory marks the loser as superseded by the winner and closes
+// its validity window at validTo. The update is guarded: a memory that is
+// already superseded is never re-litigated, and a missing loser is a
+// no-op rather than an error (the winner stands either way).
+func (db *DB) SupersedeMemory(loserID, winnerID string, validTo time.Time, updatedBy, updatedSession string) error {
+	_, err := db.conn.Exec(`UPDATE memories
+		SET superseded_by = ?, valid_to = ?, updated_at = ?, updated_by = ?, updated_session = ?
+		WHERE id = ? AND (superseded_by IS NULL OR superseded_by = '')`,
+		winnerID, validTo.UTC(), time.Now().UTC(), nullStr(updatedBy), nullStr(updatedSession), loserID)
+	return err
 }
 
 // SetMemoryEmbedding updates only the embedding columns of an existing memory,

@@ -173,3 +173,69 @@ The token estimator behind the budget is pluggable in code
 (`Assembler.WithTokenEstimator`); the default is a conservative
 characters-per-token heuristic that over-estimates for code-heavy text,
 which is the safe direction for a budget guard.
+
+### Conflict Resolution Settings
+
+Write-path contradiction detection in `~/.config/symmemory/config.toml`
+(docs/issue #462). Every long-term write is compared against prior
+memories in the same scope before it lands:
+
+```toml
+[conflict]
+enabled = true                  # Master switch; false restores the exact
+                                # legacy behavior (unconditional inserts,
+                                # no dedup, no supersession).
+contradiction_threshold = 0.80  # Cosine at/above which a same-scope
+                                # candidate is a potential contradiction
+                                # and needs a verdict.
+near_dup_threshold = 0.95       # Cosine at/above which a candidate is the
+                                # same fact (repeat) and the write is
+                                # deduplicated. Matches the consolidation
+                                # engine's same-fact threshold.
+max_candidates = 10             # Cap on same-scope candidates recalled per
+                                # write.
+llm_provider = ""               # "ollama" or "openai" enables the optional
+                                # LLM verdict tier for the contradiction
+                                # band. Empty (default) keeps verdicts
+                                # purely deterministic — no LLM round-trip
+                                # on the CLI write path.
+llm_model = ""                  # Model for the LLM verdict tier.
+llm_url = ""                    # OpenAI-compatible endpoint (defaults to
+                                # the local Ollama generate endpoint).
+```
+
+How a write is decided, in order:
+
+1. **Byte-identical repeat** (same content hash, same scope) — the write is
+   deduplicated: no second row, the existing memory is returned.
+2. **Near-duplicate** (cosine ≥ `near_dup_threshold`) — the new content is
+   the same fact region as an existing row, using the same threshold the
+   consolidation engine uses for "the same fact". Like consolidation, the
+   newer representation replaces the older row: the old row is marked
+   `superseded_by` the new one (rule `near_dup`). Byte-identical rewrites
+   never reach this tier — the hash tier above deduplicated them.
+3. **Contradiction band** (`contradiction_threshold` ≤ cosine <
+   `near_dup_threshold`) — a verdict is needed. Without an LLM tier this
+   is always *ambiguous*: both memories are stored unchanged and a
+   `conflict_pending` audit event names the pair for review. With
+   `llm_provider` set, one batched call classifies every band pair as
+   repeat / contradiction / ambiguous; a failed call degrades to
+   ambiguous, never to a failed write. A *repeat* verdict resolves like
+   the near-dup tier (newer representation wins, rule `repeat`).
+4. **Confirmed contradiction** — the loser is marked `superseded_by` the
+   winner and its `valid_to` is closed, and a `supersede` audit event
+   records both memory IDs, both actors and the deciding rule. The winner
+   policy is a deterministic total order: **importance** (higher wins —
+   a curated fact outranks a flaky overwrite), then **recency** (newer
+   wins), then **id** (stable tie-break). Client *trust* is intentionally
+   not an ordering input: client attribution exists (#455) but no
+   per-client trust model does, so inventing one would be guesswork.
+
+Conservative by design: when the check cannot decide with confidence it
+stores both and surfaces the disagreement, because a silently wrong
+supersession is worse than a visible conflict. Working (TTL) memories and
+staged candidates bypass the check entirely. `memory_search` with
+`exclude_superseded` then omits superseded facts; without the flag both
+facts are returned with the supersession visible in the payload, so every
+resolution stays reviewable and reversible by hand from the audit log.
+

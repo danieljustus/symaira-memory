@@ -102,7 +102,14 @@ func ollamaBaseURL(raw string) string {
 }
 
 func (c *Client) QueryOllama(ctx context.Context, systemPrompt, userPrompt string) (string, error) {
-	schema := ConsolidationResponseSchema()
+	return c.QueryOllamaWithSchema(ctx, systemPrompt, userPrompt, ConsolidationResponseSchema())
+}
+
+// QueryOllamaWithSchema queries a local Ollama endpoint with an explicit
+// JSON-Schema (draft-07) constraint for the response. Unlike QueryOllama,
+// the caller controls the schema, which is required for response types
+// other than consolidation results.
+func (c *Client) QueryOllamaWithSchema(ctx context.Context, systemPrompt, userPrompt string, schema map[string]any) (string, error) {
 	body := map[string]any{
 		"model":  c.OllamaModel,
 		"prompt": userPrompt,

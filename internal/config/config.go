@@ -60,6 +60,7 @@ type Config struct {
 	MCP           MCPConfig            `json:"mcp"`
 	Memory        MemoryConfig         `json:"memory"`
 	Aging         AgingConfig          `json:"aging"`
+	Conflict      ConflictConfig       `json:"conflict"`
 	PromptMode    string               `json:"prompt_mode"` // "chat" (default) | "code" (#483)
 }
 
@@ -233,6 +234,48 @@ type AgingConfig struct {
 	AccessBoostCap     int64   `json:"access_boost_cap"`
 }
 
+// ConflictConfig controls write-path contradiction detection (#462).
+//
+// When enabled, each long-term write is compared against prior memories in
+// the same scope: byte-identical repeats and near-duplicates at or above
+// NearDupThreshold are deduplicated (no second row), candidates in the
+// [ContradictionThreshold, NearDupThreshold) band get a verdict, and a
+// contradiction resolves by marking the loser superseded (superseded_by +
+// closed valid_to) with an audit event naming both memories, both actors
+// and the deciding rule. Undecidable pairs are stored unchanged and
+// surfaced via a conflict_pending audit event — a silently wrong
+// supersession is worse than a visible conflict. Disabling the check
+// restores the exact legacy write behavior.
+type ConflictConfig struct {
+	// Enabled turns the whole check off. Default true.
+	Enabled bool `json:"enabled"`
+	// ContradictionThreshold is the cosine similarity at/above which a
+	// same-scope candidate is a potential contradiction and gets a
+	// verdict. Below it, candidates are unrelated and stored alongside.
+	// Default 0.80.
+	ContradictionThreshold float64 `json:"contradiction_threshold"`
+	// NearDupThreshold is the cosine similarity at/above which a
+	// candidate is the same fact as the new content (a repeat that gets
+	// deduplicated instead of litigated as a conflict). It matches the
+	// consolidation engine's same-fact threshold so the write path and
+	// consolidation never disagree about what "the same fact" means.
+	// Default 0.95.
+	NearDupThreshold float64 `json:"near_dup_threshold"`
+	// MaxCandidates caps how many same-scope candidates are recalled per
+	// write for the contradiction check. Default 10.
+	MaxCandidates int `json:"max_candidates"`
+	// LLMProvider ("ollama" or "openai") enables the optional LLM verdict
+	// tier that classifies contradiction-band pairs as repeat,
+	// contradiction or ambiguous. Empty (default) keeps verdicts purely
+	// deterministic — hash and cosine tiers only — so a CLI write never
+	// requires an LLM round-trip.
+	LLMProvider string `json:"llm_provider"`
+	// LLMModel is the model used by the LLM verdict tier.
+	LLMModel string `json:"llm_model"`
+	// LLMURL is the OpenAI-compatible endpoint for the LLM verdict tier.
+	LLMURL string `json:"llm_url"`
+}
+
 // Defaults returns a Config with sensible default values.
 func Defaults() *Config {
 	trueVal := true
@@ -259,6 +302,12 @@ func Defaults() *Config {
 			AccessHalfLifeDays: 120,
 			RetireBelow:        0.1,
 			AccessBoostCap:     20,
+		},
+		Conflict: ConflictConfig{
+			Enabled:                true,
+			ContradictionThreshold: 0.80,
+			NearDupThreshold:       0.95,
+			MaxCandidates:          10,
 		},
 		PromptMode: "chat", // #483: chat | code; chat stays the unchanged default
 		Consolidation: ConsolidationConfig{
