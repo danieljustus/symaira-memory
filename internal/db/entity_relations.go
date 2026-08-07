@@ -148,7 +148,11 @@ func (db *DB) SaveEntityRelation(r *EntityRelation) error {
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.ID, r.FromEntityID, r.ToEntityID, r.RelationType, r.Source, r.SourceRef, r.Verification, r.Evidence, r.CreatedBy, r.CreatedAt, r.UpdatedAt, r.ValidFrom, r.ValidUntil,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	db.auditRelation("relation_create", r)
+	return nil
 }
 
 // SaveEntityRelationProvenance creates or updates a directed relation with
@@ -193,6 +197,7 @@ func (db *DB) SaveEntityRelationProvenance(r *EntityRelation) (*EntityRelation, 
 		if err != nil {
 			return nil, err
 		}
+		db.auditRelation("relation_create", &saved)
 		return &saved, nil
 	}
 
@@ -229,6 +234,7 @@ func (db *DB) SaveEntityRelationProvenance(r *EntityRelation) (*EntityRelation, 
 		if err != nil {
 			return nil, err
 		}
+		db.auditRelation("relation_update", &updated)
 		return &updated, nil
 	}
 
@@ -255,16 +261,27 @@ func (db *DB) SaveEntityRelationProvenance(r *EntityRelation) (*EntityRelation, 
 	if err != nil {
 		return nil, err
 	}
+	db.auditRelation("relation_update", &updated)
 	return &updated, nil
 }
 
 // DeleteEntityRelation removes a specific directed relation.
 func (db *DB) DeleteEntityRelation(fromEntityID, toEntityID, relationType string) error {
-	_, err := db.conn.Exec(
+	existing, err := db.getRelationByTriple(fromEntityID, toEntityID, relationType)
+	if err != nil {
+		return err
+	}
+	_, err = db.conn.Exec(
 		"DELETE FROM entity_relations WHERE from_entity_id = ? AND to_entity_id = ? AND relation_type = ?",
 		fromEntityID, toEntityID, relationType,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		db.auditRelation("relation_delete", existing)
+	}
+	return nil
 }
 
 // GetEntityRelationByID retrieves a relation by its stable ID. Returns nil,
@@ -288,8 +305,18 @@ func (db *DB) GetEntityRelationByID(id string) (*EntityRelation, error) {
 
 // DeleteEntityRelationByID removes a relation by its stable ID.
 func (db *DB) DeleteEntityRelationByID(id string) error {
-	_, err := db.conn.Exec("DELETE FROM entity_relations WHERE id = ?", id)
-	return err
+	existing, err := db.GetEntityRelationByID(id)
+	if err != nil {
+		return err
+	}
+	_, err = db.conn.Exec("DELETE FROM entity_relations WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	if existing != nil {
+		db.auditRelation("relation_delete", existing)
+	}
+	return nil
 }
 
 func (db *DB) getRelationByTriple(fromEntityID, toEntityID, relationType string) (*EntityRelation, error) {
@@ -546,4 +573,21 @@ func (db *DB) GraphNeighborsAsOf(entityID string, depth int, asOf *time.Time) ([
 	}
 
 	return nodes, edges, nil
+}
+
+// auditRelation writes exactly one audit event for a relation mutation.
+// detail carries the full triple plus any supplied provenance so the edge
+// is reconstructible after the fact. Audit failures never fail the
+// mutation; the identical-retry path in SaveEntityRelationProvenance
+// returns before this helper is called, so no duplicate event is emitted.
+func (db *DB) auditRelation(action string, r *EntityRelation) {
+	detail, _ := json.Marshal(map[string]string{
+		"from":         r.FromEntityID,
+		"to":           r.ToEntityID,
+		"relation":     r.RelationType,
+		"source":       r.Source,
+		"source_ref":   r.SourceRef,
+		"verification": r.Verification,
+	})
+	_ = db.LogTargetAudit(action, TargetRelation, r.ID, "", "", r.CreatedBy, string(detail))
 }
