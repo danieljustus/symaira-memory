@@ -92,11 +92,11 @@ func (p *LLMVerdictProvider) Verdicts(ctx context.Context, pairs []Pair) ([]Verd
 	if err != nil {
 		return nil, fmt.Errorf("conflict: llm verdict query: %w", err)
 	}
-	verdicts, err := parseVerdictResponse(raw, len(pairs))
-	if err != nil {
-		return nil, fmt.Errorf("conflict: llm verdict parse: %w", err)
-	}
-	return verdicts, nil
+	// parseVerdictResponse cannot fail: the salvage path always yields
+	// one verdict per pair (ambiguous for undecided ones), so malformed
+	// or partial output degrades to store-both instead of failing the
+	// write (#506).
+	return parseVerdictResponse(raw, len(pairs))
 }
 
 var verdictTokenRe = regexp.MustCompile(`(?i)"verdict"\s*:\s*"(repeat|contradiction|ambiguous)"`)
@@ -104,7 +104,9 @@ var verdictTokenRe = regexp.MustCompile(`(?i)"verdict"\s*:\s*"(repeat|contradict
 // parseVerdictResponse extracts one verdict per pair from the LLM output.
 // It first tries strict JSON; when that fails it falls back to scanning
 // for verdict tokens in order, then pads any missing tail pairs as
-// ambiguous.
+// ambiguous. The error return is always nil — the salvage path cannot
+// fail — and is kept so callers can treat the result as fallible without
+// a behavior change.
 func parseVerdictResponse(raw string, want int) ([]Verdict, error) {
 	if want <= 0 {
 		return nil, nil

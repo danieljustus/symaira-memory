@@ -2,7 +2,9 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"math"
 	"math/bits"
 	"strings"
@@ -453,4 +455,112 @@ func bandVecBase() []float32 {
 	v := make([]float32, db.EmbeddingDim)
 	v[0] = 1.0
 	return v
+}
+
+// failingProvider fails every verdict request, simulating an LLM outage
+// on the verdict tier.
+type failingProvider struct{}
+
+func (failingProvider) Verdicts(_ context.Context, pairs []conflict.Pair) ([]conflict.Verdict, error) {
+	return nil, fmt.Errorf("llm unreachable")
+}
+
+func TestStoreWithConflictCheckProviderErrorStoresBothAndAudits(t *testing.T) {
+	// A failing verdict tier degrades to ambiguous: both rows are stored
+	// unchanged and the disagreement is surfaced — a write never fails
+	// because the LLM is down (#506).
+	database := helperMemDB(t)
+	now := time.Now().UTC()
+	saveEngineered(t, database, "old-1", "the daemon listens on port 8787", bandVec(t, 0.90), 0.5, now.Add(-time.Hour))
+
+	attr := Attribution{Author: "writer-a", SessionID: "sess-a"}
+	m := &db.Memory{
+		ID:              "new-1",
+		Content:         "the daemon runs on port 9000",
+		Scope:           "global",
+		Metadata:        map[string]string{},
+		Embedding:       bandVecBase(),
+		EmbeddingSource: conflictTestSource,
+		CreatedBy:       attr.Author,
+		CreatedSession:  attr.SessionID,
+	}
+
+	checker := conflict.NewChecker(database, conflictCfg())
+	checker.SetVerdictProvider(failingProvider{})
+	stored, deduped, err := storeWithConflictCheck(database, checker, m, attr)
+	if err != nil {
+		t.Fatalf("verdict tier failure must not fail the write: %v", err)
+	}
+	if deduped || stored.ID != "new-1" {
+		t.Fatalf("verdict failure must store the new memory unchanged, deduped=%v", deduped)
+	}
+	if n := rowCount(t, database); n != 2 {
+		t.Fatalf("verdict failure must store both rows, got %d", n)
+	}
+	oldRow, err := database.GetMemory("old-1")
+	if err != nil {
+		t.Fatalf("load old: %v", err)
+	}
+	if oldRow.SupersededBy != "" {
+		t.Errorf("verdict failure must not supersede, got superseded_by=%q", oldRow.SupersededBy)
+	}
+
+	events, err := database.GetAuditLogs(conflict.ActionConflictPending, 10)
+	if err != nil {
+		t.Fatalf("GetAuditLogs: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected one conflict_pending event, got %d", len(events))
+	}
+	if events[0].MemoryID != "new-1" {
+		t.Errorf("conflict_pending must reference the new memory, got %+v", events[0])
+	}
+}
+
+func TestStoreWithConflictCheckCheckerErrorDegradesToStoreBoth(t *testing.T) {
+	// A checker failure (candidate recall error) degrades to the legacy
+	// store-both behavior: the memory is stored unchanged and the write
+	// never fails (#506). The recall error is provoked deterministically
+	// by corrupting one stored row's embedding column (invalid JSON), so
+	// candidate hydration fails while the write path keeps working.
+	database := helperMemDB(t)
+	now := time.Now().UTC()
+	saveEngineered(t, database, "old-1", "the daemon listens on port 8787", bandVec(t, 0.90), 0.5, now.Add(-time.Hour))
+	if _, err := database.Conn().Exec("UPDATE memories SET embedding = 'not-json' WHERE id = 'old-1'"); err != nil {
+		t.Fatalf("corrupt embedding: %v", err)
+	}
+
+	attr := Attribution{Author: "writer-a", SessionID: "sess-a"}
+	m := &db.Memory{
+		ID:              "new-1",
+		Content:         "the daemon runs on port 9000",
+		Scope:           "global",
+		Metadata:        map[string]string{},
+		Embedding:       bandVecBase(),
+		EmbeddingSource: conflictTestSource,
+		CreatedBy:       attr.Author,
+		CreatedSession:  attr.SessionID,
+	}
+
+	checker := conflict.NewChecker(database, conflictCfg())
+	stored, deduped, err := storeWithConflictCheck(database, checker, m, attr)
+	if err != nil {
+		t.Fatalf("checker failure must not fail the write: %v", err)
+	}
+	if deduped || stored.ID != "new-1" {
+		t.Fatalf("checker failure must store the new memory unchanged, deduped=%v", deduped)
+	}
+	if n := rowCount(t, database); n != 2 {
+		t.Fatalf("checker failure must store both rows, got %d", n)
+	}
+	// The corrupted row cannot be hydrated through GetMemory (its
+	// embedding is unreadable), so the supersession check reads the raw
+	// column instead.
+	var sup sql.NullString
+	if err := database.Conn().QueryRow("SELECT superseded_by FROM memories WHERE id = 'old-1'").Scan(&sup); err != nil {
+		t.Fatalf("load superseded_by: %v", err)
+	}
+	if sup.String != "" {
+		t.Errorf("checker failure must not supersede, got superseded_by=%q", sup.String)
+	}
 }
