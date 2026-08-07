@@ -132,9 +132,11 @@ func (db *DB) GetStaleMemories(limit int, threshold StalenessThreshold) ([]*Memo
 		created_by, updated_by, created_session, updated_session,
 		consolidation_status, consolidated_into_id, importance,
 		valid_from, valid_to, superseded_by, tier, expires_at,
-		access_count, last_access
+		access_count, last_access, review_status, kind, decay_factor, retired_at
 		FROM memories
 		WHERE consolidation_status != 'archived'
+		AND review_status = 'approved'
+		AND retired_at IS NULL
 		AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now'))
 		ORDER BY access_count ASC, last_access ASC, created_at ASC
 		LIMIT ?`

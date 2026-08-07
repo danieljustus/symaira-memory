@@ -167,11 +167,13 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 		        m.created_by, m.updated_by, m.created_session, m.updated_session,
 		        m.consolidation_status, m.consolidated_into_id, m.importance,
 		        m.valid_from, m.valid_to, m.superseded_by,
-		        m.access_count, m.last_access,
+		        m.access_count, m.last_access, m.review_status, m.kind, m.decay_factor, m.retired_at,
 		        rank
 		 FROM memories_fts fts
 		 JOIN memories m ON fts.id = m.id
 		 WHERE memories_fts MATCH ?` + twClause + `
+		   AND m.review_status = 'approved'
+		   AND m.retired_at IS NULL
 		 ORDER BY rank
 		 LIMIT ?`
 
@@ -196,11 +198,21 @@ func (db *DB) SearchMemoriesBM25(query string, scope string, limit int, timeWind
 		var rank float64
 		var accessCount sql.NullInt64
 		var lastAccess sql.NullTime
+		var reviewStatus, kind string
+		var decayFactor float64
+		var retiredAt sql.NullTime
 		if err := rows.Scan(&m.ID, &m.Content, &m.Scope, &metaStr, &m.CreatedAt, &m.UpdatedAt,
 			&m.CreatedBy, &m.UpdatedBy, &m.CreatedSession, &m.UpdatedSession,
 			&m.ConsolidationStatus, &consolidatedInto, &m.Importance,
-			&validFrom, &validTo, &supersededBy, &accessCount, &lastAccess, &rank); err != nil {
+			&validFrom, &validTo, &supersededBy, &accessCount, &lastAccess,
+			&reviewStatus, &kind, &decayFactor, &retiredAt, &rank); err != nil {
 			return nil, err
+		}
+		m.ReviewStatus = reviewStatus
+		m.Kind = kind
+		m.DecayFactor = decayFactor
+		if retiredAt.Valid {
+			m.RetiredAt = &retiredAt.Time
 		}
 		if err := populateMemoryFields(&m, metaStr, consolidatedInto, validFrom, validTo, supersededBy); err != nil {
 			return nil, err
@@ -297,7 +309,17 @@ func (db *DB) HybridSearch(queryVec []float32, querySource string, queryText str
 	for id, rrf := range rrfScores {
 		vecS := float64(vecScoreByID[id])
 		bm25S := bm25ScoreByID[id]
-		fusedScore := vectorWeight*vecS + bm25Weight*bm25S + (1-vectorWeight-bm25Weight)*rrf
+		// Aging decay (#491) applies to the fused score: a memory that the
+		// aging pass decayed below its natural weight competes fairly on
+		// both arms. The vector arm already carries the decayed score;
+		// memories only present via BM25 get the multiplier here.
+		decay := 1.0
+		if m, ok := memByID[id]; ok {
+			if d := m.DecayFactor; d > 0 && d <= 1 {
+				decay = d
+			}
+		}
+		fusedScore := (vectorWeight*vecS + bm25Weight*bm25S + (1-vectorWeight-bm25Weight)*rrf) * decay
 		all = append(all, fused{id: id, fusedScore: fusedScore})
 	}
 	sort.Slice(all, func(i, j int) bool {
