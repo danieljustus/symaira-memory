@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danieljustus/symaira-memory/internal/consolidation"
 	"github.com/danieljustus/symaira-memory/internal/importer"
 	_ "modernc.org/sqlite"
 )
@@ -132,6 +133,8 @@ func (o *OpenCodeImporter) DiscoverSessions(since time.Time) ([]importer.Session
 			"title":     s.Title,
 			"directory": s.Directory,
 			"agent":     s.Agent,
+			// #483: coding-session material → code prompt family.
+			consolidation.PromptModeKey: consolidation.PromptFamilyCode,
 		}
 		if s.Model != "" {
 			metadata["model"] = s.Model

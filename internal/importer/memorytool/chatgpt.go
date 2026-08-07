@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/danieljustus/symaira-memory/internal/consolidation"
 	"strings"
 	"time"
 )
@@ -119,6 +121,8 @@ func (c *ChatGPTImporter) ImportExport(ref ExportRef) ([]ImportedFact, error) {
 						Timestamp: ts,
 						Metadata: map[string]interface{}{
 							"title": export.Title,
+							// #483: coding-session material → code prompt family.
+							consolidation.PromptModeKey: consolidation.PromptFamilyCode,
 						},
 					})
 				}

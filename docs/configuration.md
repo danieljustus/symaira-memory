@@ -143,3 +143,33 @@ Inspect the log with `symmemory query-log` — the summary shows tool and
 per-actor breakdowns; `--actor <id>` narrows the summary and recent entries
 to one client. The MCP `query_log` tool exposes the same summary with an
 optional `actor` filter argument.
+
+### LLM Settings
+
+Prompt and context-assembly behavior in `~/.config/symmemory/config.toml`:
+
+```toml
+prompt_mode = "chat"   # Prompt family for LLM extraction/consolidation:
+                       # "chat" (default, unchanged wording) or "code".
+                       # The code family is tuned for coding transcripts
+                       # (build commands, file conventions, module
+                       # boundaries, architectural decisions). Coding
+                       # importers (opencode, memorytool) mark their
+                       # material automatically; a group is consolidated
+                       # with the code family when more than half of its
+                       # memories are code-marked.
+
+[context]
+token_budget = 2000    # Hard token ceiling for `symmemory context`
+                       # assembly. The budget is enforced at the
+                       # assembly boundary with a documented drop order
+                       # (lowest-priority pieces first; the working set
+                       # is never dropped) and a budget report naming
+                       # what was dropped. Override per call with
+                       # `symmemory context --budget <n>`.
+```
+
+The token estimator behind the budget is pluggable in code
+(`Assembler.WithTokenEstimator`); the default is a conservative
+characters-per-token heuristic that over-estimates for code-heavy text,
+which is the safe direction for a budget guard.

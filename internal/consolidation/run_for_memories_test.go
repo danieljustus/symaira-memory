@@ -17,7 +17,7 @@ import (
 func TestRunConsolidationForMemories_Empty(t *testing.T) {
 	cfg := config.Defaults()
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := NewEngine(nil, embeddings, "", "", "", false)
+	engine := NewEngine(nil, embeddings, "", "", "", false, "chat")
 
 	summaries, err := engine.RunConsolidationForMemories(context.Background(), nil, false)
 	if err != nil {
@@ -49,7 +49,7 @@ func TestRunConsolidationForMemories_SingleMemoryMarksConsolidated(t *testing.T)
 	}
 
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := NewEngine(database, embeddings, "", "", "", false)
+	engine := NewEngine(database, embeddings, "", "", "", false, "chat")
 
 	summaries, err := engine.RunConsolidationForMemories(context.Background(), []*db.Memory{m}, false)
 	if err != nil {
@@ -117,7 +117,7 @@ func TestRunConsolidationForMemories_MultiMemoryUsesLLMAndGroupsByScope(t *testi
 	defer mockLLM.Close()
 
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false)
+	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat")
 
 	summaries, err := engine.RunConsolidationForMemories(context.Background(), []*db.Memory{m1, m2, m3}, false)
 	if err != nil {

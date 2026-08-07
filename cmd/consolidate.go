@@ -36,10 +36,15 @@ the originals. Use --undo to reverse the last completed run.
 Use --dry-run to preview what would happen without making changes.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := GetConfig()
+		// #483: invalid prompt_mode fails fast with an actionable message.
+		if !consolidation.ValidPromptFamily(cfg.PromptMode) {
+			return exitcodes.Wrapf(fmt.Errorf("invalid prompt_mode %q: must be one of %q, %q", cfg.PromptMode, consolidation.PromptFamilyChat, consolidation.PromptFamilyCode),
+				exitcodes.ExitConfig, exitcodes.KindConfig, "invalid prompt_mode")
+		}
 		database := GetDB()
 		embeddings := extractor.NewEmbeddingsGenerator(cfg)
 		piiEnabled := cfg.Security.PIIEnabled != nil && *cfg.Security.PIIEnabled
-		engine := consolidation.NewEngine(database, embeddings, cfg.Consolidation.URL, cfg.Consolidation.Model, cfg.Consolidation.Provider, piiEnabled)
+		engine := consolidation.NewEngine(database, embeddings, cfg.Consolidation.URL, cfg.Consolidation.Model, cfg.Consolidation.Provider, piiEnabled, cfg.PromptMode)
 
 		if consolidateUndo {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

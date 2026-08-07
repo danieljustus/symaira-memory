@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/danieljustus/symaira-memory/internal/consolidation"
 	"strings"
 	"time"
 )
@@ -97,6 +99,8 @@ func (m *Mem0Importer) ImportExport(ref ExportRef) ([]ImportedFact, error) {
 
 		metadata := map[string]interface{}{
 			"mem0_id": mem.ID,
+			// #483: coding-session material → code prompt family.
+			consolidation.PromptModeKey: consolidation.PromptFamilyCode,
 		}
 		if mem.UserID != "" {
 			metadata["user_id"] = mem.UserID

@@ -166,6 +166,9 @@ type AssembledContext struct {
 	UsedTokens int              `json:"used_tokens"`
 	Pieces     []AssembledPiece `json:"pieces"`
 
+	// #492: hard token budget report (nil when no budget was enforced).
+	BudgetReport *BudgetReport `json:"budget_report,omitempty"`
+
 	// #400: expandable session context
 	ExpandableSources []ExpandableSource `json:"expandable_sources,omitempty"`
 
@@ -206,6 +209,9 @@ type Assembler struct {
 	// recall receipts (#487)
 	recallReceipts bool
 
+	// #492: pluggable token estimator for the hard budget
+	estimator TokenEstimator
+
 	// #412: per-session snapshot chain
 	snapshots map[string][]ContentHashSnapshot
 	// #403: cached profile
@@ -224,6 +230,24 @@ func NewAssembler(database *db.DB, embeddings *extractor.EmbeddingsGenerator, cf
 		cfg:        cfg,
 		snapshots:  make(map[string][]ContentHashSnapshot),
 	}
+}
+
+// WithTokenEstimator sets a pluggable token estimator for the hard token
+// budget (#492). The default is DefaultTokenEstimator; callers with a real
+// tokenizer can pass it here so budget enforcement matches the model.
+func (a *Assembler) WithTokenEstimator(fn TokenEstimator) *Assembler {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.estimator = fn
+	return a
+}
+
+// estimate counts tokens for text using the configured estimator (#492).
+func (a *Assembler) estimate(text string) int {
+	if a.estimator != nil {
+		return a.estimator(text)
+	}
+	return DefaultTokenEstimator(text)
 }
 
 // WithDegradationConfig sets the degradation configuration (#414).
@@ -306,7 +330,7 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 	if degCfg == nil || !degCfg.Enabled {
 		// legacy behaviour: one big block
 		content := formatRetrievalResults(results)
-		tokens := estimateTokens(content)
+		tokens := a.estimate(content)
 		if tokens <= budget {
 			return []AssembledPiece{
 				{Layer: LayerRetrieval, Content: content, Tokens: tokens},
@@ -345,7 +369,7 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 
 		// Attempt full
 		fullContent := formatSingleResult(r, DegradationFull)
-		fullTokens := estimateTokens(fullContent)
+		fullTokens := a.estimate(fullContent)
 		if fullTokens <= remaining && fullTokens <= degCfg.FullTokens {
 			pieces = append(pieces, AssembledPiece{
 				Layer:   LayerRetrieval,
@@ -359,7 +383,7 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 
 		// Attempt summary
 		summaryContent := formatSingleResult(r, DegradationSummary)
-		summaryTokens := estimateTokens(summaryContent)
+		summaryTokens := a.estimate(summaryContent)
 		if summaryTokens <= remaining && summaryTokens <= degCfg.SummaryTokens {
 			pieces = append(pieces, AssembledPiece{
 				Layer:   LayerRetrieval,
@@ -373,7 +397,7 @@ func (a *Assembler) fillRetrievalWithDegradation(results []db.SearchResult, budg
 
 		// Attempt reference
 		refContent := formatSingleResult(r, DegradationReference)
-		refTokens := estimateTokens(refContent)
+		refTokens := a.estimate(refContent)
 		if refTokens <= remaining && refTokens <= degCfg.RefTokens {
 			pieces = append(pieces, AssembledPiece{
 				Layer:   LayerRetrieval,
@@ -805,7 +829,7 @@ func (a *Assembler) Assemble(query string, sessionText string, sessionID string)
 	// 1. Working context layer
 	if sessionText != "" && a.cfg.MaxWorkingTurns > 0 {
 		workingCtx := extractWorkingContext(sessionText, a.cfg.MaxWorkingTurns)
-		workingTokens := estimateTokens(workingCtx)
+		workingTokens := a.estimate(workingCtx)
 		if usedTokens+workingTokens <= budget {
 			ctx.Pieces = append(ctx.Pieces, AssembledPiece{
 				Layer:   LayerWorkingContext,
@@ -826,7 +850,7 @@ func (a *Assembler) Assemble(query string, sessionText string, sessionID string)
 		workingMems, err := a.database.GetWorkingMemories("", maxItems)
 		if err == nil && len(workingMems) > 0 {
 			workingMemContent := formatWorkingMemories(workingMems)
-			workingMemTokens := estimateTokens(workingMemContent)
+			workingMemTokens := a.estimate(workingMemContent)
 			if usedTokens+workingMemTokens <= budget {
 				ctx.Pieces = append(ctx.Pieces, AssembledPiece{
 					Layer:   LayerWorkingMemory,
@@ -843,7 +867,7 @@ func (a *Assembler) Assemble(query string, sessionText string, sessionID string)
 	if sessionID != "" {
 		summary, err := a.database.GetSessionSummary(sessionID)
 		if err == nil && summary != "" {
-			summaryTokens := estimateTokens(summary)
+			summaryTokens := a.estimate(summary)
 			if usedTokens+summaryTokens <= budget {
 				ctx.Pieces = append(ctx.Pieces, AssembledPiece{
 					Layer:   LayerSummary,
@@ -861,7 +885,7 @@ func (a *Assembler) Assemble(query string, sessionText string, sessionID string)
 		if profile != nil {
 			profileContent := formatProfile(profile, a.profileLayerCfg)
 			if profileContent != "" {
-				profileTokens := estimateTokens(profileContent)
+				profileTokens := a.estimate(profileContent)
 				if profileTokens <= a.profileLayerCfg.TokenBudget && usedTokens+profileTokens <= budget {
 					ctx.Pieces = append(ctx.Pieces, AssembledPiece{
 						Layer:   LayerProfile,
@@ -880,7 +904,7 @@ func (a *Assembler) Assemble(query string, sessionText string, sessionID string)
 		if err == nil && len(sources) > 0 {
 			sessionCtxContent := formatSessionContext(sources)
 			if sessionCtxContent != "" {
-				sessionTokens := estimateTokens(sessionCtxContent)
+				sessionTokens := a.estimate(sessionCtxContent)
 				if sessionTokens <= a.sessionCtxCfg.TokenBudget && usedTokens+sessionTokens <= budget {
 					ctx.Pieces = append(ctx.Pieces, AssembledPiece{
 						Layer:   LayerSessionContext,
@@ -910,6 +934,12 @@ func (a *Assembler) Assemble(query string, sessionText string, sessionID string)
 	}
 
 	ctx.UsedTokens = usedTokens
+
+	// #492: hard budget enforcement pass + drop report. The per-layer
+	// greedy checks above keep today's behaviour; this pass makes the
+	// ceiling authoritative for any estimator and reports what was
+	// dropped and why.
+	a.enforceBudget(ctx, budget)
 
 	// 7. #412: Delta pack
 	if sessionID != "" {
@@ -966,6 +996,9 @@ func extractWorkingContext(sessionText string, maxTurns int) string {
 	return strings.Join(lines[start:], "\n")
 }
 
+// estimateTokens is the legacy word-based heuristic used by tests and
+// callers outside the Assembler; the assembler itself routes through the
+// pluggable estimator (#492). Kept for backward compatibility.
 func estimateTokens(text string) int {
 	if text == "" {
 		return 0
