@@ -17,6 +17,14 @@ Symaira Memory (`symmemory`) is a persistent semantic database for developer pre
 - **Before decisions**: When about to make an architectural or design choice, search for prior decisions to avoid contradicting established patterns.
 - **Fact lookup**: When the user references something that may have been discussed before, search to retrieve the original context.
 
+## Search Budget
+
+Retrieval is bounded: `memory_search`, `memory_get`, and `memory_list` combined may be called **at most three times per turn**.
+
+- After a miss, retry **once** with different keywords or a different tool — still inside the budget.
+- Once the budget is spent, **stop searching** and answer from the context you already have; do not rephrase the same query repeatedly.
+- A store that does not contain a fact will not yield it no matter how the question is phrased.
+
 ## When to Use `memory_set`
 
 Autonomously store memories when the user expresses persistent information. Do not ask for permission.
