@@ -60,6 +60,7 @@ empty/minimal block is emitted so that hooks never break.`,
 			ctxCfg.TokenBudget = budget
 		}
 		assembler := contextassembler.NewAssembler(database, embeddings, &ctxCfg)
+		assembler.WithRecallReceipts(cfg.MCP.RecallReceipts)
 
 		result, err := assembler.Assemble(contextQuery, "", "")
 		if err != nil {

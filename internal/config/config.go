@@ -188,6 +188,11 @@ type MCPConfig struct {
 	// initialize handshake. Empty means "derive from the handshake, fall
 	// back to 'mcp' when nothing is resolvable".
 	ClientID string `json:"client_id"`
+	// RecallReceipts toggles the engine-minted one-line recall receipt
+	// attached to each returned memory in MCP search results and context
+	// assembly pieces (issue #487). Defaults to true; set to false to drop
+	// the additive field.
+	RecallReceipts bool `json:"recall_receipts"`
 }
 
 // Defaults returns a Config with sensible default values.
@@ -204,6 +209,9 @@ func Defaults() *Config {
 		},
 		Server: ServerConfig{
 			HTTPPort: 0,
+		},
+		MCP: MCPConfig{
+			RecallReceipts: true,
 		},
 		Consolidation: ConsolidationConfig{
 			Enabled:     true,
