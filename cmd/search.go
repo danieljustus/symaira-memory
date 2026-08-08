@@ -9,6 +9,7 @@ import (
 	"github.com/danieljustus/symaira-corekit/exitcodes"
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
+	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/spf13/cobra"
 )
 
@@ -135,6 +136,8 @@ var searchCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "No confident match: %d result(s) below min_score %.3f were dropped.\n", before, minScore)
 			}
 		}
+
+		security.RedactSearchResults(results)
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		formatter.IncludeEmbedding = searchIncludeEmbedding

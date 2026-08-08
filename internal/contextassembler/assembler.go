@@ -14,6 +14,7 @@ import (
 	"github.com/danieljustus/symaira-memory/internal/db"
 	"github.com/danieljustus/symaira-memory/internal/extractor"
 	"github.com/danieljustus/symaira-memory/internal/memory"
+	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/danieljustus/symaira-memory/internal/summarizer"
 )
 
@@ -849,6 +850,7 @@ func (a *Assembler) Assemble(query string, sessionText string, sessionID string)
 		}
 		workingMems, err := a.database.GetWorkingMemories("", maxItems)
 		if err == nil && len(workingMems) > 0 {
+			security.RedactMemories(workingMems)
 			workingMemContent := formatWorkingMemories(workingMems)
 			workingMemTokens := a.estimate(workingMemContent)
 			if usedTokens+workingMemTokens <= budget {
@@ -981,7 +983,15 @@ func (a *Assembler) retrieveRelevant(query string, tokenBudget int) ([]db.Search
 	if limit > 20 {
 		limit = 20
 	}
-	return a.database.SearchMemories(queryVec, emb.Source, "", limit)
+	results, err := a.database.SearchMemories(queryVec, emb.Source, "", limit)
+	if err != nil {
+		return nil, err
+	}
+	// Defense in depth: content that reaches assembled prompt context must
+	// never carry a raw credential, even if it slipped past write-time
+	// redaction (#515).
+	security.RedactSearchResults(results)
+	return results, nil
 }
 
 func extractWorkingContext(sessionText string, maxTurns int) string {

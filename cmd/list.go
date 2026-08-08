@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/danieljustus/symaira-corekit/exitcodes"
+	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/spf13/cobra"
 )
 
@@ -47,6 +48,7 @@ var listCmd = &cobra.Command{
 			if err != nil {
 				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "database read failure")
 			}
+			security.RedactMemories(mems)
 			formatter := NewOutputFormatter(GetOutputFormat(cmd))
 			if err := formatter.Output(mems, "list"); err != nil {
 				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "output error")
@@ -70,6 +72,7 @@ var listCmd = &cobra.Command{
 		if err != nil {
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "database read failure")
 		}
+		security.RedactMemories(mems)
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		if err := formatter.Output(mems, "list"); err != nil {
