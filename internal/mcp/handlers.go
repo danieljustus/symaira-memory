@@ -145,6 +145,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Search failed", err)
 		return
 	}
+	security.RedactSearchResults(results)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(results); err != nil {
@@ -221,6 +222,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, http.StatusInternalServerError, CodeInternal, "Failed to list memories", err)
 		return
 	}
+	security.RedactMemories(memories)
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(memories); err != nil {
@@ -301,6 +303,7 @@ func (s *Server) handleSyncChanges(w http.ResponseWriter, r *http.Request) {
 		last := memories[len(memories)-1]
 		nextCursor = base64.StdEncoding.EncodeToString([]byte(last.UpdatedAt.Format(time.RFC3339Nano)))
 	}
+	security.RedactMemories(memories)
 
 	deleted, err := s.service.GetDeletedSince(since)
 	if err != nil {
@@ -500,6 +503,7 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	security.RedactMemory(m)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(m)

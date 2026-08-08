@@ -382,6 +382,57 @@ func TestToolMemorySearchWithEvidence(t *testing.T) {
 	}
 }
 
+// TestToolMemorySearchRedactsLegacySecret guards #515: a record that
+// reached storage without write-time redaction (simulated here by writing
+// directly via db.SaveMemory, bypassing internal/memory.Prepare) must still
+// come back redacted from memory_search — the transport is defense in depth
+// on top of write-time redaction, not a replacement for it.
+func TestToolMemorySearchRedactsLegacySecret(t *testing.T) {
+	s := helperServer(t)
+	secret := "gho_abcdefabcdefabcdefabcdefabcdefabcdef"
+	content := "Deployment note: GitHub auth token is " + secret
+	m := &db.Memory{
+		ID:      "test-mem-legacy-secret",
+		Content: content,
+		Scope:   "project",
+	}
+	emb := s.service.embeddings.GenerateVector(content)
+	m.Embedding = emb.Vector
+	m.EmbeddingSource = emb.Source
+	m.EmbeddingModel = emb.Model
+	if err := s.DB().SaveMemory(m); err != nil {
+		t.Fatalf("failed to save test memory: %v", err)
+	}
+
+	res := callTool(s, "memory_search", map[string]interface{}{"query": content, "scope": "project", "limit": 5})
+	text := getToolText(res)
+	if strings.Contains(text, secret) {
+		t.Fatalf("memory_search response leaked raw secret: %s", text)
+	}
+}
+
+// TestToolMemoryGetRedactsLegacySecret is the memory_get counterpart of
+// TestToolMemorySearchRedactsLegacySecret.
+func TestToolMemoryGetRedactsLegacySecret(t *testing.T) {
+	s := helperServer(t)
+	secret := "AKIA1234567890ABCDEF"
+	content := "AWS key is " + secret
+	m := &db.Memory{
+		ID:      "test-mem-legacy-secret-get",
+		Content: content,
+		Scope:   "global",
+	}
+	if err := s.DB().SaveMemory(m); err != nil {
+		t.Fatalf("failed to save test memory: %v", err)
+	}
+
+	res := callTool(s, "memory_get", map[string]interface{}{"id": m.ID})
+	text := getToolText(res)
+	if strings.Contains(text, secret) {
+		t.Fatalf("memory_get response leaked raw secret: %s", text)
+	}
+}
+
 func TestToolMemoryGetOmitsEmbedding(t *testing.T) {
 	s := helperServer(t)
 	m := &db.Memory{

@@ -48,6 +48,11 @@ func memoryResponse(m *db.Memory) MemoryResponse {
 	if m == nil {
 		return MemoryResponse{}
 	}
+	// Defense in depth: re-redact at the response boundary so a record that
+	// reached storage without write-time redaction (legacy import, or a
+	// gap in the write-time patterns) never leaves the MCP transport with
+	// raw credential-shaped content (#515).
+	security.RedactMemory(m)
 	return MemoryResponse{
 		ID:                  m.ID,
 		Content:             m.Content,

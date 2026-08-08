@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"github.com/danieljustus/symaira-corekit/exitcodes"
+	"github.com/danieljustus/symaira-memory/internal/security"
 	"github.com/spf13/cobra"
 )
 
@@ -44,6 +45,7 @@ var getCmd = &cobra.Command{
 			}
 			m.Evidence = evidence
 		}
+		security.RedactMemory(m)
 
 		formatter := NewOutputFormatter(GetOutputFormat(cmd))
 		formatter.IncludeEmbedding = getIncludeEmbedding
