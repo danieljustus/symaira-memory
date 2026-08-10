@@ -10,11 +10,10 @@ on:
       - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
-      - 'LICENSE'
-      - '.github/ISSUE_TEMPLATE/**'
+    # NOTE: intentionally NO paths-ignore here. Branch protection requires the
+    # "Build & Test (ubuntu-latest, 1.26.x)" check on every PR; path-filtering
+    # docs-only PRs would leave that required check unreported forever and make
+    # docs PRs unmergeable. PRs are already ubuntu-only, so the cost is small.
   schedule:
     - cron: '55 5 * * 1'  # weekly Monday 05:55 UTC — full suite incl. macOS + Windows
   workflow_dispatch: {}  # manual trigger (e.g. to re-verify after path-filtered fixes)
