@@ -19,6 +19,15 @@ type CalendarImporter struct {
 	includeDesc bool
 	tokenPath   string // path to OAuth token JSON
 	includeDays int    // upcoming days to include
+
+	// vaultLookup is the optional SymVault fallback used when no token file
+	// or env var is configured. It is an injectable seam for tests; the
+	// default runs `symvault get <path> --print` under a bounded context.
+	vaultLookup func(ctx context.Context, path string) ([]byte, error)
+
+	// vaultTimeout bounds vaultLookup so a missing or hung symvault cannot
+	// stall the no-token path. Defaults to vaultLookupTimeout.
+	vaultTimeout time.Duration
 }
 
 // calendarEvent represents a Google Calendar event from the API.
@@ -71,10 +80,12 @@ func NewCalendarImporter(calendarID, tokenPath string, includeDesc bool, include
 		includeDays = 7
 	}
 	return &CalendarImporter{
-		calendarID:  calendarID,
-		includeDesc: includeDesc,
-		tokenPath:   tokenPath,
-		includeDays: includeDays,
+		calendarID:   calendarID,
+		includeDesc:  includeDesc,
+		tokenPath:    tokenPath,
+		includeDays:  includeDays,
+		vaultLookup:  defaultVaultLookup,
+		vaultTimeout: vaultLookupTimeout,
 	}
 }
 
@@ -229,7 +240,20 @@ func (c *CalendarImporter) ImportSession(ref importer.SessionRef) ([]importer.Im
 	}}, nil
 }
 
-// loadToken loads the OAuth2 token from file or environment.
+// vaultLookupTimeout bounds the optional SymVault fallback used when no
+// token file or env var is configured, so a missing or hung symvault cannot
+// stall discovery/import.
+const vaultLookupTimeout = 3 * time.Second
+
+// defaultVaultLookup runs `symvault get <path> --print` and returns its raw
+// stdout. The context is bounded by the caller so a hung symvault cannot
+// block indefinitely.
+func defaultVaultLookup(ctx context.Context, path string) ([]byte, error) {
+	return exec.CommandContext(ctx, "symvault", "get", path, "--print").Output()
+}
+
+// loadToken loads the OAuth2 token from file or environment, falling back to
+// a bounded SymVault lookup when neither is configured.
 func (c *CalendarImporter) loadToken() (*oauth2.Token, error) {
 	tokenPath := c.tokenPath
 	if tokenPath == "" {
@@ -237,9 +261,19 @@ func (c *CalendarImporter) loadToken() (*oauth2.Token, error) {
 	}
 
 	if tokenPath == "" {
-		// Try symvault
-		vaultPath := "google/calendar-token"
-		out, err := exec.Command("symvault", "get", vaultPath, "--print").Output()
+		// Optional SymVault fallback, bounded so a missing or hung symvault
+		// cannot stall the no-token path for tens of seconds.
+		lookup := c.vaultLookup
+		if lookup == nil {
+			lookup = defaultVaultLookup
+		}
+		timeout := c.vaultTimeout
+		if timeout <= 0 {
+			timeout = vaultLookupTimeout
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		out, err := lookup(ctx, "google/calendar-token")
 		if err == nil {
 			tokenData := strings.TrimSpace(string(out))
 			return parseToken([]byte(tokenData))
