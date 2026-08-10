@@ -1,6 +1,8 @@
 package calendar
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -204,6 +206,131 @@ func TestLoadTokenFromEnv(t *testing.T) {
 	}
 	if token.AccessToken != "env-token" {
 		t.Errorf("AccessToken = %q, want %q", token.AccessToken, "env-token")
+	}
+}
+
+// TestLoadTokenSymVaultUnavailable asserts that the no-token path fails fast
+// with the actionable 'no token found' error when the SymVault fallback is
+// unavailable, without depending on an ambient symvault process.
+func TestLoadTokenSymVaultUnavailable(t *testing.T) {
+	t.Setenv("GOOGLE_CALENDAR_TOKEN", "")
+	imp := NewCalendarImporter("primary", "", false, 7)
+
+	var invoked bool
+	imp.vaultLookup = func(ctx context.Context, path string) ([]byte, error) {
+		invoked = true
+		if path != "google/calendar-token" {
+			t.Errorf("vaultLookup path = %q, want %q", path, "google/calendar-token")
+		}
+		return nil, fmt.Errorf("exec: symvault: executable file not found in $PATH")
+	}
+
+	start := time.Now()
+	_, err := imp.loadToken()
+	elapsed := time.Since(start)
+
+	if !invoked {
+		t.Fatal("vaultLookup was not invoked")
+	}
+	if err == nil {
+		t.Fatal("expected error when SymVault is unavailable")
+	}
+	if !strings.Contains(err.Error(), "no token found") {
+		t.Errorf("expected 'no token found' error, got %q", err.Error())
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("loadToken took %v with unavailable SymVault; want fail-fast return", elapsed)
+	}
+}
+
+// TestLoadTokenSymVaultSlow asserts that a hung SymVault fallback is bounded
+// by the context timeout and cannot block the no-token path indefinitely.
+func TestLoadTokenSymVaultSlow(t *testing.T) {
+	t.Setenv("GOOGLE_CALENDAR_TOKEN", "")
+	imp := NewCalendarImporter("primary", "", false, 7)
+	imp.vaultTimeout = 100 * time.Millisecond
+
+	var invoked bool
+	var sawCancel bool
+	imp.vaultLookup = func(ctx context.Context, path string) ([]byte, error) {
+		invoked = true
+		// Simulate a hung symvault: only return once the bounded context fires.
+		<-ctx.Done()
+		sawCancel = true
+		return nil, ctx.Err()
+	}
+
+	start := time.Now()
+	_, err := imp.loadToken()
+	elapsed := time.Since(start)
+
+	if !invoked {
+		t.Fatal("vaultLookup was not invoked")
+	}
+	if !sawCancel {
+		t.Error("bounded context was never cancelled; SymVault fallback is not bounded")
+	}
+	if err == nil {
+		t.Fatal("expected error with hung SymVault")
+	}
+	if !strings.Contains(err.Error(), "no token found") {
+		t.Errorf("expected 'no token found' error, got %q", err.Error())
+	}
+	// The stub would block forever if left alone; it must return promptly
+	// once the timeout fires.
+	if elapsed > 2*time.Second {
+		t.Errorf("loadToken took %v with hung SymVault; want bounded return near %v", elapsed, imp.vaultTimeout)
+	}
+}
+
+// TestDiscoverSessionsNoTokenSymVaultUnavailable asserts the full discovery
+// no-token path returns promptly when the SymVault fallback is unavailable.
+func TestDiscoverSessionsNoTokenSymVaultUnavailable(t *testing.T) {
+	t.Setenv("GOOGLE_CALENDAR_TOKEN", "")
+	imp := NewCalendarImporter("primary", "", false, 7)
+	imp.vaultLookup = func(ctx context.Context, path string) ([]byte, error) {
+		return nil, fmt.Errorf("symvault unavailable")
+	}
+
+	start := time.Now()
+	_, err := imp.DiscoverSessions(time.Now())
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error with unavailable SymVault")
+	}
+	if !strings.Contains(err.Error(), "no token found") {
+		t.Errorf("expected 'no token found' error, got %q", err.Error())
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("DiscoverSessions took %v with unavailable SymVault; want fail-fast return", elapsed)
+	}
+}
+
+// TestImportSessionNoTokenSymVaultSlow asserts the full import no-token path
+// returns promptly when the SymVault fallback hangs.
+func TestImportSessionNoTokenSymVaultSlow(t *testing.T) {
+	t.Setenv("GOOGLE_CALENDAR_TOKEN", "")
+	imp := NewCalendarImporter("primary", "", false, 7)
+	imp.vaultTimeout = 100 * time.Millisecond
+	imp.vaultLookup = func(ctx context.Context, path string) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	ref := importer.SessionRef{SessionID: "event123"}
+
+	start := time.Now()
+	_, err := imp.ImportSession(ref)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error with hung SymVault")
+	}
+	if !strings.Contains(err.Error(), "no token found") {
+		t.Errorf("expected 'no token found' error, got %q", err.Error())
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("ImportSession took %v with hung SymVault; want bounded return", elapsed)
 	}
 }
 
