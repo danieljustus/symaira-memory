@@ -10,11 +10,10 @@ on:
       - '.github/ISSUE_TEMPLATE/**'
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'docs/**'
-      - '**.md'
-      - 'LICENSE'
-      - '.github/ISSUE_TEMPLATE/**'
+    # NOTE: intentionally NO paths-ignore here. Branch protection requires the
+    # "Build & Test (ubuntu-latest, 1.26.x)" check on every PR; path-filtering
+    # docs-only PRs would leave that required check unreported forever and make
+    # docs PRs unmergeable. PRs are already ubuntu-only, so the cost is small.
   schedule:
     - cron: '55 5 * * 1'  # weekly Monday 05:55 UTC — full suite incl. macOS + Windows
   workflow_dispatch: {}  # manual trigger (e.g. to re-verify after path-filtered fixes)
@@ -58,7 +57,9 @@ jobs:
     - name: Run tests (full suite — POSIX)
       if: runner.os != 'Windows'
       run: go test -v -race -p 1 -timeout 15m ./...
-      timeout-minutes: 20
+      # Suite routinely runs ~20 min (measured on main: 20m20s–20m37s job
+      # duration); 20 min was too tight and flaked on slower runners.
+      timeout-minutes: 30
 
     - name: Run tests (targeted subset — Windows)
       if: runner.os == 'Windows'
