@@ -73,7 +73,7 @@ go build -o symmemory main.go
 
 ### Prerequisites (for source builds only)
 
-- Go 1.26.3 or later
+- Go 1.26.5 or later
 - No C compiler required (CGO-free)
 
 ---
