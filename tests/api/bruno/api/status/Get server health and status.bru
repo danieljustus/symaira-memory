@@ -1,0 +1,48 @@
+meta {
+  name: Get server health and status
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/status
+  body: none
+  auth: inherit
+}
+
+docs {
+  Returns the status, version, and server identity.
+}
+
+example {
+  name: 200 Response
+  description: Server is active and healthy
+  
+  request: {
+    url: {{baseUrl}}/api/status
+    method: GET
+    mode: none
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        {
+          "status": "healthy",
+          "version": "0.15.2",
+          "server": "symaira-memory"
+        }
+      '''
+    }
+  }
+}

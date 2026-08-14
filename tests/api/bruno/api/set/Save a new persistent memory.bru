@@ -1,0 +1,104 @@
+meta {
+  name: Save a new persistent memory
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/set
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "content": "User prefers typescript over python",
+    "scope": "global",
+    "metadata": {
+      "source": "extension"
+    }
+  }
+}
+
+docs {
+  Stores a new fact in the local SQLite database. Automatically triggers local embedding generation, PII masking, and active project scope parsing.
+}
+
+example {
+  name: 200 Response
+  description: Memory successfully saved
+  
+  request: {
+    url: {{baseUrl}}/api/set
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "content": "User prefers typescript over python",
+        "scope": "global",
+        "metadata": {
+          "source": "extension"
+        }
+      }
+    }
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        {
+          "status": "success",
+          "id": "e114ff39-fd89-4efc-8955-2ce5bc67c896"
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: 401 Response
+  description: Unauthorized
+  
+  request: {
+    url: {{baseUrl}}/api/set
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "content": "User prefers typescript over python",
+        "scope": "global",
+        "metadata": {
+          "source": "extension"
+        }
+      }
+    }
+  }
+  
+  response: {
+    status: {
+      code: 401
+      text: Unauthorized
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}

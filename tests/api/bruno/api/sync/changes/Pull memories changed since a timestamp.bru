@@ -1,0 +1,128 @@
+meta {
+  name: Pull memories changed since a timestamp
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/sync/changes
+  body: none
+  auth: bearer
+}
+
+params:query {
+  @description('RFC 3339 timestamp; only memories updated after this instant are returned.')
+  since: 2026-06-01T00:00:00Z
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  Returns all memories with updated_at strictly after the supplied RFC 3339 timestamp. If since is missing or invalid, all rows are returned.
+}
+
+example {
+  name: 200 Response
+  description: Changes retrieved successfully
+  
+  request: {
+    url: {{baseUrl}}/api/sync/changes
+    method: GET
+    mode: none
+    params:query: {
+      since: 2026-06-01T00:00:00Z
+    }
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        {
+          "memories": [
+            {
+              "id": "e114ff39-fd89-4efc-8955-2ce5bc67c896",
+              "content": "User prefers typescript over python",
+              "scope": "global",
+              "metadata": {
+                "source": "extension",
+                "similarity_score": "0.8924"
+              },
+              "embedding": [],
+              "created_at": "2026-06-02T16:20:23Z",
+              "updated_at": "2026-06-02T16:20:23Z"
+            }
+          ],
+          "server_time": "2026-06-10T12:00:00Z"
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: 400 Response
+  description: Bad request - invalid since parameter format
+  
+  request: {
+    url: {{baseUrl}}/api/sync/changes
+    method: GET
+    mode: none
+    params:query: {
+      since: 2026-06-01T00:00:00Z
+    }
+  }
+  
+  response: {
+    status: {
+      code: 400
+      text: Bad Request
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
+
+example {
+  name: 401 Response
+  description: Unauthorized
+  
+  request: {
+    url: {{baseUrl}}/api/sync/changes
+    method: GET
+    mode: none
+    params:query: {
+      since: 2026-06-01T00:00:00Z
+    }
+  }
+  
+  response: {
+    status: {
+      code: 401
+      text: Unauthorized
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}

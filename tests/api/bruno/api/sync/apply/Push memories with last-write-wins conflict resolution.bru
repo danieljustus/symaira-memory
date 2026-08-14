@@ -1,0 +1,131 @@
+meta {
+  name: Push memories with last-write-wins conflict resolution
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/sync/apply
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "memories": [
+      {
+        "id": "e114ff39-fd89-4efc-8955-2ce5bc67c896",
+        "content": "User prefers typescript over python",
+        "scope": "global",
+        "metadata": {
+          "source": "extension",
+          "similarity_score": "0.8924"
+        },
+        "embedding": [],
+        "created_at": "2026-06-02T16:20:23Z",
+        "updated_at": "2026-06-02T16:20:23Z"
+      }
+    ]
+  }
+}
+
+docs {
+  Accepts a batch of memories and upserts each by ID. A row is only overwritten when the incoming updated_at is strictly newer than the stored value.
+}
+
+example {
+  name: 200 Response
+  description: Apply completed
+  
+  request: {
+    url: {{baseUrl}}/api/sync/apply
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "memories": [
+          {
+            "id": "e114ff39-fd89-4efc-8955-2ce5bc67c896",
+            "content": "User prefers typescript over python",
+            "scope": "global",
+            "metadata": {
+              "source": "extension",
+              "similarity_score": "0.8924"
+            },
+            "embedding": [],
+            "created_at": "2026-06-02T16:20:23Z",
+            "updated_at": "2026-06-02T16:20:23Z"
+          }
+        ]
+      }
+    }
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        {
+          "applied": 3,
+          "skipped": 1
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: 401 Response
+  description: Unauthorized
+  
+  request: {
+    url: {{baseUrl}}/api/sync/apply
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "memories": [
+          {
+            "id": "e114ff39-fd89-4efc-8955-2ce5bc67c896",
+            "content": "User prefers typescript over python",
+            "scope": "global",
+            "metadata": {
+              "source": "extension",
+              "similarity_score": "0.8924"
+            },
+            "embedding": [],
+            "created_at": "2026-06-02T16:20:23Z",
+            "updated_at": "2026-06-02T16:20:23Z"
+          }
+        ]
+      }
+    }
+  }
+  
+  response: {
+    status: {
+      code: 401
+      text: Unauthorized
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
