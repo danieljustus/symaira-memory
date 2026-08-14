@@ -1,0 +1,224 @@
+meta {
+  name: Revoke a JWT token
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/token/revoke
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "token": "",
+    "jti": ""
+  }
+}
+
+docs {
+  Revokes a JWT token by its jti (or full token value) so it can no
+  longer be used to authenticate. Requires a valid bearer token.
+  The revocation takes effect in memory immediately and is persisted
+  when a revocation store is available; a persistence failure is
+  reported as a 500 while the in-memory revocation still applies.
+  
+}
+
+example {
+  name: 200 Response
+  description: Token revoked successfully
+  
+  request: {
+    url: {{baseUrl}}/api/token/revoke
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "token": "",
+        "jti": ""
+      }
+    }
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        {
+          "status": "revoked",
+          "jti": "9f2c4e8a1b3d5c7e9a0b1c2d3e4f5a6b"
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: 400 Response
+  description: Bad request - missing or invalid token/jti
+  
+  request: {
+    url: {{baseUrl}}/api/token/revoke
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "token": "",
+        "jti": ""
+      }
+    }
+  }
+  
+  response: {
+    status: {
+      code: 400
+      text: Bad Request
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
+
+example {
+  name: 401 Response
+  description: Unauthorized
+  
+  request: {
+    url: {{baseUrl}}/api/token/revoke
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "token": "",
+        "jti": ""
+      }
+    }
+  }
+  
+  response: {
+    status: {
+      code: 401
+      text: Unauthorized
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
+
+example {
+  name: 403 Response
+  description: Forbidden (unauthenticated state-changing request blocked by CSRF protection)
+  
+  request: {
+    url: {{baseUrl}}/api/token/revoke
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "token": "",
+        "jti": ""
+      }
+    }
+  }
+  
+  response: {
+    status: {
+      code: 403
+      text: Forbidden
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
+
+example {
+  name: 405 Response
+  description: Method not allowed
+  
+  request: {
+    url: {{baseUrl}}/api/token/revoke
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "token": "",
+        "jti": ""
+      }
+    }
+  }
+  
+  response: {
+    status: {
+      code: 405
+      text: Method Not Allowed
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
+
+example {
+  name: 500 Response
+  description: Token revoked in memory but persistence failed
+  
+  request: {
+    url: {{baseUrl}}/api/token/revoke
+    method: POST
+    mode: json
+    body:json: {
+      {
+        "token": "",
+        "jti": ""
+      }
+    }
+  }
+  
+  response: {
+    status: {
+      code: 500
+      text: Internal Server Error
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}

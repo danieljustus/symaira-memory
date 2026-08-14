@@ -1,0 +1,97 @@
+meta {
+  name: List stored memories
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/list
+  body: none
+  auth: bearer
+}
+
+params:query {
+  @description('Optional scope filter.')
+  scope: project
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  Returns a complete list of stored facts, optionally filtered by scope.
+}
+
+example {
+  name: 200 Response
+  description: List fetched successfully
+  
+  request: {
+    url: {{baseUrl}}/api/list
+    method: GET
+    mode: none
+    params:query: {
+      scope: project
+    }
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        [
+          {
+            "id": "e114ff39-fd89-4efc-8955-2ce5bc67c896",
+            "content": "User prefers typescript over python",
+            "scope": "global",
+            "metadata": {
+              "source": "extension",
+              "similarity_score": "0.8924"
+            },
+            "embedding": [],
+            "created_at": "2026-06-02T16:20:23Z",
+            "updated_at": "2026-06-02T16:20:23Z"
+          }
+        ]
+      '''
+    }
+  }
+}
+
+example {
+  name: 401 Response
+  description: Unauthorized
+  
+  request: {
+    url: {{baseUrl}}/api/list
+    method: GET
+    mode: none
+    params:query: {
+      scope: project
+    }
+  }
+  
+  response: {
+    status: {
+      code: 401
+      text: Unauthorized
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}

@@ -1,0 +1,96 @@
+meta {
+  name: List behavioral rules
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/rules
+  body: none
+  auth: bearer
+}
+
+params:query {
+  @description('Optional scope filter.')
+  scope: global
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  Returns all stored procedural memory rules, optionally filtered by scope.
+}
+
+example {
+  name: 200 Response
+  description: Rules retrieved successfully
+  
+  request: {
+    url: {{baseUrl}}/api/rules
+    method: GET
+    mode: none
+    params:query: {
+      scope: global
+    }
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        {
+          "rules": [
+            {
+              "id": "b3a7c1f2-9d4e-4a12-b5f6-1e2d3c4b5a69",
+              "content": "Always respond in concise bullet points.",
+              "scope": "global",
+              "metadata": {
+                "source": "cli_rule_add"
+              },
+              "created_at": "2026-06-02T16:20:23Z"
+            }
+          ]
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: 401 Response
+  description: Unauthorized
+  
+  request: {
+    url: {{baseUrl}}/api/rules
+    method: GET
+    mode: none
+    params:query: {
+      scope: global
+    }
+  }
+  
+  response: {
+    status: {
+      code: 401
+      text: Unauthorized
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}

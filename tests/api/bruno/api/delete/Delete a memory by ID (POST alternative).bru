@@ -1,0 +1,142 @@
+meta {
+  name: Delete a memory by ID (POST alternative)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/delete
+  body: none
+  auth: bearer
+}
+
+params:query {
+  @description('Unique memory identifier.')
+  id: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  Same as DELETE but accepts POST for clients that cannot send DELETE requests.
+}
+
+example {
+  name: 200 Response
+  description: Memory deleted
+  
+  request: {
+    url: {{baseUrl}}/api/delete
+    method: POST
+    mode: none
+    params:query: {
+      id: 
+    }
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        {
+          "deleted": true
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: 400 Response
+  description: Bad request - missing id parameter
+  
+  request: {
+    url: {{baseUrl}}/api/delete
+    method: POST
+    mode: none
+    params:query: {
+      id: 
+    }
+  }
+  
+  response: {
+    status: {
+      code: 400
+      text: Bad Request
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
+
+example {
+  name: 401 Response
+  description: Unauthorized
+  
+  request: {
+    url: {{baseUrl}}/api/delete
+    method: POST
+    mode: none
+    params:query: {
+      id: 
+    }
+  }
+  
+  response: {
+    status: {
+      code: 401
+      text: Unauthorized
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
+
+example {
+  name: 404 Response
+  description: Memory not found
+  
+  request: {
+    url: {{baseUrl}}/api/delete
+    method: POST
+    mode: none
+    params:query: {
+      id: 
+    }
+  }
+  
+  response: {
+    status: {
+      code: 404
+      text: Not Found
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}

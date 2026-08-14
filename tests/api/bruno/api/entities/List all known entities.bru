@@ -1,0 +1,81 @@
+meta {
+  name: List all known entities
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/entities
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  Returns a list of all known entities (people, projects, organizations) that can be linked to memories.
+}
+
+example {
+  name: 200 Response
+  description: Entities retrieved successfully
+  
+  request: {
+    url: {{baseUrl}}/api/entities
+    method: GET
+    mode: none
+  }
+  
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+  
+    status: {
+      code: 200
+      text: OK
+    }
+  
+    body: {
+      type: json
+      content: '''
+        {
+          "entities": [
+            {
+              "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+              "name": "Alice",
+              "created_at": "2026-06-02T16:20:23Z"
+            }
+          ]
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: 401 Response
+  description: Unauthorized
+  
+  request: {
+    url: {{baseUrl}}/api/entities
+    method: GET
+    mode: none
+  }
+  
+  response: {
+    status: {
+      code: 401
+      text: Unauthorized
+    }
+  
+    body: {
+      type: text
+      content: '''
+  
+      '''
+    }
+  }
+}
