@@ -18,7 +18,9 @@ var (
 
 func init() {
 	queryLogCmd.Flags().IntVarP(&queryLogLimit, "limit", "n", 20, "Number of recent entries to show")
-	queryLogCmd.Flags().BoolVar(&queryLogJSON, "json", false, "Output raw JSON instead of table")
+	queryLogCmd.Flags().BoolVar(&queryLogJSON, "json", false, "Deprecated: use --output json")
+	_ = queryLogCmd.Flags().MarkHidden("json")
+	_ = queryLogCmd.Flags().MarkDeprecated("json", "use --output json")
 	queryLogCmd.Flags().StringVar(&queryLogActor, "actor", "", "Only show entries recorded for this actor (client identity)")
 	queryLogCmd.AddCommand(queryLogResultsCmd)
 	rootCmd.AddCommand(queryLogCmd)

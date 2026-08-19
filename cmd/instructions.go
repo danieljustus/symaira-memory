@@ -26,7 +26,7 @@ document is printed, byte-identical to the tracked skills/symmemory/SKILL.md.
 
 With --client <name> the output is composed from the integration text plus
 the stored behavioral rules (symmemory rule add) for the resolved scope, in
-the file format that client reads. With --output <path> the rendered
+the file format that client reads. With --out <path> the rendered
 document is written to that path instead of printed. Run 'symmemory
 instructions --help' or 'symmemory hook --list' for the client list.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -80,7 +80,7 @@ instructions --help' or 'symmemory hook --list' for the client list.`,
 
 func init() {
 	instructionsCmd.Flags().StringVar(&instructionsClient, "client", "", "Render for a client: "+strings.Join(instructions.ClientNames(), ", "))
-	instructionsCmd.Flags().StringVar(&instructionsOutput, "output", "", "Write the rendered document to this path instead of stdout")
+	instructionsCmd.Flags().StringVar(&instructionsOutput, "out", "", "Write the rendered document to this path instead of stdout")
 	instructionsCmd.Flags().StringVarP(&instructionsScope, "scope", "s", "global", "Scope level for stored rules: global, project, agent, user")
 	rootCmd.AddCommand(instructionsCmd)
 }

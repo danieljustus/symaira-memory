@@ -16,12 +16,10 @@ import (
 
 var (
 	compactDryRun bool
-	compactOutput string
 )
 
 func init() {
 	compactCmd.Flags().BoolVar(&compactDryRun, "dry-run", false, "Show what would be compacted without making changes")
-	compactCmd.Flags().StringVar(&compactOutput, "output", "table", "Output format: table or json")
 	rootCmd.AddCommand(compactCmd)
 }
 
@@ -45,7 +43,7 @@ engine and then evicting the originals. Use --dry-run to preview without changes
 			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "compaction failed")
 		}
 
-		if compactOutput == "json" {
+		if GetOutputFormat(cmd) == "json" {
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
 			return enc.Encode(result)

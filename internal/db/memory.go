@@ -895,32 +895,125 @@ func (db *DB) SearchMemoriesFiltered(queryVec []float32, querySource string, sco
 // SearchMemoriesFilteredWithTrust extends SearchMemoriesFiltered with trust-aware
 // and policy-aware filtering. Memories that don't match the trust or policy filter
 // are excluded from results.
+// SearchQuery carries the full parameter set for a filtered vector search.
+// SearchMemoriesFilteredWithTrust builds one and delegates to the named
+// stage methods below.
+type SearchQuery struct {
+	QueryVec     []float32
+	QuerySource  string
+	Scope        string
+	Scopes       []string // when non-empty, candidate selection filters scope IN (Scopes)
+	Limit        int
+	EntityID     string
+	TrustFilter  TrustFilter
+	PolicyFilter PolicyFilter
+	TimeWindow   TimeWindow
+	Quantization string
+	Weights      RankingWeights
+	// NoAccessTracking, when true, skips the best-effort access-tracking write
+	// so the caller can record access on the final returned set only.
+	NoAccessTracking bool
+}
+
+type scoredMemory struct {
+	m     *Memory
+	score float32
+}
+
+const (
+	searchMaxCandidates = 2000
+	searchBatchSize     = 64
+)
+
 func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource string, scope string, limit int, entityID string, trustFilter TrustFilter, policyFilter PolicyFilter, timeWindow TimeWindow, quantization string, weights ...RankingWeights) ([]SearchResult, error) {
 	w := DefaultRankingWeights()
 	if len(weights) > 0 {
 		w = weights[0]
 	}
-	const maxCandidates = 2000
-	const batchSize = 64
-	type scored struct {
-		m     *Memory
-		score float32
+	q := &SearchQuery{
+		QueryVec:     queryVec,
+		QuerySource:  querySource,
+		Scope:        scope,
+		Limit:        limit,
+		EntityID:     entityID,
+		TrustFilter:  trustFilter,
+		PolicyFilter: policyFilter,
+		TimeWindow:   timeWindow,
+		Quantization: quantization,
+		Weights:      w,
 	}
-	var results []scored
+	return db.search(q)
+}
+
+// search runs the full retrieval pipeline for a prepared SearchQuery.
+func (db *DB) search(q *SearchQuery) ([]SearchResult, error) {
 	start := time.Now()
 
-	queryLSH, err := ComputeLSH(queryVec)
+	candidateIDs, err := db.lshCandidateIDs(q)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidateIDs) == 0 {
+		db.retrievalStats.Record(0, 0, time.Since(start))
+		return nil, nil
+	}
+
+	results, err := db.hydrateCandidates(q, candidateIDs)
+	if err != nil {
+		return nil, err
+	}
+	results = db.applyFilters(q, results)
+	results = db.scoreAndRank(q, results)
+	results, err = db.applySpreading(q, results)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := q.Limit
+	if limit > len(results) {
+		limit = len(results)
+	}
+	final := make([]SearchResult, 0, len(results))
+	for i := 0; i < limit; i++ {
+		final = append(final, SearchResult{
+			Memory: results[i].m,
+			Score:  results[i].score,
+		})
+	}
+
+	latency := time.Since(start)
+	if len(final) > 0 {
+		db.retrievalStats.Record(len(final), float64(final[0].Score), latency)
+	} else {
+		db.retrievalStats.Record(0, 0, latency)
+	}
+	// Track access for retrieval feedback loop (skipped when the caller
+	// wants to record access on the final returned set only).
+	if !q.NoAccessTracking && len(final) > 0 {
+		ids := make([]string, len(final))
+		for i, r := range final {
+			ids[i] = r.Memory.ID
+		}
+		_ = db.TrackMemoryAccessBatch(ids) // best-effort; error is non-fatal
+	}
+
+	return final, nil
+}
+
+// lshCandidateIDs expands the query vector into LSH buckets and returns the
+// batched candidate memory IDs, scoped or unscoped.
+func (db *DB) lshCandidateIDs(q *SearchQuery) ([]string, error) {
+	queryLSH, err := ComputeLSH(q.QueryVec)
 	if err != nil {
 		return nil, fmt.Errorf("search vector: %w", err)
 	}
 	buckets := LSHNeighbors(queryLSH, 2)
 
-	twClause, twArgs := TimeWindowClause(timeWindow, "")
+	twClause, twArgs := TimeWindowClause(q.TimeWindow, "")
 
 	var candidateIDs []string
-
-	for i := 0; i < len(buckets) && len(candidateIDs) < maxCandidates; i += batchSize {
-		end := i + batchSize
+	for i := 0; i < len(buckets) && len(candidateIDs) < searchMaxCandidates; i += searchBatchSize {
+		end := i + searchBatchSize
 		if end > len(buckets) {
 			end = len(buckets)
 		}
@@ -935,16 +1028,26 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		inClause := strings.Join(placeholders, ", ")
 
 		var query string
-		if scope != "" {
+		if len(q.Scopes) > 0 {
+			scopePlaceholders := make([]string, len(q.Scopes))
+			scopeArgs := make([]interface{}, 0, len(q.Scopes)+2)
+			for j, s := range q.Scopes {
+				scopePlaceholders[j] = "?"
+				scopeArgs = append(scopeArgs, s)
+			}
+			query = "SELECT id FROM memories WHERE scope IN (" + strings.Join(scopePlaceholders, ", ") + ") AND consolidation_status != 'archived' AND embedding_source = ? AND embedding_quantization = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) AND review_status = 'approved' AND retired_at IS NULL"
+			scopeArgs = append(scopeArgs, q.QuerySource, q.Quantization)
+			args = append(scopeArgs, args...)
+		} else if q.Scope != "" {
 			query = "SELECT id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND embedding_source = ? AND embedding_quantization = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) AND review_status = 'approved' AND retired_at IS NULL"
-			args = append([]interface{}{scope, querySource, quantization}, args...)
+			args = append([]interface{}{q.Scope, q.QuerySource, q.Quantization}, args...)
 		} else {
 			query = "SELECT id FROM memories WHERE consolidation_status != 'archived' AND embedding_source = ? AND embedding_quantization = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) AND review_status = 'approved' AND retired_at IS NULL"
-			args = append([]interface{}{querySource, quantization}, args...)
+			args = append([]interface{}{q.QuerySource, q.Quantization}, args...)
 		}
-		if entityID != "" {
+		if q.EntityID != "" {
 			query += " AND id IN (SELECT memory_id FROM memory_entities WHERE entity_id = ?)"
-			args = append(args, entityID)
+			args = append(args, q.EntityID)
 		}
 		query += twClause
 		args = append(args, twArgs...)
@@ -954,7 +1057,6 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		if err != nil {
 			return nil, err
 		}
-
 		for rows.Next() {
 			var id string
 			if err := rows.Scan(&id); err != nil {
@@ -962,28 +1064,28 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 				return nil, err
 			}
 			candidateIDs = append(candidateIDs, id)
-			if len(candidateIDs) >= maxCandidates {
+			if len(candidateIDs) >= searchMaxCandidates {
 				break
 			}
 		}
 		_ = rows.Close()
 	}
+	return candidateIDs, nil
+}
 
-	if len(candidateIDs) == 0 {
-		latency := time.Since(start)
-		db.retrievalStats.Record(0, 0, latency)
-		return nil, nil
-	}
-
-	for i := 0; i < len(candidateIDs); i += batchSize {
-		end := i + batchSize
+// hydrateCandidates loads the full memory rows for the candidate IDs,
+// discarding rows whose embedding dimension does not match the query vector.
+func (db *DB) hydrateCandidates(q *SearchQuery, candidateIDs []string) ([]scoredMemory, error) {
+	var results []scoredMemory
+	for i := 0; i < len(candidateIDs); i += searchBatchSize {
+		end := i + searchBatchSize
 		if end > len(candidateIDs) {
 			end = len(candidateIDs)
 		}
 		chunk := candidateIDs[i:end]
 
 		placeholders := make([]string, len(chunk))
-		args := make([]interface{}, 0, len(chunk)+1)
+		args := make([]interface{}, 0, len(chunk))
 		for j, id := range chunk {
 			placeholders[j] = "?"
 			args = append(args, id)
@@ -991,175 +1093,167 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		inClause := strings.Join(placeholders, ", ")
 
 		query := "SELECT " + memoryColumns + " FROM memories WHERE id IN (" + inClause + ")"
-
 		rows, err := db.conn.Query(query, args...)
 		if err != nil {
 			return nil, err
 		}
-
 		for rows.Next() {
 			m, err := scanMemory(rows)
 			if err != nil {
 				_ = rows.Close()
 				return nil, err
 			}
-			if len(m.Embedding) != len(queryVec) {
-				// Different embedding space (dimension mismatch): never cross-score.
+			if len(m.Embedding) != len(q.QueryVec) {
 				continue
 			}
 			if len(m.Embedding) > 0 {
-				if !passesTrustFilter(m, trustFilter) {
-					continue
-				}
-				if !PassesPolicyFilter(m, policyFilter) {
-					continue
-				}
-				if !passesTimeWindow(m, timeWindow) {
-					continue
-				}
-				results = append(results, scored{m: m})
+				results = append(results, scoredMemory{m: m})
 			}
 		}
 		_ = rows.Close()
 	}
+	return results, nil
+}
 
+// applyFilters drops candidates that fail the trust, policy or time-window
+// filters.
+func (db *DB) applyFilters(q *SearchQuery, results []scoredMemory) []scoredMemory {
+	filtered := make([]scoredMemory, 0, len(results))
+	for _, r := range results {
+		if !passesTrustFilter(r.m, q.TrustFilter) {
+			continue
+		}
+		if !PassesPolicyFilter(r.m, q.PolicyFilter) {
+			continue
+		}
+		if !passesTimeWindow(r.m, q.TimeWindow) {
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+	return filtered
+}
+
+// scoreAndRank applies the Hamming prefilter (when enabled), computes the
+// composite score for each candidate and sorts descending.
+func (db *DB) scoreAndRank(q *SearchQuery, results []scoredMemory) []scoredMemory {
 	// Hamming prefilter: reduce cosine computations by selecting candidates
-	// closest in sign-bit space. When disabled or no candidates, skip.
+	// closest in sign-bit space. Width is derived from the requested limit;
+	// when any candidate lacks a binary vector we skip entirely (see #534).
 	if db.prefilterEnabled && len(results) > 0 {
-		queryBin := BinarizeVector(queryVec)
-		prefilterN := len(results) * 4 // 4× multiplier keeps ≥98% recall
-		if prefilterN < limit*4 {
-			prefilterN = limit * 4
+		prefilterN := q.Limit * 4
+		if prefilterN < 64 {
+			prefilterN = 64
+		}
+		if prefilterN > len(results) {
+			prefilterN = len(results)
 		}
 
-		var candidateBins [][]byte
+		candidateBins := make([][]byte, 0, len(results))
+		skipPrefilter := false
 		for _, r := range results {
+			if r.m.EmbeddingBinary == nil {
+				skipPrefilter = true
+				break
+			}
 			candidateBins = append(candidateBins, r.m.EmbeddingBinary)
 		}
 
-		keepIdx := HammingPrefilter(queryBin, candidateBins, prefilterN)
-		filtered := make([]scored, 0, len(keepIdx))
-		for _, idx := range keepIdx {
-			if results[idx].m.EmbeddingBinary != nil {
+		if !skipPrefilter {
+			queryBin := BinarizeVector(q.QueryVec)
+			keepIdx := HammingPrefilter(queryBin, candidateBins, prefilterN)
+			filtered := make([]scoredMemory, 0, len(keepIdx))
+			for _, idx := range keepIdx {
 				filtered = append(filtered, results[idx])
 			}
+			results = filtered
 		}
-		results = filtered
 	}
 
 	for i := range results {
-		relevance := CosineSimilarity(queryVec, results[i].m.Embedding)
+		relevance := CosineSimilarity(q.QueryVec, results[i].m.Embedding)
 		decay := results[i].m.DecayFactor
 		if decay <= 0 || decay > 1 {
 			decay = 1.0
 		}
-		results[i].score = float32(CompositeScore(relevance, results[i].m.CreatedAt, float64(results[i].m.Importance)/10.0, results[i].m.AccessCount, results[i].m.LastAccess, results[i].m.PrevAccess, w) * decay)
+		results[i].score = float32(CompositeScore(relevance, results[i].m.CreatedAt, float64(results[i].m.Importance)/10.0, results[i].m.AccessCount, results[i].m.LastAccess, results[i].m.PrevAccess, q.Weights) * decay)
 	}
 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].score > results[j].score
 	})
+	return results
+}
 
-	// Memory-association spreading (#488): when enabled, memories up to 2
-	// hops away from a strong hit receive a bonus (weighted by
-	// SpreadingWeight) so a fact that is only relevant through association
-	// can surface. Edges are auto-seeded once per process.
-	if w.SpreadingWeight > 0 {
-		db.ensureAssociationsSeeded()
-		seeds := make(map[string]float64, 10)
-		for i := range results {
-			seeds[results[i].m.ID] = float64(results[i].score)
-			if len(seeds) >= 10 {
-				break
-			}
+// applySpreading applies memory-association spreading (#488) when enabled,
+// hydrating bonus targets that were not LSH candidates and re-sorting.
+func (db *DB) applySpreading(q *SearchQuery, results []scoredMemory) ([]scoredMemory, error) {
+	if q.Weights.SpreadingWeight <= 0 {
+		return results, nil
+	}
+	db.ensureAssociationsSeeded()
+	seeds := make(map[string]float64, 10)
+	for i := range results {
+		seeds[results[i].m.ID] = float64(results[i].score)
+		if len(seeds) >= 10 {
+			break
 		}
-		bonus, err := db.SpreadingBonus(seeds, 32, 32)
+	}
+	bonus, err := db.SpreadingBonus(seeds, 32, 32)
+	if err != nil {
+		return nil, fmt.Errorf("spreading bonus: %w", err)
+	}
+
+	inResults := make(map[string]bool, len(results))
+	for i := range results {
+		inResults[results[i].m.ID] = true
+	}
+	var bonusIDs []string
+	for id, b := range bonus {
+		if b > 0 && !inResults[id] {
+			bonusIDs = append(bonusIDs, id)
+		}
+		if len(bonusIDs) >= 50 {
+			break
+		}
+	}
+	if len(bonusIDs) > 0 {
+		placeholders := make([]string, len(bonusIDs))
+		args := make([]interface{}, 0, len(bonusIDs))
+		for j, id := range bonusIDs {
+			placeholders[j] = "?"
+			args = append(args, id)
+		}
+		rows, err := db.conn.Query(
+			"SELECT "+memoryColumns+" FROM memories WHERE id IN ("+strings.Join(placeholders, ", ")+") AND review_status = 'approved' AND retired_at IS NULL",
+			args...,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("spreading bonus: %w", err)
+			return nil, err
 		}
-
-		// Bonus targets that were not LSH candidates must be hydrated
-		// explicitly — otherwise a memory that is only relevant through
-		// association could never surface (the prefilter never saw it).
-		inResults := make(map[string]bool, len(results))
-		for i := range results {
-			inResults[results[i].m.ID] = true
-		}
-		var bonusIDs []string
-		for id, b := range bonus {
-			if b > 0 && !inResults[id] {
-				bonusIDs = append(bonusIDs, id)
-			}
-			if len(bonusIDs) >= 50 {
-				break
-			}
-		}
-		if len(bonusIDs) > 0 {
-			placeholders := make([]string, len(bonusIDs))
-			args := make([]interface{}, 0, len(bonusIDs))
-			for j, id := range bonusIDs {
-				placeholders[j] = "?"
-				args = append(args, id)
-			}
-			rows, err := db.conn.Query(
-				"SELECT "+memoryColumns+" FROM memories WHERE id IN ("+strings.Join(placeholders, ", ")+") AND review_status = 'approved' AND retired_at IS NULL",
-				args...,
-			)
+		for rows.Next() {
+			m, err := scanMemory(rows)
 			if err != nil {
+				_ = rows.Close()
 				return nil, err
 			}
-			for rows.Next() {
-				m, err := scanMemory(rows)
-				if err != nil {
-					_ = rows.Close()
-					return nil, err
-				}
-				if !passesTrustFilter(m, trustFilter) || !PassesPolicyFilter(m, policyFilter) || !passesTimeWindow(m, timeWindow) {
-					continue
-				}
-				results = append(results, scored{m: m, score: float32(w.SpreadingWeight * bonus[m.ID])})
+			if !passesTrustFilter(m, q.TrustFilter) || !PassesPolicyFilter(m, q.PolicyFilter) || !passesTimeWindow(m, q.TimeWindow) {
+				continue
 			}
-			_ = rows.Close()
+			results = append(results, scoredMemory{m: m, score: float32(q.Weights.SpreadingWeight * bonus[m.ID])})
 		}
+		_ = rows.Close()
+	}
 
-		for i := range results {
-			if b, ok := bonus[results[i].m.ID]; ok {
-				results[i].score += float32(w.SpreadingWeight * b)
-			}
+	for i := range results {
+		if b, ok := bonus[results[i].m.ID]; ok {
+			results[i].score += float32(q.Weights.SpreadingWeight * b)
 		}
-		sort.Slice(results, func(i, j int) bool {
-			return results[i].score > results[j].score
-		})
 	}
-
-	if limit > len(results) {
-		limit = len(results)
-	}
-
-	var final []SearchResult
-	for i := 0; i < limit; i++ {
-		final = append(final, SearchResult{
-			Memory: results[i].m,
-			Score:  results[i].score,
-		})
-	}
-
-	latency := time.Since(start)
-	if len(final) > 0 {
-		db.retrievalStats.Record(len(final), float64(final[0].Score), latency)
-	} else {
-		db.retrievalStats.Record(0, 0, latency)
-	}
-	// Track access for retrieval feedback loop.
-	if len(final) > 0 {
-		ids := make([]string, len(final))
-		for i, r := range final {
-			ids[i] = r.Memory.ID
-		}
-		_ = db.TrackMemoryAccessBatch(ids) // best-effort; error is non-fatal
-	}
-
-	return final, nil
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].score > results[j].score
+	})
+	return results, nil
 }
 
 // passesTrustFilter implements trust-aware filtering for search results.
@@ -1661,38 +1755,56 @@ func (db *DB) SearchMemoriesWithProfile(queryVec []float32, querySource string, 
 		w = weights[0]
 	}
 
-	// Collect unique scopes to avoid redundant searches.
+	// Collect unique scopes into a single ordered list for one candidate pass.
 	seen := make(map[string]bool)
-	var searchScopes []ResolvedScope
+	var scopeList []string
 	for _, s := range scopes {
 		if !seen[s.Scope] {
 			seen[s.Scope] = true
-			searchScopes = append(searchScopes, s)
+			scopeList = append(scopeList, s.Scope)
 		}
 	}
 
-	var all []SearchResult
-	for _, rs := range searchScopes {
-		results, serr := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, rs.Scope, limit*2, entityID, trustFilter, policyFilter, timeWindow, "", w)
-		if serr != nil {
-			return nil, serr
-		}
-		for i := range results {
-			results[i].SourceProfile = profileName
-			results[i].SourceScope = rs.Scope
-		}
-		all = append(all, results...)
+	// Single pipeline pass over the whole scope chain. Access tracking is
+	// deferred to this caller so only the final returned set is recorded.
+	q := &SearchQuery{
+		QueryVec:         queryVec,
+		QuerySource:      querySource,
+		Scopes:           scopeList,
+		Limit:            limit * 2,
+		EntityID:         entityID,
+		TrustFilter:      trustFilter,
+		PolicyFilter:     policyFilter,
+		TimeWindow:       timeWindow,
+		Quantization:     "",
+		Weights:          w,
+		NoAccessTracking: true,
+	}
+	results, err := db.search(q)
+	if err != nil {
+		return nil, err
 	}
 
-	// Re-sort by score descending.
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].Score > all[j].Score
-	})
-
-	if limit > len(all) {
-		limit = len(all)
+	// Tag provenance from the hydrated row (each memory knows its own scope).
+	for i := range results {
+		results[i].SourceProfile = profileName
+		results[i].SourceScope = results[i].Memory.Scope
 	}
-	return all[:limit], nil
+
+	if limit < len(results) {
+		results = results[:limit]
+	}
+
+	// Record access only for the final returned set.
+	if len(results) > 0 {
+		ids := make([]string, len(results))
+		for i, r := range results {
+			ids[i] = r.Memory.ID
+		}
+		_ = db.TrackMemoryAccessBatch(ids)
+	}
+
+	return results, nil
 }
 
 // GetSupersededHistory returns all memories that were superseded by the given ID.
