@@ -53,7 +53,7 @@ type LLMVerdictProvider struct {
 // NewLLMVerdictProvider builds the LLM verdict tier for the given config.
 func NewLLMVerdictProvider(cfg config.ConflictConfig) *LLMVerdictProvider {
 	return &LLMVerdictProvider{
-		client:   llm.NewClient(cfg.LLMURL, cfg.LLMModel),
+		client:   llm.NewClient(cfg.LLMURL, cfg.LLMModel, 0),
 		provider: cfg.LLMProvider,
 	}
 }

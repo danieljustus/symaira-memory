@@ -118,7 +118,7 @@ func TestLLMVerdictProviderBatchedCall(t *testing.T) {
 	server := ollamaStreamServer(t, `{"verdicts":[{"pair":0,"verdict":"contradiction"},{"pair":1,"verdict":"repeat"}]}`)
 	defer server.Close()
 
-	p := &LLMVerdictProvider{client: llm.NewClient(server.URL, "test-model"), provider: "ollama"}
+	p := &LLMVerdictProvider{client: llm.NewClient(server.URL, "test-model", 0), provider: "ollama"}
 	p.client.HTTPClient = server.Client()
 
 	pairs := []Pair{
@@ -143,7 +143,7 @@ func TestLLMVerdictProviderErrorPropagates(t *testing.T) {
 	}))
 	defer server.Close()
 
-	p := &LLMVerdictProvider{client: llm.NewClient(server.URL, "test-model"), provider: "ollama"}
+	p := &LLMVerdictProvider{client: llm.NewClient(server.URL, "test-model", 0), provider: "ollama"}
 	p.client.HTTPClient = server.Client()
 
 	_, err := p.Verdicts(context.Background(), []Pair{{Cand: &db.Memory{ID: "a"}}})
@@ -185,7 +185,7 @@ func TestLLMVerdictProviderSanitizesUntrustedContent(t *testing.T) {
 	server, gotSystem, gotPrompt := verdictCaptureServer(t, payload)
 	defer server.Close()
 
-	p := &LLMVerdictProvider{client: llm.NewClient(server.URL, "test-model"), provider: "ollama"}
+	p := &LLMVerdictProvider{client: llm.NewClient(server.URL, "test-model", 0), provider: "ollama"}
 	p.client.HTTPClient = server.Client()
 
 	pairs := []Pair{
@@ -236,7 +236,7 @@ func TestLLMVerdictProviderMalformedResponseDegradesToAmbiguous(t *testing.T) {
 	server, _, _ := verdictCaptureServer(t, "this is not JSON at all")
 	defer server.Close()
 
-	p := &LLMVerdictProvider{client: llm.NewClient(server.URL, "test-model"), provider: "ollama"}
+	p := &LLMVerdictProvider{client: llm.NewClient(server.URL, "test-model", 0), provider: "ollama"}
 	p.client.HTTPClient = server.Client()
 
 	got, err := p.Verdicts(context.Background(), []Pair{

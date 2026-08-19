@@ -50,7 +50,7 @@ type Engine struct {
 // NewEngine creates a new consolidation engine instance. promptMode is the
 // configured default prompt family (#483): "chat" or "code"; per-group
 // metadata overrides it (see ResolveFamily).
-func NewEngine(database *db.DB, embeddings *extractor.EmbeddingsGenerator, llmURL, llmModel, llmProvider string, piiEnabled bool, promptMode string) *Engine {
+func NewEngine(database *db.DB, embeddings *extractor.EmbeddingsGenerator, llmURL, llmModel, llmProvider string, piiEnabled bool, promptMode string, llmTimeout time.Duration) *Engine {
 	if llmProvider == "" {
 		if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
 			llmProvider = "openai"
@@ -62,7 +62,7 @@ func NewEngine(database *db.DB, embeddings *extractor.EmbeddingsGenerator, llmUR
 	return &Engine{
 		database:    database,
 		embeddings:  embeddings,
-		llmClient:   llm.NewClient(llmURL, llmModel),
+		llmClient:   llm.NewClient(llmURL, llmModel, llmTimeout),
 		llmProvider: llmProvider,
 		piiEnabled:  piiEnabled,
 		promptMode:  promptMode,

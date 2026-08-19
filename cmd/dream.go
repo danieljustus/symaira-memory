@@ -65,7 +65,7 @@ Examples:
 
 		embeddings := extractor.NewEmbeddingsGenerator(cfg)
 
-		engine := consolidation.NewEngine(db, embeddings, llmURL, llmModel, llmProvider, piiEnabled, "chat")
+		engine := consolidation.NewEngine(db, embeddings, llmURL, llmModel, llmProvider, piiEnabled, "chat", 0)
 
 		summaries, err := engine.RunConsolidation(cmd.Context(), dreamScope, dreamDryRun)
 		if err != nil {

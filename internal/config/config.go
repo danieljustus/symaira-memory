@@ -2,6 +2,7 @@ package config
 
 import (
 	"github.com/danieljustus/symaira-corekit/configkit"
+	"time"
 )
 
 // DegradationConfig controls content degradation levels for greedy budget fill.
@@ -94,9 +95,22 @@ type ConsolidationConfig struct {
 	Enabled     bool   `json:"enabled"`
 	Schedule    string `json:"schedule"`
 	IdleTimeout string `json:"idle_timeout"`
+	Timeout     string `json:"timeout"`     // HTTP client timeout for LLM calls (e.g. "10m", default "10m")
 	Provider    string `json:"provider"`
 	Model       string `json:"model"`
 	URL         string `json:"url"`
+}
+
+// ParseTimeout returns the configured LLM client timeout, defaulting to 10m.
+func (c ConsolidationConfig) ParseTimeout() time.Duration {
+	if c.Timeout == "" {
+		return 10 * time.Minute
+	}
+	d, err := time.ParseDuration(c.Timeout)
+	if err != nil {
+		return 10 * time.Minute
+	}
+	return d
 }
 
 // RankingConfig controls retrieval ranking weights.
@@ -314,6 +328,7 @@ func Defaults() *Config {
 			Enabled:     true,
 			Schedule:    "0 2 * * *",
 			IdleTimeout: "30m",
+			Timeout:     "10m",
 			Provider:    "",
 			Model:       "",
 		},
