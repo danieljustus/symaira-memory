@@ -20,8 +20,13 @@ func (s *Server) StartHTTPServer(port int) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	s.bindAddr = addr
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: s.httpMux(),
+		Addr:              addr,
+		Handler:           s.httpMux(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 
 	ln, err := net.Listen("tcp", addr)
