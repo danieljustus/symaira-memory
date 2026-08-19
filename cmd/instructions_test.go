@@ -41,7 +41,7 @@ func TestInstructionsCommandFlags(t *testing.T) {
 		defaultValue string
 	}{
 		{"client flag", "client", ""},
-		{"output flag", "output", ""},
+		{"out flag", "out", ""},
 		{"scope flag", "scope", "global"},
 	}
 	for _, tt := range tests {

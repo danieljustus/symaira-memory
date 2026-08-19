@@ -94,6 +94,11 @@ func Execute() {
 // GetOutputFormat returns the resolved output format for the current command.
 // The canonical persistent flag is --output; --format is a deprecated hidden alias.
 func GetOutputFormat(cmd *cobra.Command) string {
+	if cmd != nil {
+		if f := cmd.Flags().Lookup("output"); f != nil && f.Changed {
+			return f.Value.String()
+		}
+	}
 	if outputFormat == "" {
 		return "table"
 	}
@@ -193,5 +198,7 @@ var versionCmd = &cobra.Command{
 
 func init() {
 	versionCmd.Flags().Bool("check", false, "Check for updates via GitHub releases")
-	versionCmd.Flags().Bool("json", false, "Emit version as machine-readable JSON")
+	versionCmd.Flags().Bool("json", false, "Deprecated: use --output json")
+	_ = versionCmd.Flags().MarkHidden("json")
+	_ = versionCmd.Flags().MarkDeprecated("json", "use --output json")
 }
