@@ -1025,26 +1025,39 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 
 	// Hamming prefilter: reduce cosine computations by selecting candidates
 	// closest in sign-bit space. When disabled or no candidates, skip.
+	//
+	// The width is derived from the requested result count (not the candidate
+	// count), so the prefilter actually selects a subset. When any candidate
+	// lacks a binary vector we skip the prefilter entirely: dropping those
+	// rows would silently remove pre-quantization memories from every result.
 	if db.prefilterEnabled && len(results) > 0 {
-		queryBin := BinarizeVector(queryVec)
-		prefilterN := len(results) * 4 // 4× multiplier keeps ≥98% recall
-		if prefilterN < limit*4 {
-			prefilterN = limit * 4
+		prefilterN := limit * 4
+		if prefilterN < 64 {
+			prefilterN = 64
+		}
+		if prefilterN > len(results) {
+			prefilterN = len(results)
 		}
 
-		var candidateBins [][]byte
+		candidateBins := make([][]byte, 0, len(results))
+		skipPrefilter := false
 		for _, r := range results {
+			if r.m.EmbeddingBinary == nil {
+				skipPrefilter = true
+				break
+			}
 			candidateBins = append(candidateBins, r.m.EmbeddingBinary)
 		}
 
-		keepIdx := HammingPrefilter(queryBin, candidateBins, prefilterN)
-		filtered := make([]scored, 0, len(keepIdx))
-		for _, idx := range keepIdx {
-			if results[idx].m.EmbeddingBinary != nil {
+		if !skipPrefilter {
+			queryBin := BinarizeVector(queryVec)
+			keepIdx := HammingPrefilter(queryBin, candidateBins, prefilterN)
+			filtered := make([]scored, 0, len(keepIdx))
+			for _, idx := range keepIdx {
 				filtered = append(filtered, results[idx])
 			}
+			results = filtered
 		}
-		results = filtered
 	}
 
 	for i := range results {
