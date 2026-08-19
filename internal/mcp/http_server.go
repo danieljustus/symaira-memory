@@ -47,6 +47,7 @@ func (s *Server) StartHTTPServer(port int) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
+		s.rateLimiter.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
@@ -102,7 +103,8 @@ func (s *Server) httpMux() http.Handler {
 	handler = s.hostValidationHandler(handler)
 	handler = csrfProtectionHandler(handler)
 	handler = securityHeadersHandler(handler)
-	return requestLoggingMiddleware(handler)
+	handler = requestLoggingMiddleware(handler)
+	return RateLimitMiddleware(s.rateLimiter, handler)
 }
 
 // hostValidationHandler returns a middleware that validates the Host header
