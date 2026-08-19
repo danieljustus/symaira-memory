@@ -973,7 +973,7 @@ func (db *DB) search(q *SearchQuery) ([]SearchResult, error) {
 	if limit > len(results) {
 		limit = len(results)
 	}
-	final := make([]SearchResult, 0, limit)
+	final := make([]SearchResult, 0, len(results))
 	for i := 0; i < limit; i++ {
 		final = append(final, SearchResult{
 			Memory: results[i].m,
