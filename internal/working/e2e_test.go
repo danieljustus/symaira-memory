@@ -90,7 +90,7 @@ func TestE2E_WorkingMemoryLifecycle(t *testing.T) {
 	}
 
 	// 7. Compact: evict expired working memories
-	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 	evictor := NewEvictor(database, embeddings, engine, false)
 
 	result, err := evictor.CompactWorkingMemories(context.Background(), false)

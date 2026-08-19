@@ -128,7 +128,7 @@ func runBackgroundCompaction(cfg *config.Config, database *db.DB) {
 
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
 	piiEnabled := cfg.Security.PIIEnabled != nil && *cfg.Security.PIIEnabled
-	engine := consolidation.NewEngine(database, embeddings, cfg.Consolidation.URL, cfg.Consolidation.Model, cfg.Consolidation.Provider, piiEnabled, cfg.PromptMode)
+	engine := consolidation.NewEngine(database, embeddings, cfg.Consolidation.URL, cfg.Consolidation.Model, cfg.Consolidation.Provider, piiEnabled, cfg.PromptMode, cfg.Consolidation.ParseTimeout())
 	evictor := working.NewEvictor(database, embeddings, engine, piiEnabled)
 
 	for range ticker.C {
