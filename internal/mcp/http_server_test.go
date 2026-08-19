@@ -32,17 +32,17 @@ func TestHTTPServer_Timeouts_StalledHeaderDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 
 	// Open a raw TCP connection and send an incomplete header line.
 	conn, err := net.DialTimeout("tcp", ln.Addr().String(), 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Send a partial HTTP request: method + path but no terminating \r\n\r\n.
 	_, err = conn.Write([]byte("GET / HTTP/1.1\r\nHost: localhost\r\n"))
