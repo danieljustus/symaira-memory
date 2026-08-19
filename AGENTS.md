@@ -25,7 +25,7 @@ This repository is the public Apache-2.0 licensed Symaira Memory self-hosted fou
 
 ## Architecture & Code Style Guidelines
 
-- **CGO-Free Go**: All database drivers (SQLite) and vector operations (Kosinus-Ähnlichkeit) must remain 100% CGO-free for ultimate cross-platform compilation.
+- **CGO-Free Go 1.26.6**: All database drivers (SQLite) and vector operations (Kosinus-Ähnlichkeit) must remain 100% CGO-free for ultimate cross-platform compilation.
 - **Database Safety**: Keep SQLite in WAL (Write-Ahead Logging) mode inside standard XDG directories to support simultaneous reads/writes.
 - **Zero Stdio Pollution**: The MCP server transport runs over stdio. Under no circumstances must any package print to `os.Stdout` unless it is a structured JSON-RPC 2.0 message. All logs, warnings, and trace states must be safely routed to `os.Stderr` to prevent client handshake drop errors.
 - **Fakt Ingestion Security**: Pre-filter all incoming memory strings through the PII Guard before committing to the SQLite database.
