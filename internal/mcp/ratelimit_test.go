@@ -164,3 +164,47 @@ func TestDefaultRateLimitConfig(t *testing.T) {
 		t.Fatal("data limits must be positive")
 	}
 }
+
+// TestRateLimitMiddleware_BurstExhaustion_429 verifies that after the burst
+// budget is exhausted the middleware returns 429 for every subsequent request.
+// This is a regression test for #530: the rate limiter was not wired into the
+// httpMux after the refactor in commit eedfcbd.
+func TestRateLimitMiddleware_BurstExhaustion_429(t *testing.T) {
+	const burst = 20
+	cfg := RateLimitConfig{
+		DataRPS:         100.0 / 60.0, // 100 req/min
+		DataBurst:       burst,
+		CleanupInterval: time.Hour,
+		LimiterTTL:      time.Hour,
+	}
+	rl := NewRateLimiter(cfg)
+	defer rl.Stop()
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := RateLimitMiddleware(rl, inner)
+
+	// Consume the entire burst budget.
+	for i := 0; i < burst; i++ {
+		req := httptest.NewRequest("GET", "/api/list", nil)
+		req.RemoteAddr = "10.0.0.50:9999"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("burst request %d: expected 200, got %d", i+1, rec.Code)
+		}
+	}
+
+	// The next request must be rate-limited.
+	req := httptest.NewRequest("GET", "/api/list", nil)
+	req.RemoteAddr = "10.0.0.50:9999"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("post-burst request: expected 429, got %d", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") != "60" {
+		t.Fatalf("expected Retry-After: 60, got %s", rec.Header().Get("Retry-After"))
+	}
+}

@@ -20,8 +20,13 @@ func (s *Server) StartHTTPServer(port int) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	s.bindAddr = addr
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: s.httpMux(),
+		Addr:              addr,
+		Handler:           s.httpMux(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20, // 1 MiB
 	}
 
 	ln, err := net.Listen("tcp", addr)
@@ -42,6 +47,7 @@ func (s *Server) StartHTTPServer(port int) error {
 	case err := <-errCh:
 		return err
 	case <-ctx.Done():
+		s.rateLimiter.Stop()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
@@ -97,7 +103,8 @@ func (s *Server) httpMux() http.Handler {
 	handler = s.hostValidationHandler(handler)
 	handler = csrfProtectionHandler(handler)
 	handler = securityHeadersHandler(handler)
-	return requestLoggingMiddleware(handler)
+	handler = requestLoggingMiddleware(handler)
+	return RateLimitMiddleware(s.rateLimiter, handler)
 }
 
 // hostValidationHandler returns a middleware that validates the Host header

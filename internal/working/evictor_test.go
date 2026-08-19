@@ -32,7 +32,7 @@ func TestCompactWorkingMemories_NoExpired(t *testing.T) {
 	database := helperWorkingDB(t)
 	cfg := config.Defaults()
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 
 	ev := NewEvictor(database, embeddings, engine, false)
 
@@ -65,7 +65,7 @@ func TestCompactWorkingMemories_DryRun(t *testing.T) {
 	database := helperWorkingDB(t)
 	cfg := config.Defaults()
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 
 	ev := NewEvictor(database, embeddings, engine, false)
 
@@ -106,7 +106,7 @@ func TestCompactWorkingMemories_RealRun(t *testing.T) {
 	database := helperWorkingDB(t)
 	cfg := config.Defaults()
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 
 	ev := NewEvictor(database, embeddings, engine, false)
 
@@ -147,7 +147,7 @@ func TestEvictExpiredWorkingMemories(t *testing.T) {
 	database := helperWorkingDB(t)
 	cfg := config.Defaults()
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 
 	ev := NewEvictor(database, embeddings, engine, false)
 
@@ -205,7 +205,7 @@ func TestCompactWorkingMemories_MultiConsolidationError(t *testing.T) {
 	database := helperWorkingDB(t)
 	cfg := config.Defaults()
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 
 	ev := NewEvictor(database, embeddings, engine, false)
 
@@ -236,7 +236,7 @@ func TestCompactWorkingMemories_MultiDryRunDiffScope(t *testing.T) {
 	database := helperWorkingDB(t)
 	cfg := config.Defaults()
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 
 	ev := NewEvictor(database, embeddings, engine, false)
 
@@ -285,7 +285,7 @@ func TestCompactWorkingMemories_MultiRealRunDiffScope(t *testing.T) {
 	database := helperWorkingDB(t)
 	cfg := config.Defaults()
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 
 	ev := NewEvictor(database, embeddings, engine, false)
 
@@ -350,7 +350,7 @@ func TestCompactWorkingMemories_MultiRealRunSameScope(t *testing.T) {
 	}))
 	defer mockLLM.Close()
 
-	engine := consolidation.NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat")
+	engine := consolidation.NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat", 0)
 	ev := NewEvictor(database, embeddings, engine, false)
 
 	pastExpiry := time.Now().UTC().Add(-1 * time.Hour)

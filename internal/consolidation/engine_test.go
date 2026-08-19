@@ -119,7 +119,7 @@ func TestNewEngineDefaults(t *testing.T) {
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
 
 	// Test Ollama defaults
-	eng := NewEngine(database, embeddings, "", "", "", false, "chat")
+	eng := NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 	if eng.llmClient.OllamaURL != "http://localhost:11434/api/generate" {
 		t.Errorf("expected Ollama default URL, got %s", eng.llmClient.OllamaURL)
 	}
@@ -131,7 +131,7 @@ func TestNewEngineDefaults(t *testing.T) {
 	}
 
 	// Test OpenAI defaults
-	eng2 := NewEngine(database, embeddings, "", "", "openai", false, "chat")
+	eng2 := NewEngine(database, embeddings, "", "", "openai", false, "chat", 0)
 	if eng2.llmClient.OllamaURL != "http://localhost:11434/api/generate" {
 		t.Errorf("expected Ollama default URL, got %s", eng2.llmClient.OllamaURL)
 	}
@@ -217,7 +217,7 @@ func TestEngineConsolidation(t *testing.T) {
 	defer mockLLM.Close()
 
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat")
+	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat", 0)
 
 	// 1. Dry Run test
 	dryRunSummaries, err := engine.RunConsolidation(context.Background(), "global", true)
@@ -382,7 +382,7 @@ func TestEngineConsolidationPropagatesEvidence(t *testing.T) {
 	defer mockLLM.Close()
 
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat")
+	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat", 0)
 
 	summaries, err := engine.RunConsolidation(context.Background(), "global", false)
 	if err != nil {
@@ -464,7 +464,7 @@ func TestRunConsolidationSkipsFailedScope(t *testing.T) {
 	defer mockLLM.Close()
 
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat")
+	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat", 0)
 
 	summaries, err := engine.RunConsolidation(context.Background(), "", true)
 	if err != nil {
@@ -514,7 +514,7 @@ func TestRunConsolidationAllScopesFail(t *testing.T) {
 	defer mockLLM.Close()
 
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat")
+	engine := NewEngine(database, embeddings, mockLLM.URL, "test-model", "ollama", false, "chat", 0)
 
 	_, err = engine.RunConsolidation(context.Background(), "", true)
 	if err == nil {

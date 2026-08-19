@@ -67,24 +67,27 @@ type Client struct {
 	ollama      *ollamakit.Client
 }
 
-func NewClient(ollamaURL, ollamaModel string) *Client {
+func NewClient(ollamaURL, ollamaModel string, timeout time.Duration) *Client {
 	if ollamaURL == "" {
 		ollamaURL = "http://localhost:11434/api/generate"
 	}
 	if ollamaModel == "" {
 		ollamaModel = "llama3"
 	}
+	if timeout <= 0 {
+		timeout = 45 * time.Second
+	}
 	c := &Client{
 		OllamaURL:   ollamaURL,
 		OllamaModel: ollamaModel,
 		HTTPClient: &http.Client{
-			Timeout: 45 * time.Second,
+			Timeout: timeout,
 		},
 	}
 	c.ollama = ollamakit.New(ollamakit.Config{
 		BaseURL: ollamaBaseURL(ollamaURL),
 		Model:   ollamaModel,
-		Timeout: 45 * time.Second,
+		Timeout: timeout,
 	})
 	return c
 }

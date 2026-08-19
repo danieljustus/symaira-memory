@@ -23,7 +23,7 @@ func newEngineTestDB(t *testing.T) (*db.DB, *Engine) {
 	}
 	t.Cleanup(func() { _ = database.Close() })
 	embeddings := extractor.NewEmbeddingsGenerator(cfg)
-	eng := NewEngine(database, embeddings, "", "", "", false, "chat")
+	eng := NewEngine(database, embeddings, "", "", "", false, "chat", 0)
 	return database, eng
 }
 

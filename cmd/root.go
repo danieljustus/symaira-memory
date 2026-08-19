@@ -101,6 +101,60 @@ func GetOutputFormat(cmd *cobra.Command) string {
 }
 
 func init() {
+	// Register command groups for grouped --help output.
+	rootCmd.AddGroup(
+		&cobra.Group{ID: "memory", Title: "Memory:"},
+		&cobra.Group{ID: "agent", Title: "Agent Integration:"},
+		&cobra.Group{ID: "maintenance", Title: "Maintenance:"},
+		&cobra.Group{ID: "data", Title: "Data:"},
+		&cobra.Group{ID: "admin", Title: "Administration:"},
+	)
+
+	// Assign each command to its group.
+	// Memory: core memory CRUD operations.
+	setCmd.GroupID = "memory"
+	getCmd.GroupID = "memory"
+	listCmd.GroupID = "memory"
+	searchCmd.GroupID = "memory"
+	deleteCmd.GroupID = "memory"
+	reviewCmd.GroupID = "memory"
+	associationsCmd.GroupID = "memory"
+
+	// Agent Integration: MCP server and agent workflow tools.
+	serveCmd.GroupID = "agent"
+	configCmd.GroupID = "agent"
+	hookCmd.GroupID = "agent"
+	instructionsCmd.GroupID = "agent"
+	observeCmd.GroupID = "agent"
+	discoverCmd.GroupID = "agent"
+	contextCmd.GroupID = "agent"
+	contextProfileCmd.GroupID = "agent"
+	consoleCmd.GroupID = "agent"
+
+	// Maintenance: memory lifecycle management.
+	compactCmd.GroupID = "maintenance"
+	agingCmd.GroupID = "maintenance"
+	purgeCmd.GroupID = "maintenance"
+	dreamCmd.GroupID = "maintenance"
+	consolidateCmd.GroupID = "maintenance"
+
+	// Data: import, export, sync, and backup.
+	importSessionsCmd.GroupID = "data"
+	backupCmd.GroupID = "data"
+	syncCmd.GroupID = "data"
+	queryLogCmd.GroupID = "data"
+
+	// Administration: configuration, auth, and diagnostics.
+	configInitCmd.GroupID = "admin"
+	initCmd.GroupID = "admin"
+	doctorCmd.GroupID = "admin"
+	tokenCmd.GroupID = "admin"
+	profileCmd.GroupID = "admin"
+	entityCmd.GroupID = "admin"
+	ruleCmd.GroupID = "admin"
+	benchCmd.GroupID = "admin"
+	versionCmd.GroupID = "admin"
+
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "Output format: table or json")
 	rootCmd.PersistentFlags().StringVar(&outputFormat, "format", "table", "Output format: table or json")
 	_ = rootCmd.PersistentFlags().MarkHidden("format")
