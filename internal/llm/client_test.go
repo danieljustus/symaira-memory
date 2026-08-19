@@ -11,7 +11,7 @@ import (
 )
 
 func TestNewClientDefaults(t *testing.T) {
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 
 	if client.OllamaURL != "http://localhost:11434/api/generate" {
 		t.Errorf("expected default OllamaURL, got %s", client.OllamaURL)
@@ -28,7 +28,7 @@ func TestNewClientDefaults(t *testing.T) {
 }
 
 func TestNewClientCustomParams(t *testing.T) {
-	client := NewClient("http://custom:11434/api/generate", "mistral")
+	client := NewClient("http://custom:11434/api/generate", "mistral", 0)
 
 	if client.OllamaURL != "http://custom:11434/api/generate" {
 		t.Errorf("expected custom OllamaURL, got %s", client.OllamaURL)
@@ -76,7 +76,7 @@ func TestQueryOllamaSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "llama3")
+	client := NewClient(server.URL, "llama3", 0)
 	result, err := client.QueryOllama(context.Background(), "system", "user")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -96,7 +96,7 @@ func TestQueryOllamaAccumulatesChunks(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "llama3")
+	client := NewClient(server.URL, "llama3", 0)
 	result, err := client.QueryOllama(context.Background(), "system", "user")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -112,7 +112,7 @@ func TestQueryOllamaHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "llama3")
+	client := NewClient(server.URL, "llama3", 0)
 	_, err := client.QueryOllama(context.Background(), "system", "user")
 	if err == nil {
 		t.Fatal("expected error for HTTP 500")
@@ -126,7 +126,7 @@ func TestQueryOllamaMalformedJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "llama3")
+	client := NewClient(server.URL, "llama3", 0)
 	_, err := client.QueryOllama(context.Background(), "system", "user")
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
@@ -142,7 +142,7 @@ func TestQueryOllamaContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	client := NewClient(server.URL, "llama3")
+	client := NewClient(server.URL, "llama3", 0)
 	_, err := client.QueryOllama(ctx, "system", "user")
 	if err == nil {
 		t.Fatal("expected error for cancelled context")
@@ -223,7 +223,7 @@ func TestQueryOpenAISuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 	result, err := client.QueryOpenAI(context.Background(), "system", "user", "test-key", "", server.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -255,7 +255,7 @@ func TestQueryOpenAICustomModel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 	result, err := client.QueryOpenAI(context.Background(), "system", "user", "test-key", "gpt-4", server.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -271,7 +271,7 @@ func TestQueryOpenAIHTTPError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 	_, err := client.QueryOpenAI(context.Background(), "system", "user", "bad-key", "", server.URL)
 	if err == nil {
 		t.Fatal("expected error for HTTP 401")
@@ -287,7 +287,7 @@ func TestQueryOpenAIEmptyChoices(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 	_, err := client.QueryOpenAI(context.Background(), "system", "user", "test-key", "", server.URL)
 	if err == nil {
 		t.Fatal("expected error for empty choices")
@@ -301,7 +301,7 @@ func TestQueryOpenAIMalformedJSON(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 	_, err := client.QueryOpenAI(context.Background(), "system", "user", "test-key", "", server.URL)
 	if err == nil {
 		t.Fatal("expected error for malformed JSON")
@@ -315,7 +315,7 @@ func TestQueryOllamaProvider(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL, "llama3")
+	client := NewClient(server.URL, "llama3", 0)
 	result, err := client.Query(context.Background(), "system", "user", "ollama", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -396,7 +396,7 @@ func TestQueryOpenAIProvider(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 	result, err := client.QueryOpenAI(context.Background(), "system", "user", "test-key", "", server.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -409,7 +409,7 @@ func TestQueryOpenAIProvider(t *testing.T) {
 func TestQueryOpenAIProviderNoKey(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "")
 
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 	_, err := client.Query(context.Background(), "system", "user", "openai", "")
 	if err == nil {
 		t.Fatal("expected error for missing API key")
@@ -437,7 +437,7 @@ func TestQueryOpenAIProviderUsesEnvKey(t *testing.T) {
 
 	t.Setenv("OPENAI_API_KEY", "env-key")
 
-	client := NewClient("", "")
+	client := NewClient("", "", 0)
 	result, err := client.QueryOpenAI(context.Background(), "system", "user", "env-key", "", server.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
