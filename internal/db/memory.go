@@ -902,6 +902,7 @@ type SearchQuery struct {
 	QueryVec     []float32
 	QuerySource  string
 	Scope        string
+	Scopes       []string // when non-empty, candidate selection filters scope IN (Scopes)
 	Limit        int
 	EntityID     string
 	TrustFilter  TrustFilter
@@ -909,6 +910,9 @@ type SearchQuery struct {
 	TimeWindow   TimeWindow
 	Quantization string
 	Weights      RankingWeights
+	// NoAccessTracking, when true, skips the best-effort access-tracking write
+	// so the caller can record access on the final returned set only.
+	NoAccessTracking bool
 }
 
 type scoredMemory struct {
@@ -938,6 +942,11 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		Quantization: quantization,
 		Weights:      w,
 	}
+	return db.search(q)
+}
+
+// search runs the full retrieval pipeline for a prepared SearchQuery.
+func (db *DB) search(q *SearchQuery) ([]SearchResult, error) {
 	start := time.Now()
 
 	candidateIDs, err := db.lshCandidateIDs(q)
@@ -960,7 +969,7 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 		return nil, err
 	}
 
-	limit = q.Limit
+	limit := q.Limit
 	if limit > len(results) {
 		limit = len(results)
 	}
@@ -978,8 +987,9 @@ func (db *DB) SearchMemoriesFilteredWithTrust(queryVec []float32, querySource st
 	} else {
 		db.retrievalStats.Record(0, 0, latency)
 	}
-	// Track access for retrieval feedback loop.
-	if len(final) > 0 {
+	// Track access for retrieval feedback loop (skipped when the caller
+	// wants to record access on the final returned set only).
+	if !q.NoAccessTracking && len(final) > 0 {
 		ids := make([]string, len(final))
 		for i, r := range final {
 			ids[i] = r.Memory.ID
@@ -1018,7 +1028,17 @@ func (db *DB) lshCandidateIDs(q *SearchQuery) ([]string, error) {
 		inClause := strings.Join(placeholders, ", ")
 
 		var query string
-		if q.Scope != "" {
+		if len(q.Scopes) > 0 {
+			scopePlaceholders := make([]string, len(q.Scopes))
+			scopeArgs := make([]interface{}, 0, len(q.Scopes)+2)
+			for j, s := range q.Scopes {
+				scopePlaceholders[j] = "?"
+				scopeArgs = append(scopeArgs, s)
+			}
+			query = "SELECT id FROM memories WHERE scope IN (" + strings.Join(scopePlaceholders, ", ") + ") AND consolidation_status != 'archived' AND embedding_source = ? AND embedding_quantization = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) AND review_status = 'approved' AND retired_at IS NULL"
+			scopeArgs = append(scopeArgs, q.QuerySource, q.Quantization)
+			args = append(scopeArgs, args...)
+		} else if q.Scope != "" {
 			query = "SELECT id FROM memories WHERE scope = ? AND consolidation_status != 'archived' AND embedding_source = ? AND embedding_quantization = ? AND embedding IS NOT NULL AND lsh_hash IN (" + inClause + ") AND (tier != 'working' OR expires_at IS NULL OR expires_at > datetime('now')) AND review_status = 'approved' AND retired_at IS NULL"
 			args = append([]interface{}{q.Scope, q.QuerySource, q.Quantization}, args...)
 		} else {
@@ -1735,38 +1755,56 @@ func (db *DB) SearchMemoriesWithProfile(queryVec []float32, querySource string, 
 		w = weights[0]
 	}
 
-	// Collect unique scopes to avoid redundant searches.
+	// Collect unique scopes into a single ordered list for one candidate pass.
 	seen := make(map[string]bool)
-	var searchScopes []ResolvedScope
+	var scopeList []string
 	for _, s := range scopes {
 		if !seen[s.Scope] {
 			seen[s.Scope] = true
-			searchScopes = append(searchScopes, s)
+			scopeList = append(scopeList, s.Scope)
 		}
 	}
 
-	var all []SearchResult
-	for _, rs := range searchScopes {
-		results, serr := db.SearchMemoriesFilteredWithTrust(queryVec, querySource, rs.Scope, limit*2, entityID, trustFilter, policyFilter, timeWindow, "", w)
-		if serr != nil {
-			return nil, serr
-		}
-		for i := range results {
-			results[i].SourceProfile = profileName
-			results[i].SourceScope = rs.Scope
-		}
-		all = append(all, results...)
+	// Single pipeline pass over the whole scope chain. Access tracking is
+	// deferred to this caller so only the final returned set is recorded.
+	q := &SearchQuery{
+		QueryVec:         queryVec,
+		QuerySource:      querySource,
+		Scopes:           scopeList,
+		Limit:            limit * 2,
+		EntityID:         entityID,
+		TrustFilter:      trustFilter,
+		PolicyFilter:     policyFilter,
+		TimeWindow:       timeWindow,
+		Quantization:     "",
+		Weights:          w,
+		NoAccessTracking: true,
+	}
+	results, err := db.search(q)
+	if err != nil {
+		return nil, err
 	}
 
-	// Re-sort by score descending.
-	sort.Slice(all, func(i, j int) bool {
-		return all[i].Score > all[j].Score
-	})
-
-	if limit > len(all) {
-		limit = len(all)
+	// Tag provenance from the hydrated row (each memory knows its own scope).
+	for i := range results {
+		results[i].SourceProfile = profileName
+		results[i].SourceScope = results[i].Memory.Scope
 	}
-	return all[:limit], nil
+
+	if limit < len(results) {
+		results = results[:limit]
+	}
+
+	// Record access only for the final returned set.
+	if len(results) > 0 {
+		ids := make([]string, len(results))
+		for i, r := range results {
+			ids[i] = r.Memory.ID
+		}
+		_ = db.TrackMemoryAccessBatch(ids)
+	}
+
+	return results, nil
 }
 
 // GetSupersededHistory returns all memories that were superseded by the given ID.
