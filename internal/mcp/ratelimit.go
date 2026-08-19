@@ -97,9 +97,10 @@ func (rl *RateLimiter) cleanup() {
 	defer rl.mu.Unlock()
 
 	cutoff := time.Now().Add(-rl.config.LimiterTTL)
-	for _, v := range rl.limiters.Values() {
-		if v.lastSeen.Before(cutoff) {
-			rl.limiters.Remove("")
+	for _, key := range rl.limiters.Keys() {
+		if v, ok := rl.limiters.Get(key); ok && v.lastSeen.Before(cutoff) {
+			rl.limiters.Remove(key)
+			rl.evictions++
 		}
 	}
 }
