@@ -21,7 +21,7 @@ This repository is the public Apache-2.0 licensed Symaira Memory self-hosted fou
 - The private `danieljustus/symaira-memory-pro` repository consumes this public core through versioned runtime artifacts such as containers and binaries.
 - Pro must not copy this repository's source code or import `internal/` packages.
 - If Pro needs a general core/runtime capability, implement it publicly here, release/tag it, then update the Pro runtime pin.
-- The current public core release is `v0.17.0`.
+- The current public core release is `v0.17.1`.
 
 ## Architecture & Code Style Guidelines
 
