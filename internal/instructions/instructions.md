@@ -7,7 +7,7 @@ Symaira Memory (`symmemory`) is a persistent semantic database for developer pre
 | Tool | Purpose |
 |---|---|
 | `memory_search` | Semantic vector similarity search across stored memories |
-| `memory_set` | Store a new persistent memory or fact (requires `kind`; `staged: true` holds the fact for review) |
+| `memory_set` | Store a new persistent memory or fact (requires `kind`; optional `supersedes` ID atomically retires a prior memory; `staged: true` holds the fact for review) |
 | `memory_candidates` | List staged candidate memories awaiting review |
 | `memory_promote` | Approve a staged candidate so it becomes retrievable |
 | `memory_reject` | Discard a staged candidate |
@@ -30,7 +30,7 @@ Retrieval is bounded: `memory_search`, `memory_get`, and `memory_list` combined 
 
 ## When to Use `memory_set`
 
-Autonomously store memories when the user expresses persistent information. Do not ask for permission — but pass `staged: true` when a fact was derived autonomously without explicit user confirmation, so it is held as a candidate for review instead of silently entering the live store.
+Autonomously store memories when the user expresses persistent information. Do not ask for permission — but pass `staged: true` when a fact was derived autonomously without explicit user confirmation, so it is held as a candidate for review instead of silently entering the live store. Pass `supersedes` with the UUID of an existing memory to atomically replace and retire a prior fact (e.g. when correcting a preference or updating an architectural decision).
 
 **Always classify the fact with `kind`** — `memory_set` requires it:
 - `user` — preferences and personal facts: "User prefers TypeScript for scripting tasks."
@@ -160,5 +160,5 @@ symmemory profile remove opencode
 ## Memory Consolidation
 
 When the user updates a prior decision (e.g., "Switch from SQLite to PostgreSQL"):
-1. Run `memory_search` to find the stale memory.
-2. Note the old memory ID so it can be deleted or updated.
+1. Run `memory_search` to find the stale memory ID.
+2. Call `memory_set` with the new decision, specifying `supersedes: "<old_memory_id>"` to atomically replace and retire the old memory.

@@ -1586,6 +1586,40 @@ func (db *DB) SupersedeMemory(loserID, winnerID string, validTo time.Time, updat
 	return err
 }
 
+// SupersedeAndRetireMemory marks the loser as superseded by winnerID, closes its
+// validity window at validTo, and sets retired_at.
+func (db *DB) SupersedeAndRetireMemory(loserID, winnerID string, validTo time.Time, updatedBy, updatedSession string) error {
+	now := time.Now().UTC()
+	res, err := db.conn.Exec(`UPDATE memories
+		SET retired_at = ?, superseded_by = ?, valid_to = ?, updated_at = ?, updated_by = ?, updated_session = ?
+		WHERE id = ? AND retired_at IS NULL AND (superseded_by IS NULL OR superseded_by = '')`,
+		validTo.UTC(), winnerID, validTo.UTC(), now, nullStr(updatedBy), updatedSession, loserID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("memory not found: %s", loserID)
+	}
+	return nil
+}
+
+// SupersedeAndRetireMemoryTx marks the loser as superseded by winnerID, closes its
+// validity window at validTo, and sets retired_at within a transaction.
+func (db *DB) SupersedeAndRetireMemoryTx(tx *sql.Tx, loserID, winnerID string, validTo time.Time, updatedBy, updatedSession string) error {
+	now := time.Now().UTC()
+	res, err := tx.Exec(`UPDATE memories
+		SET retired_at = ?, superseded_by = ?, valid_to = ?, updated_at = ?, updated_by = ?, updated_session = ?
+		WHERE id = ? AND retired_at IS NULL AND (superseded_by IS NULL OR superseded_by = '')`,
+		validTo.UTC(), winnerID, validTo.UTC(), now, nullStr(updatedBy), updatedSession, loserID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("memory not found: %s", loserID)
+	}
+	return nil
+}
+
 // SetMemoryEmbedding updates only the embedding columns of an existing memory,
 // leaving all other fields (identity, timestamps, content, metadata) untouched.
 func (db *DB) SetMemoryEmbedding(id string, embedding []float32, source, model, quantization string) error {

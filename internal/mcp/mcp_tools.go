@@ -106,8 +106,8 @@ func (s *Server) MCPServer() *mcpserver.Server {
 
 	srv.RegisterTool(&mcpserver.Tool{
 		Name:        "memory_set",
-		Description: "Save a new persistent memory or fact. Use this tool autonomously when the user expresses a clear preference, constraint, architectural decision, or guideline that should persist across sessions. The 'kind' parameter is REQUIRED: classify the fact as one of user (preferences, personal facts), feedback (corrections, evaluations), project (rules, constraints, architectural decisions), or reference (external facts, documentation). Use 'staged': true when the fact was derived autonomously without explicit user confirmation — it is then held as a candidate that does not affect retrieval until a human reviews it.",
-		InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","description":"The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},"kind":{"type":"string","description":"REQUIRED semantic kind: 'user' (preferences, personal facts), 'feedback' (corrections, evaluations), 'project' (rules, constraints, architectural decisions), 'reference' (external facts, documentation). Synonyms are accepted."},"scope":{"type":"string","description":"Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},"metadata":{"type":"string","description":"Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},"session_id":{"type":"string","description":"Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},"entities":{"type":"string","description":"Optional comma-separated entity names to link (e.g., 'Irene,Premium BnB'). Entities are auto-created if they don't exist."},"working":{"type":"boolean","description":"Store as working memory with TTL-based eviction (default false)"},"staged":{"type":"boolean","description":"Store as a staged candidate (excluded from retrieval until reviewed/promoted). Default false; when the server is configured with stage_writes_by_default, writes default to staged unless staged=false is passed explicitly."}},"required":["content","kind"]}`),
+		Description: "Save a new persistent memory or fact. Use this tool autonomously when the user expresses a clear preference, constraint, architectural decision, or guideline that should persist across sessions. The 'kind' parameter is REQUIRED: classify the fact as one of user (preferences, personal facts), feedback (corrections, evaluations), project (rules, constraints, architectural decisions), or reference (external facts, documentation). Use 'supersedes' with an existing memory UUID to atomically replace and retire a prior fact (e.g. for corrections or updated preferences). Use 'staged': true when the fact was derived autonomously without explicit user confirmation — it is then held as a candidate that does not affect retrieval until a human reviews it.",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"content":{"type":"string","description":"The text content or fact to remember (e.g., 'User prefers TypeScript for script tasks' or 'API uses port 8080'). Keep it concise and objective."},"kind":{"type":"string","description":"REQUIRED semantic kind: 'user' (preferences, personal facts), 'feedback' (corrections, evaluations), 'project' (rules, constraints, architectural decisions), 'reference' (external facts, documentation). Synonyms are accepted."},"scope":{"type":"string","description":"Scope level: 'global' (default, for general user settings), 'project' (highly recommended for folder-specific codebases; auto-resolves project name using .symmemory.toml or .git in CWD), 'agent', 'user', or 'session'"},"metadata":{"type":"string","description":"Optional JSON metadata key-value string (e.g., '{\"source\": \"claude-agent\"}')"},"session_id":{"type":"string","description":"Optional session ID for provenance tracking (e.g., the current chat/conversation session identifier)"},"entities":{"type":"string","description":"Optional comma-separated entity names to link (e.g., 'Irene,Premium BnB'). Entities are auto-created if they don't exist."},"working":{"type":"boolean","description":"Store as working memory with TTL-based eviction (default false)"},"staged":{"type":"boolean","description":"Store as a staged candidate (excluded from retrieval until reviewed/promoted). Default false; when the server is configured with stage_writes_by_default, writes default to staged unless staged=false is passed explicitly."},"supersedes":{"type":"string","description":"Optional UUID of an existing memory to supersede and retire atomically with this write"}},"required":["content","kind"]}`),
 		Handler:     s.handleMemorySet,
 	},
 	)
@@ -244,14 +244,15 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 	}
 
 	var args struct {
-		Content   string `json:"content"`
-		Kind      string `json:"kind"`
-		Scope     string `json:"scope"`
-		Metadata  string `json:"metadata"`
-		SessionID string `json:"session_id"`
-		Entities  string `json:"entities"`
-		Working   bool   `json:"working"`
-		Staged    *bool  `json:"staged"`
+		Content    string `json:"content"`
+		Kind       string `json:"kind"`
+		Scope      string `json:"scope"`
+		Metadata   string `json:"metadata"`
+		SessionID  string `json:"session_id"`
+		Entities   string `json:"entities"`
+		Working    bool   `json:"working"`
+		Staged     *bool  `json:"staged"`
+		Supersedes string `json:"supersedes"`
 	}
 	if err := json.Unmarshal(input, &args); err != nil {
 		return nil, fmt.Errorf("invalid arguments for 'memory_set': failed to parse arguments: %w", err)
@@ -265,6 +266,14 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 	if !ok {
 		return nil, fmt.Errorf("invalid arguments for 'memory_set': 'kind' is required and must be one of: %s (got %q)",
 			strings.Join(db.ValidKinds(), ", "), args.Kind)
+	}
+
+	var supersedes string
+	if args.Supersedes != "" {
+		supersedes = strings.TrimSpace(args.Supersedes)
+		if supersedes == "" {
+			return nil, fmt.Errorf("invalid arguments for 'memory_set': 'supersedes' cannot be empty")
+		}
 	}
 
 	// Staging (#485): explicit per-call flag wins; otherwise the server
@@ -295,7 +304,7 @@ func (s *Server) handleMemorySet(ctx context.Context, input json.RawMessage) (an
 
 	ttl := s.workingMemoryTTL
 	actor := s.attributionActor()
-	id, err := s.service.SetGoverned(args.Content, args.Scope, meta, args.SessionID, actor, entityNames, actor, args.Working, ttl, canonicalKind, staged)
+	id, err := s.service.SetGoverned(args.Content, args.Scope, meta, args.SessionID, actor, entityNames, actor, args.Working, ttl, canonicalKind, staged, supersedes)
 	if err != nil {
 		return nil, fmt.Errorf("%s", err.Error())
 	}

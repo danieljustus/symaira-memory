@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -160,26 +161,51 @@ func (s *MemoryService) set(content, scope string, metadata map[string]string, s
 
 // SetGoverned stores a memory like Set and then applies write-path
 // governance (#485/#486): the canonical semantic kind (validated against
-// the four buckets) and the review state. Staged writes land as
-// candidates excluded from retrieval until memory_promote approves them.
-func (s *MemoryService) SetGoverned(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string, working bool, ttl time.Duration, kind string, staged bool) (string, error) {
+// the four buckets) and the review state. When supersedes is provided (#556),
+// it atomically retires the referenced memory and records superseded_by to
+// the new ID for live writes (or stages the supersession for staged writes).
+func (s *MemoryService) SetGoverned(content, scope string, metadata map[string]string, sessionID string, author string, entities []string, sourceTool string, working bool, ttl time.Duration, kind string, staged bool, supersedes ...string) (string, error) {
 	canonical, ok := db.NormalizeKind(kind)
 	if !ok {
 		return "", fmt.Errorf("invalid kind %q (valid: %s)", kind, strings.Join(db.ValidKinds(), ", "))
 	}
-	id, err := s.set(content, scope, metadata, sessionID, author, entities, sourceTool, working, ttl, s.checkerForStaged(staged))
+	var supersedesID string
+	if len(supersedes) > 0 && supersedes[0] != "" {
+		supersedesID = strings.TrimSpace(supersedes[0])
+		if supersedesID != "" {
+			targetMem, err := s.db.GetMemory(supersedesID)
+			if err != nil {
+				return "", err
+			}
+			if targetMem == nil {
+				return "", fmt.Errorf("invalid arguments for 'memory_set': target memory %q not found", supersedesID)
+			}
+			if targetMem.RetiredAt != nil {
+				return "", fmt.Errorf("invalid arguments for 'memory_set': target memory %q is already retired", supersedesID)
+			}
+			if targetMem.SupersededBy != "" {
+				return "", fmt.Errorf("invalid arguments for 'memory_set': target memory %q is already superseded", supersedesID)
+			}
+		}
+	}
+	attr := memory.Attribution{
+		Author:    author,
+		SessionID: sessionID,
+	}
+	var checker *conflict.Checker
+	if supersedesID == "" {
+		checker = s.checkerForStaged(staged)
+	}
+	m, _, err := memory.Store(s.db, s.embeddings, s.extractor, content, scope, metadata, s.piiEnabled, attr, entities, sourceTool, working, ttl, memory.StoreOptions{
+		ConflictChecker: checker,
+		Supersedes:      supersedesID,
+		Staged:          staged,
+		Kind:            canonical,
+	})
 	if err != nil {
 		return "", err
 	}
-	if err := s.db.SetMemoryKind(id, canonical); err != nil {
-		return "", err
-	}
-	if staged {
-		if err := s.db.SetMemoryReviewStatus(id, db.ReviewStaged); err != nil {
-			return "", err
-		}
-	}
-	return id, nil
+	return m.ID, nil
 }
 
 // Candidates returns the staged review queue (#485), newest first.
@@ -188,6 +214,8 @@ func (s *MemoryService) Candidates(limit int) ([]*db.Memory, error) {
 }
 
 // Promote approves a staged candidate so it becomes retrievable (#485).
+// If the candidate staged a supersession of an existing memory (#556),
+// it retires and supersedes that memory upon promotion.
 func (s *MemoryService) Promote(id string) error {
 	m, err := s.db.GetMemory(id)
 	if err != nil {
@@ -198,6 +226,13 @@ func (s *MemoryService) Promote(id string) error {
 	}
 	if err := s.db.SetMemoryReviewStatus(id, db.ReviewApproved); err != nil {
 		return err
+	}
+	if targetID := m.Metadata["supersedes"]; targetID != "" {
+		if err := s.db.SupersedeAndRetireMemory(targetID, m.ID, time.Now().UTC(), m.CreatedBy, m.CreatedSession); err != nil {
+			slog.Warn("failed to supersede and retire target memory on promote", "target", targetID, "error", err)
+		} else {
+			_ = s.db.LogAudit(conflict.ActionSupersede, targetID, m.Scope, m.CreatedSession, m.CreatedBy, fmt.Sprintf("superseded_by=%s", m.ID))
+		}
 	}
 	_ = s.db.LogAudit("promote", id, m.Scope, m.CreatedSession, m.CreatedBy, "")
 	return nil
