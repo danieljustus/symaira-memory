@@ -299,6 +299,12 @@ type StoreOptions struct {
 	// nil (or a checker with Enabled=false) keeps the legacy behavior:
 	// unconditional inserts, no dedup, no supersession.
 	ConflictChecker *conflict.Checker
+	// Supersedes is the memory UUID to supersede and retire atomically (#556).
+	Supersedes string
+	// Staged records the write as a candidate excluded from retrieval (#485).
+	Staged bool
+	// Kind is the canonical semantic kind (#486).
+	Kind string
 }
 
 // Store wraps the full prepare → redact → embed → save → extract-facts pipeline.
@@ -307,14 +313,26 @@ type StoreOptions struct {
 // sourceTool identifies the client (e.g. "cli", "mcp", "http").
 func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternExtractor *extractor.PatternExtractor, content, scope string, meta map[string]string, piiEnabled bool, attr Attribution, entities []string, sourceTool string, working bool, ttl time.Duration, opts ...StoreOptions) (*db.Memory, []string, error) {
 	var checker *conflict.Checker
+	var supersedes string
+	var staged bool
+	var kind string
 	if len(opts) > 0 {
 		checker = opts[0].ConflictChecker
+		supersedes = strings.TrimSpace(opts[0].Supersedes)
+		staged = opts[0].Staged
+		kind = opts[0].Kind
 	}
 	m, prepareResult, err := Prepare(content, scope, meta, piiEnabled, attr, sourceTool)
 	if err != nil {
 		return nil, nil, err
 	}
 	m.ID = uuid.New().String()
+	if kind != "" {
+		m.Kind = kind
+	}
+	if staged {
+		m.ReviewStatus = db.ReviewStaged
+	}
 
 	if working {
 		m.Tier = "working"
@@ -330,12 +348,50 @@ func Store(database *db.DB, embeddings *extractor.EmbeddingsGenerator, patternEx
 	m.EmbeddingModel = emb.Model
 	m.EmbeddingQuantization = emb.Quantization
 
-	// Write-path contradiction detection (#462): dedup repeats, resolve
-	// contradictions, surface undecided pairs. Working memories (TTL
-	// ephemera) and disabled checkers bypass the check entirely. A check
-	// failure degrades to the legacy store-both behavior, never to a
-	// failed write.
-	if !working && checker != nil {
+	if supersedes != "" {
+		if supersedes == m.ID {
+			return nil, nil, fmt.Errorf("cannot supersede self")
+		}
+		targetMem, err := database.GetMemory(supersedes)
+		if err != nil {
+			return nil, nil, err
+		}
+		if targetMem == nil {
+			return nil, nil, fmt.Errorf("target memory %q not found", supersedes)
+		}
+		if staged {
+			if m.Metadata == nil {
+				m.Metadata = make(map[string]string)
+			}
+			m.Metadata["supersedes"] = supersedes
+			if err := database.SaveMemory(m); err != nil {
+				return nil, nil, fmt.Errorf("failed to save memory: %w", err)
+			}
+		} else {
+			tx, err := database.BeginTransaction()
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to begin transaction: %w", err)
+			}
+			if err := database.SaveMemoryTx(tx, m); err != nil {
+				_ = tx.Rollback()
+				return nil, nil, fmt.Errorf("failed to save memory: %w", err)
+			}
+			if err := database.SupersedeAndRetireMemoryTx(tx, supersedes, m.ID, m.CreatedAt, attr.Author, attr.SessionID); err != nil {
+				_ = tx.Rollback()
+				return nil, nil, fmt.Errorf("failed to supersede memory: %w", err)
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, nil, fmt.Errorf("failed to commit transaction: %w", err)
+			}
+			_ = database.LogAudit("set", m.ID, m.Scope, attr.SessionID, attr.Author, "")
+			_ = database.LogAudit(conflict.ActionSupersede, supersedes, m.Scope, attr.SessionID, attr.Author, fmt.Sprintf("superseded_by=%s", m.ID))
+		}
+	} else if !working && checker != nil {
+		// Write-path contradiction detection (#462): dedup repeats, resolve
+		// contradictions, surface undecided pairs. Working memories (TTL
+		// ephemera) and disabled checkers bypass the check entirely. A check
+		// failure degrades to the legacy store-both behavior, never to a
+		// failed write.
 		stored, deduped, err := storeWithConflictCheck(database, checker, m, attr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to save memory: %w", err)

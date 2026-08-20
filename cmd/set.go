@@ -32,14 +32,15 @@ func cliConflictChecker(staged bool) *conflict.Checker {
 }
 
 var (
-	setValue    string
-	setScope    string
-	setAuthor   string
-	setSession  string
-	setEntities string
-	setWorking  bool
-	setKind     string
-	setStaged   bool
+	setValue      string
+	setScope      string
+	setAuthor     string
+	setSession    string
+	setEntities   string
+	setWorking    bool
+	setKind       string
+	setStaged     bool
+	setSupersedes string
 )
 
 // applyAuditConfig mirrors the audit_log_enabled setting from the loaded
@@ -64,6 +65,7 @@ func init() {
 	setCmd.Flags().BoolVar(&setWorking, "working", false, "Store as working memory with TTL-based eviction")
 	setCmd.Flags().StringVar(&setKind, "kind", "", "Semantic kind: user, feedback, project, reference (recommended; see docs/agent-integration.md)")
 	setCmd.Flags().BoolVar(&setStaged, "staged", false, "Store as a staged candidate (excluded from retrieval until reviewed via 'symmemory review')")
+	setCmd.Flags().StringVar(&setSupersedes, "supersedes", "", "ID of an existing memory to supersede and retire atomically")
 	rootCmd.AddCommand(setCmd)
 }
 
@@ -137,33 +139,24 @@ Automatically triggers embedding generation, PII redaction, and project scope de
 				ttl = 24 * time.Hour
 			}
 		}
-
-		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, content, setScope, meta, true, attr, entities, "cli", setWorking, ttl, memory.StoreOptions{
-			ConflictChecker: cliConflictChecker(setStaged),
-		})
-		if err != nil {
-			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to store memory")
-		}
-
-		// Write-path governance (#485/#486): assign the semantic kind and
-		// optionally hold the write as a staged candidate.
-		database := GetDB()
+		var canonicalKind string
 		if setKind != "" {
-			canonical, ok := db.NormalizeKind(setKind)
+			var ok bool
+			canonicalKind, ok = db.NormalizeKind(setKind)
 			if !ok {
 				return exitcodes.Wrapf(nil, exitcodes.ExitData, exitcodes.KindValidation,
 					"invalid kind %q (valid: %s)", setKind, strings.Join(db.ValidKinds(), ", "))
 			}
-			if err := database.SetMemoryKind(m.ID, canonical); err != nil {
-				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to assign kind")
-			}
-			m.Kind = canonical
 		}
-		if setStaged {
-			if err := database.SetMemoryReviewStatus(m.ID, db.ReviewStaged); err != nil {
-				return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to stage memory")
-			}
-			m.ReviewStatus = db.ReviewStaged
+
+		m, secondaryIDs, err := memory.Store(GetDB(), embeddings, patternExtractor, content, setScope, meta, true, attr, entities, "cli", setWorking, ttl, memory.StoreOptions{
+			ConflictChecker: cliConflictChecker(setStaged),
+			Supersedes:      setSupersedes,
+			Staged:          setStaged,
+			Kind:            canonicalKind,
+		})
+		if err != nil {
+			return exitcodes.Wrapf(err, exitcodes.ExitSoftware, exitcodes.KindInternal, "failed to store memory")
 		}
 
 		if GetOutputFormat(cmd) == "json" {
