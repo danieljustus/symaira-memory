@@ -54,12 +54,17 @@ jobs:
     - name: Build
       run: go build ./...
 
-    - name: Run tests (full suite — POSIX)
-      if: runner.os != 'Windows'
-      run: go test -v -race -p 1 -timeout 15m ./...
+    - name: Run tests (PR fast — POSIX)
+      if: github.event_name == 'pull_request' && runner.os != 'Windows'
+      run: go test -v -timeout 15m ./...
+      timeout-minutes: 20
+
+    - name: Run tests (full race suite — POSIX)
+      if: github.event_name != 'pull_request' && runner.os != 'Windows'
+      run: go test -v -race -p 1 -timeout 30m ./...
       # Suite routinely runs ~20 min (measured on main: 20m20s–20m37s job
       # duration); 20 min was too tight and flaked on slower runners.
-      timeout-minutes: 30
+      timeout-minutes: 35
 
     - name: Run tests (targeted subset — Windows)
       if: runner.os == 'Windows'
