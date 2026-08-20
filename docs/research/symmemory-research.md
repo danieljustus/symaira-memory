@@ -4,6 +4,11 @@
 
 **Datum:** Juni 2026
 
+> **Nachtrag 2026-08-20:** Marktrecherche, bewusst unverändert gelassen. Überholt
+> ist das darin vorgeschlagene Preismodell (Cloud Lite / Cloud Pro): es gibt keine
+> kommerzielle oder gehostete Variante von Symmemory und keine ist geplant. Die
+> Marktanalyse selbst bleibt gültig.
+
 ---
 
 ## Executive Summary
