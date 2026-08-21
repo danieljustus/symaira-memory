@@ -1,4 +1,12 @@
-# Symaira Memory (symaira-memory)
+# Symaira Memory (symaira-memory) — ARCHIVED
+
+> **⚠️ This repository is archived and read-only.**
+>
+> As part of the Symaira repo consolidation (27 → 13, `docs/repo-konsolidierung.md` §3.1),
+> the memory core was absorbed into
+> [`symaira-brain`](https://github.com/danieljustus/symaira-brain) on 2026-08-21 —
+> `symbrain` now runs memory in-process (MCP tools `memory_*`/`entity_*`/`graph_*`).
+> Full history remains in this repository's commit log.
 
 [![CI](https://github.com/danieljustus/symaira-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/danieljustus/symaira-memory/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
